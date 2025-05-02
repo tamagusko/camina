@@ -23,4 +23,4 @@
 
     ### 🧪 Optional Sensor
 
-    * **SenseCAP S2102** – PM2.5 air quality sensor (for environmental monitoring)
+    * **SDS011 Sensor** – PM2.5 air quality sensor (for environmental monitoring)
