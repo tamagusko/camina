@@ -91,3 +91,7 @@ camina/
 ├── README.md
 └── .gitignore
 ```
+
+## TODO
+
+- Add the list of components used in the project (raspberry pi, camera, etc.)
