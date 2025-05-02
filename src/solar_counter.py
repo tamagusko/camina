@@ -23,6 +23,7 @@ CLASSES = {
 
 # Initialize video capture (USB camera or Raspberry Pi Camera)
 cap = cv2.VideoCapture(0)
+# cap = cv2.VideoCapture('data/videos/test.mp4')
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 416)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 416)
 
