@@ -14,7 +14,7 @@ This project enables participatory sensing and supports communities in understan
 - ⚠️ Detects near misses and potential accidents based on object trajectories
 - 🖥️ Runs entirely on a Raspberry Pi 3 (optimized for solar-powered deployment)
 - 🌙 Detects ambient brightness to switch between day and low-light modes every 10 minutes (configurable)
-- 🗂 Logs results to a daily file: `data/YYYYMMDD-location-camera-modalsare.log`
+- 🗂 Logs results to a daily file: `data/YYYYMMDD-location-camera.log`
 - 📈 Saves modal counts and low-light status every minute
 - ⚙️ Configurable via `config.py` (location, camera ID, light-check interval)
 - 🔐 Processes everything on the edge — **no images or videos are transmitted or stored**
@@ -91,13 +91,3 @@ camina/
 ├── README.md
 └── .gitignore
 ```
-
----
-
-## License
-
-Copyright (C) 2025 UCD Spatial Dynamics Lab  
-All Rights Reserved.  
-Unauthorized copying of this files, via any medium is strictly prohibited.
-
-Written by Tiago Tamagusko <tamagusko@gmail.com>, April 2025.
