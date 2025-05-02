@@ -53,7 +53,7 @@ Press `q` to exit the viewer.
 ```
 camina/
 ├── src/
-│   └── solar_camina_counter.py
+│   └── solar_counter.py
 ├── data/
 ├── notebooks/
 ├── environment.yml

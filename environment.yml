@@ -10,3 +10,4 @@ dependencies:
       - torchvision
       - ultralytics
       - opencv-python
+      - filterpy
