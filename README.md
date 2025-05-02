@@ -16,7 +16,7 @@ This project enables participatory sensing and supports communities in understan
 - 🌙 Automatically switches between day and low-light (IR) modes based on ambient brightness (every 10 minutes, configurable)
 - 📷 Uses the **Raspberry Pi Camera Module 3 NoIR** with 850nm IR floodlight (plugged-in mode)
 - 🌐 Optional LoRaWAN integration using **Dragino RS485-LN** for remote data transmission
-- 🧪 Optional integration of **SenseCAP S2102** for PM2.5 environmental sensing
+- 🧪 Optional integration of **sds011** for PM2.5 and PM10 environmental sensing
 - 🔐 All processing occurs locally — no images or videos are stored or transmitted
 - ✅ Designed in compliance with **GDPR** and privacy-by-design principles
 
