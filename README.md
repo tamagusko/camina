@@ -8,17 +8,15 @@ This project enables participatory sensing and supports communities in understan
 
 ## Features
 
-- 🧠 YOLOv8n-based object detection
-- 🚲 Counts people, bicycles, cars, motorcycles, buses, and trucks
-- 📏 Measures vehicle speeds using visual tracking
-- ⚠️ Detects near misses and potential accidents based on object trajectories
-- 🖥️ Runs entirely on a Raspberry Pi 3 (optimized for solar-powered deployment)
-- 🌙 Detects ambient brightness to switch between day and low-light modes every 10 minutes (configurable)
-- 🗂 Logs results to a daily file: `data/YYYYMMDD-location-camera.log`
-- 📈 Saves modal counts and low-light status every minute
-- ⚙️ Configurable via `config.py` (location, camera ID, light-check interval)
-- 🔐 Processes everything on the edge — **no images or videos are transmitted or stored**
-- ✅ Fully compliant with **GDPR** and privacy-by-design principles
+* 🚲 Counts people, bicycles, motorcycles, cars, buses, and trucks
+* 📏 Estimates vehicle speed using object tracking
+* ⚠️ Detects near misses and potential collisions based on trajectory analysis
+* 🖥️ Operates entirely on a Raspberry Pi 3 or 4 (edge-computing device)
+* ☀️ Optimized for solar-powered, off-grid deployment
+* 🌙 Automatically switches between day and low-light (IR) modes based on ambient brightness (every 10 minutes, configurable)
+* 🌐 Optional LoRaWAN integration for remote data transmission
+* 🔐 All processing occurs locally — no images or videos are stored or transmitted
+* ✅ Designed in compliance with **GDPR** and privacy-by-design principles
 
 ---
 
@@ -92,6 +90,29 @@ camina/
 └── .gitignore
 ```
 
-## TODO
+## List of Equipment
 
-- Add the list of components used in the project (raspberry pi, camera, etc.)
+### 🔧 Core Components
+
+* **Raspberry Pi 3 Model B+** or **Raspberry Pi 4 (recommended)**
+* **Raspberry Pi Camera Module 3 NoIR** – for visible and infrared imaging
+* **MicroSD Card** (16GB or larger, Class 10 or UHS-1)
+
+### 🔌 Power and Deployment
+
+* **5V Power Supply** (2.5A for Pi 3, 3A USB-C for Pi 4)
+* **USB Power Bank or battery** 
+* **Solar Panel** (optional; 10–20W with charge controller and battery for off-grid)
+
+### 🌙 Night and Low-Light Support *(plugged-in mode only)*
+
+* **850nm IR Floodlight** – for night illumination of street scenes
+
+### 🌐 Connectivity and Transmission
+
+* **USB Wi-Fi Adapter** (for Raspberry Pi 3)
+
+### 🧪 Optional Sensor
+
+* **SenseCAP S2102** – PM2.5 air quality sensor
+* **Dragino RS485-LN** – LoRaWAN module for remote log transmission over RS485
