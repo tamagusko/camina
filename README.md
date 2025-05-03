@@ -1,91 +1,81 @@
-# CAMINA
+# CAMINA – Citizen-led Automated Modal INfrastructure Analytics
 
-**CAMINA** (Counting Active Mobility In Neighbourhood Areas) is a lightweight, edge-based citizen science tool for counting pedestrians, cyclists, and vehicles using a camera and a Raspberry Pi.
+## 📋 Overview
+CAMINA is a lightweight, privacy-compliant, edge-deployable system for counting and analyzing urban mobility using object detection and tracking. Designed to run on a Raspberry Pi with a camera, CAMINA uses YOLOv8 and SORT to detect and count modal share categories such as pedestrians, bicycles, and vehicles.
 
-This project enables participatory sensing and supports communities in understanding mobility patterns in public spaces.
+## ✅ Features
+- 🧠 YOLOv8n-based object detection
+- 🚲 Counts people, bicycles, cars, motorcycles, buses, and trucks
+- 📏 Measures vehicle speeds (future extension)
+- ⚠️ Detects near misses and potential accidents based on object trajectories (planned)
+- 🖥️ Runs entirely on a Raspberry Pi 3/4/5
+- ⚡ Optimized for solar-powered deployment
+- 🌙 Low light detection using IR (plugged-in mode only)
+- 🔄 Switches between normal and low-light mode every 10 minutes (configurable)
+- 🔐 Processes everything on the edge — **no images or videos are transmitted or stored**
+- 🛰️ Optional LoRaWAN module for data offload
+- ✅ Fully compliant with **GDPR** and privacy-by-design principles
 
----
-
-## Features
-
-- 🚲 Counts people, bicycles, motorcycles, cars, buses, and trucks
-- 📏 Estimates vehicle speed using object tracking
-- ⚠️ Detects near misses and potential collisions based on trajectory analysis
-- 🖥️ Operates entirely on a Raspberry Pi 3 or 4 (edge-computing device)
-- ☀️ Optimized for solar-powered, off-grid deployment
-- 🌙 Automatically switches between day and low-light (IR) modes based on ambient brightness (every 10 minutes, configurable)
-- 📷 Uses the **Raspberry Pi Camera Module 3 NoIR** with 850nm IR floodlight (plugged-in mode)
-- 🌐 Optional LoRaWAN integration using **Dragino RS485-LN** for remote data transmission
-- 🧪 Optional integration of **sds011** for PM2.5 and PM10 environmental sensing
-- 🔐 All processing occurs locally — no images or videos are stored or transmitted
-- ✅ Designed in compliance with **GDPR** and privacy-by-design principles
-
----
-
-## Modes
-
-- `solar_counter.py`: Efficient modal share counting (daylight)
-- `solar_lowlight_counter.py`: CLAHE-enhanced detection for low-light or IR scenes
-- `plugged_counter.py`: Full-feature mode with speed and near-miss detection
-- `camina_run.py`: Smart launcher that automatically switches modes and manages logging
-
----
-
-## Requirements
-
-- Python 3.10
-- Conda (recommended for Mac/Linux development)
-- Raspberry Pi 3 or 4 with compatible power supply
-
----
-
-## Setup
-
-```bash
-conda create -n camina python=3.10
-conda activate camina
-pip install -r requirements.txt
+## 📁 Directory Structure
+```
+camina/
+├── main.py                    # Auto mode switching and log orchestration
+├── src/
+│   ├── count.py               # Normal light mode
+│   ├── lowlight_counter.py    # Low-light mode (IR)
+│   ├── config.py              # Camera/location config
+│   ├── sort.py                # Object tracking
+│   ├── camera_position_check.py    # [dev] Camera alignment helper
+│   ├── near_misses_detect.py       # [dev] Detect close encounters
+│   ├── accident_detect.py          # [dev] Detect collisions
+├── models/                    # Pre-trained YOLOv8n model weights
+├── data/                      # Data and logs
+├── docs/                      # Documentation
 ```
 
-Or, using the provided environment:
+## 🛠️ Requirements
+- Python 3.8+
+- Raspberry Pi 3/4/5 (Linux/macOS compatible for testing)
+- Raspberry Pi Camera Module 3 NoIR
 
+## 🔧 Installation
 ```bash
 conda env create -f environment.yml
 conda activate camina
 ```
-
----
-
-## Running
-
+Download YOLOv8n model weights:
 ```bash
-python camina_run.py  # Auto-switches between modes based on ambient light
+mkdir -p models && wget -O models/yolov8n.pt https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt
 ```
 
-Or run specific modes manually:
-
+## 🚀 Usage
+Start the main loop (auto-switching between modes):
 ```bash
-python src/solar_counter.py
-python src/solar_lowlight_counter.py
-python src/plugged_counter.py
+python main.py
 ```
 
----
-
-## Directory Structure
-
+To manually run a specific mode:
+```bash
+python src/count.py           # Normal light mode
+python src/lowlight_counter.py  # Low light mode
 ```
-camina/
-├── src/
-│   ├── solar_counter.py
-│   ├── solar_lowlight_counter.py (test)
-│   ├── plugged_counter.py (test)
-│   ├── camera_position_check.py (dev)
-│   ├── near_misses_detect.py (dev)
-│   ├── accident_detect.py (dev)
-│   ├── sort.py
-├── camina_run.py  # Main script to run the project
-├── config.py  # Configuration file for the project
-├── data/  # directory for storing log files
-├── notebooks/  # Jupyter notebooks testing and prototyping
+
+Press `q` or `ESC` to stop.
+
+## 📝 Logging
+- Enabled by setting `LOGGING_ENABLED = True` in `src/config.py`
+- Logs saved every N minutes (configurable via `LOG_INTERVAL_MINUTES`)
+- Format: `data/YYYYMMDD-<LOCATION>-<CAMERA_ID>.log`
+```
+2025-05-03 01:55, NORMAL_LIGHT, person:0, bicycle:0, car:0, motorcycle:0, bus:0, truck:0
+```
+
+## 📌 Configuration
+Edit `src/config.py`:
+```python
+LOCATION = "dublin"
+CAMERA_ID = "cam01"
+LOGGING_ENABLED = True
+LOG_INTERVAL_MINUTES = 5
+LOW_LIGHT_CHECK_INTERVAL = 600  # Check every 10 minutes
 ```
