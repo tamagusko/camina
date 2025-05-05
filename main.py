@@ -14,6 +14,9 @@ from src.camera_position_check import check_camera_alignment
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s - %(message)s')
 
+# Convert interval from minutes to seconds
+LOW_LIGHT_CHECK_SECONDS = LOW_LIGHT_CHECK_INTERVAL * 60
+
 
 def is_low_light(frame, threshold=LOW_LIGHT_THRESHOLD):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -40,7 +43,7 @@ def should_check_alignment(now, last_check_time):
 def main():
     current_mode = None
     process = None
-    last_switch = time.time() - LOW_LIGHT_CHECK_INTERVAL
+    last_switch = time.time() - LOW_LIGHT_CHECK_SECONDS
     last_alignment_check = None
 
     while True:
@@ -58,7 +61,7 @@ def main():
             cap.release()
 
         # Switch between normal and lowlight mode if needed
-        if time.time() - last_switch >= LOW_LIGHT_CHECK_INTERVAL:
+        if time.time() - last_switch >= LOW_LIGHT_CHECK_SECONDS:
             ret, frame = read_camera_frame()
             if not ret:
                 logging.error("Cannot read from camera.")

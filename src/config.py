@@ -6,7 +6,7 @@ CAMERA_ALIGNMENT_HOURS = [6, 14]  # runs at 06:00 and 14:00 daily
 # counter.py
 LOCATION = "dublin"        # Location identifier (e.g. city or site)
 CAMERA_ID = "cam01"        # Unique camera ID
-LOW_LIGHT_CHECK_INTERVAL = 600  # Time in seconds (e.g. 600 = 10 min)
+LOW_LIGHT_CHECK_INTERVAL = 10  # Time in minutes to check for low light
 LOG_INTERVAL_MINUTES = 5  # Interval for logging counts
 LOGGING_ENABLED = True     # Enable or disable logging
 LOW_LIGHT_THRESHOLD = 40
