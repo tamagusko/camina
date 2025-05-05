@@ -1,19 +1,21 @@
+import os
 import cv2
 import numpy as np
+from datetime import datetime
 from ultralytics import YOLO
 from sort import Sort
-from datetime import datetime
-import os
-from config import LOCATION, CAMERA_ID, LOGGING_ENABLED, LOG_INTERVAL_MINUTES
-
-
-# Configuration
-MODEL_PATH = 'models/yolov8n.pt'
-CAMERA_INDEX = 0  # Use 'data/videos/test.mp4' for testing with a video
-FRAME_WIDTH = 416
-FRAME_HEIGHT = 416
-FRAME_SKIP = 5
-CONFIDENCE_THRESHOLD = 0.4
+from config import (
+    LOCATION,
+    CAMERA_ID,
+    LOGGING_ENABLED,
+    LOG_INTERVAL_MINUTES,
+    FRAME_WIDTH,
+    FRAME_HEIGHT,
+    CAMERA_INDEX,
+    MODEL_PATH,
+    FRAME_SKIP,
+    CONFIDENCE_THRESHOLD,
+)
 
 # Classes of interest
 CLASSES = {
@@ -61,7 +63,7 @@ class ModalShareCounter:
                 self.frame_count += 1
 
                 key = cv2.waitKey(1)
-                if key == ord('q') or key == 27:  # q or ESC to quit
+                if key == ord('q') or key == 27:
                     break
         finally:
             self.cap.release()
@@ -106,9 +108,9 @@ class ModalShareCounter:
 
     def _log_counts(self):
         now = datetime.now()
-        current_interval = (now.minute // LOG_INTERVAL_MINUTES)
+        current_interval = now.minute // LOG_INTERVAL_MINUTES
         if self.last_log_minute == current_interval:
-            return  # Skip if we already logged for this interval
+            return
 
         self.last_log_minute = current_interval
 
@@ -117,7 +119,7 @@ class ModalShareCounter:
         log_filename = f"{now.strftime('%Y%m%d')}-{LOCATION}-{CAMERA_ID}.log"
         log_path = os.path.join(log_dir, log_filename)
 
-        light_status = "NORMAL_LIGHT"  # This could later be dynamic
+        light_status = "NORMAL_LIGHT"
         timestamp = now.strftime("%Y-%m-%d %H:%M")
         counts_str = ", ".join([f"{cls}:{self.counts[cls]}" for cls in CLASSES.values()])
         log_line = f"{timestamp}, {light_status}, {counts_str}\n"

@@ -1,5 +1,4 @@
-# TODO
-
+# ALL
 
 ## 🔧 Development
 - [ ] LoRaWAN support (Dragino RS485-LN)
@@ -8,6 +7,7 @@
 - [ ] Implement `accident_detect.py`
 - [ ] Implement `camera_position_check.py`
 - [ ] Finalize real-time logging and pipeline integration
+- [ ] Integrate `motion_detector.py` in `main.py` pipeline to monitor motion before collecting modal share
 
 ## ✅ Validation
 - [ ] Count accuracy (vehicles, bikes, pedestrians)
@@ -19,8 +19,7 @@
 - [ ] LoRaWAN message stability
 
 ## 🧪 Testing
-- [ ] Full script testing on Raspberry Pi 3/4
-- [ ] Log rotation and switching
+- [ ] Full script testing on Raspberry Pi 3/4/5
 - [ ] IR detection quality at night
 - [ ] Camera alignment checker script
 
