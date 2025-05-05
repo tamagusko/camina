@@ -15,10 +15,12 @@ LOW_LIGHT_THRESHOLD = 40
 FRAME_WIDTH = 416
 FRAME_HEIGHT = 416
 CAMERA_INDEX = 0
+IMGSZ = 416  # Standard input size for YOLOv8n
+DRAW_BBOX = True  # or False
 
 # model settings
 MODEL_PATH = "models/yolov8n.pt"
-CONFIDENCE_THRESHOLD = 0.4
+CONFIDENCE_THRESHOLD = 0.5
 FRAME_SKIP = 5
 
 # motion_detector.py

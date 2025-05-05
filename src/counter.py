@@ -15,6 +15,8 @@ from config import (
     MODEL_PATH,
     FRAME_SKIP,
     CONFIDENCE_THRESHOLD,
+    IMGSZ,
+    DRAW_BBOX,
 )
 
 # Classes of interest
@@ -36,6 +38,8 @@ class ModalShareCounter:
         self.frame_count = 0
         self.seen_ids = {cls: set() for cls in CLASSES.values()}
         self.counts = {cls: 0 for cls in CLASSES.values()}
+        self.class_id_mapping = {cls: {} for cls in CLASSES.values()}
+        self.class_id_counters = {cls: 1 for cls in CLASSES.values()}
         self.last_log_minute = None
 
     def _init_camera(self):
@@ -71,7 +75,7 @@ class ModalShareCounter:
             self._print_summary()
 
     def _process_frame(self, frame):
-        results = self.model.predict(frame, imgsz=320, conf=CONFIDENCE_THRESHOLD)[0]
+        results = self.model.predict(frame, imgsz=IMGSZ, conf=CONFIDENCE_THRESHOLD)[0]
 
         detections = []
         class_map = {}
@@ -90,15 +94,28 @@ class ModalShareCounter:
         for x1, y1, x2, y2, obj_id in tracked:
             bbox = (x1, y1, x2, y2)
             class_label = self._get_class_label(bbox, class_map)
-            if class_label and obj_id not in self.seen_ids[class_label]:
-                self.seen_ids[class_label].add(obj_id)
-                self.counts[class_label] += 1
+            if class_label:
+                if obj_id not in self.class_id_mapping[class_label]:
+                    self.class_id_mapping[class_label][obj_id] = self.class_id_counters[class_label]
+                    self.class_id_counters[class_label] += 1
+                if obj_id not in self.seen_ids[class_label]:
+                    self.seen_ids[class_label].add(obj_id)
+                    self.counts[class_label] += 1
+                if DRAW_BBOX:
+                    display_id = self.class_id_mapping[class_label][obj_id]
+                    self._draw_bbox(frame, bbox, class_label, display_id)
 
         self._annotate_frame(frame)
         cv2.imshow('Modal Share Counting (Edge Mode)', frame)
 
         if LOGGING_ENABLED:
             self._log_counts()
+
+    def _draw_bbox(self, frame, bbox, label, display_id):
+        x1, y1, x2, y2 = map(int, bbox)
+        text = f"{label} #{display_id}"
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+        cv2.putText(frame, text, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
     def _annotate_frame(self, frame):
         for idx, (cls, count) in enumerate(self.counts.items()):

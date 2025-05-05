@@ -1,7 +1,69 @@
-# .gitignore
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Environment variables and settings
 .env
+*.env
+
+# macOS system files
 .DS_Store
-*.ipynb_checkpoints
+
+# Jupyter
+*.ipynb_checkpoints/
+
+# Project data and backups
 data/
+bkp/
+
+# Logs and runtime files
+*.log
+*.sqlite3
+*.db
+
+# Model weights and downloads
+models/
+*.pt
+*.pth
+*.h5
+
+# VSCode and other editor folders
+.vscode/
+.idea/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Compiled C extensions
+*.so
+
+# Coverage and test reports
+htmlcov/
+.coverage
+.tox/
+.nox/
+.cache/
+coverage.xml
+*.cover
+*.py,cover
+
+# MyPy, Pyre, Pytype
+.mypy_cache/
+.pyre/
+.pytype/
+
+# Linting and build
+.mr.developer.cfg
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Optional: prevent committing videos or large files
+*.mp4
+*.mov
+*.avi
