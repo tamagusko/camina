@@ -19,7 +19,8 @@ IMGSZ = 416  # Standard input size for YOLOv8n
 DRAW_BBOX = True  # or False
 
 # model settings
-MODEL_PATH = "models/yolov8n.pt"
+# MODEL_PATH = "models/yolov8n.pt"
+MODEL_PATH = "models/yolo11n.pt"
 CONFIDENCE_THRESHOLD = 0.5
 FRAME_SKIP = 5
 
