@@ -15,13 +15,13 @@ LOW_LIGHT_THRESHOLD = 40
 FRAME_WIDTH = 416
 FRAME_HEIGHT = 416
 CAMERA_INDEX = 0
-IMGSZ = 640  
+IMGSZ = 416  
 DRAW_BBOX = True  
 
 # model settings
 # MODEL_PATH = "models/yolov8n.pt"
 MODEL_PATH = "models/yolo11n.pt"
-CONFIDENCE_THRESHOLD = 0.25
+CONFIDENCE_THRESHOLD = 0.50
 FRAME_SKIP = 5
 
 # motion_detector.py
