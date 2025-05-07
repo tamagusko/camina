@@ -6,7 +6,7 @@
 
 ## ✅ Features
 
-* 🧠 **YOLOv8n-based detection**
+* 🧠 **YOLO11n-based detection**
 * 🚲 **Counts** people, bicycles, cars, motorcycles, buses, trucks
 * 🛰️ **LoRaWAN support** (optional, via Dragino RS485-LN)
 * 🌙 **Low-light detection with IR floodlight**
