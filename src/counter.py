@@ -44,7 +44,7 @@ class ModalShareCounter:
 
     def _init_camera(self):
         # cap = cv2.VideoCapture(CAMERA_INDEX)
-        cap = cv2.VideoCapture("data/videos/test.mov")
+        cap = cv2.VideoCapture("data/videos/test2.mp4")
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
         return cap

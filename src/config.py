@@ -16,7 +16,7 @@ FRAME_WIDTH = 416
 FRAME_HEIGHT = 416
 CAMERA_INDEX = 0
 IMGSZ = 416  
-DRAW_BBOX = True  
+DRAW_BBOX = False  # True to draw bounding boxes  
 
 # model settings
 # MODEL_PATH = "models/yolov8n.pt"
