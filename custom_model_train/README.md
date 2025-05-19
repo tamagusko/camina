@@ -17,7 +17,7 @@ wget http://images.cocodataset.org/annotations/annotations_trainval2017.zip
 unzip annotations_trainval2017.zip
 ```
 
-You should now have:
+Your folder should look like this:
 
 ```
 ~/datasets/coco/
@@ -29,24 +29,26 @@ You should now have:
 
 ---
 
-### **2. 🧠 Prepare the Custom Dataset Script**
+### **2. 🧠 Prepare the Custom Dataset with Synthetic Cyclist Class**
 
-Use the `coco_to_cyclist.py` script you’ve been developing. This script:
+Use the updated `coco_to_cyclist.py` script:
 
 * Reads COCO annotations
-* Detects overlapping boxes (person+bicycle) → creates a `cyclist` box
-* Saves YOLOv8-style datasets
-* Produces 2,400 balanced images per class (2k train, 400 test)
+* Synthesizes `cyclist` from overlapping `person ∩ bicycle` boxes (IoU ≥ 0.3)
+* Uses the *combined bounding box* of both objects
+* Normalizes annotations to YOLO format
+* Outputs a balanced dataset
 
 Run it like this:
 
 ```
 python coco_to_cyclist.py \
   --coco-dir ~/datasets/coco \
-  --out-dir ~/datasets/cyclist_yolo11
+  --out-dir ~/datasets/cyclist_yolo11 \
+  --iou 0.3
 ```
 
-After running, you'll have:
+After running, you’ll have:
 
 ```
 ~/datasets/cyclist_yolo11/
@@ -61,11 +63,23 @@ After running, you'll have:
 
 ---
 
-Here's the adjusted version using `pip install` directly instead of cloning:
+### **3. 🧪 Validate Your Labels (Optional)**
+
+You can visually inspect a few sample images using:
+
+```
+python validate_yolo_labels.py \
+  --dataset-dir ~/datasets/cyclist_yolo11 \
+  --filter-class 1  # show only images containing cyclists (class 1)
+```
+
+This opens each image and draws all bounding boxes, filtering to show only images that contain a given class.
 
 ---
 
-### **3. 🔄 Install YOLOv11**
+### **4. 🔄 Install YOLOv11**
+
+Install YOLOv11 directly:
 
 ```
 pip install git+https://github.com/YOLOv11/YOLOv11.git
@@ -73,9 +87,9 @@ pip install git+https://github.com/YOLOv11/YOLOv11.git
 
 ---
 
-### **4. ✅ Check Your `data.yaml`**
+### **5. ✅ Check Your `data.yaml`**
 
-The script already creates this file, but confirm the contents:
+Ensure the file looks like this:
 
 ```yaml
 path: /full/path/to/datasets/cyclist_yolo11
@@ -87,11 +101,9 @@ names: [person, cyclist, car, motorcycle, bus, truck]
 
 ---
 
-### **5. 🧪 Start Training with YOLOv11n**
+### **6. 🚀 Start Training with YOLOv11n**
 
-Make sure `yolo11n.pt` is in the `models/` folder, or download if needed.
-
-Then run training:
+Ensure `yolo11n.pt` is available in `models/` or provide the correct path.
 
 ```
 python train.py \
@@ -100,29 +112,32 @@ python train.py \
   --epochs 100 \
   --batch 16 \
   --imgsz 640 \
-  --device 0 # --device mps for Mac
+  --device 0  # or --device mps for Mac M1/M2
 ```
-
-You can adjust `batch`, `epochs`, or `imgsz` depending on your system resources.
 
 ---
 
-### **6. 🎯 Monitor and Evaluate**
+### **7. 📊 Monitor and Evaluate**
 
-Training outputs will be stored in `runs/train/exp*/`.
-
-You can evaluate performance by checking:
+Monitor training with:
 
 ```
 tensorboard --logdir runs/train
 ```
 
+You’ll find training outputs in:
+
+```
+runs/train/exp/
+```
+
 ---
 
-### **7. 🧊 Export for Inference (e.g., NCNN or ONNX)**
+### **8. 🧊 Export for Inference (e.g., NCNN or ONNX)**
 
-After training (convert to edge devices):
+After training, export to edge formats:
 
 ```
 python export.py --weights runs/train/exp/weights/best.pt --format ncnn
 ```
+
