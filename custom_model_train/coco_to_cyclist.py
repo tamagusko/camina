@@ -23,6 +23,7 @@ python coco_to_cyclist.py \
 import argparse
 import random
 import shutil
+import datetime
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -154,12 +155,17 @@ def write_data_yaml(out_dir: Path) -> None:
         f"names: {YOLO_NAMES}\n"
     )
 
-def class_summary(label_dict: dict, title: str) -> None:
+def class_summary(label_dict: dict, title: str, log_path: Path = None) -> None:
     counter = Counter(cid for anns in label_dict.values() for cid, *_ in anns)
-    print(f"\n{title} detections")
+    lines = [f"\n{title} detections"]
     for cid, name in enumerate(YOLO_NAMES):
-        print(f"{name:<10s}: {counter.get(cid, 0):>6d}")
-    print(f"Images    : {len(label_dict)}")
+        lines.append(f"{name:<10s}: {counter.get(cid, 0):>6d}")
+    lines.append(f"Images    : {len(label_dict)}")
+
+    print("\n".join(lines))
+    if log_path:
+        with log_path.open("a") as logf:
+            logf.write("\n".join(lines) + "\n")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="COCO → YOLO cyclist builder")
@@ -167,6 +173,15 @@ def main() -> None:
     parser.add_argument("--out-dir", type=Path, required=True, help="Output dataset dir")
     parser.add_argument("--iou", type=float, default=0.3, help="IoU for cyclist synth")
     args = parser.parse_args()
+
+    log_path = args.out_dir / "coco_to_cyclist.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("w") as logf:
+        logf.write("=== coco_to_cyclist.py log ===\n")
+        logf.write(f"Timestamp : {datetime.datetime.now().isoformat()}\n")
+        logf.write(f"COCO dir  : {args.coco_dir.resolve()}\n")
+        logf.write(f"Out dir   : {args.out_dir.resolve()}\n")
+        logf.write(f"IoU thr   : {args.iou}\n")
 
     annotations = args.coco_dir / "annotations/instances_train2017.json"
     if not annotations.exists():
@@ -180,10 +195,12 @@ def main() -> None:
     copy_yolo_files(coco, test_lbls, args.coco_dir, args.out_dir, "test")
     write_data_yaml(args.out_dir)
 
-    class_summary(train_lbls, "TRAIN")
-    class_summary(test_lbls, "TEST")
+    class_summary(train_lbls, "TRAIN", log_path)
+    class_summary(test_lbls, "TEST", log_path)
 
     print("\n✅  Dataset written to:", args.out_dir.resolve())
+    with log_path.open("a") as logf:
+        logf.write(f"\nDone: {args.out_dir.resolve()}\n")
 
 if __name__ == "__main__":
     main()
