@@ -58,8 +58,3 @@ coverage.xml
 dist/
 build/
 .eggs/
-
-# Optional: prevent committing videos or large files
-*.mp4
-*.mov
-*.avi
