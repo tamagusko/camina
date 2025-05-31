@@ -23,11 +23,6 @@ bkp/
 *.sqlite3
 *.db
 
-# Model weights and downloads
-models/
-*.pt
-*.pth
-*.h5
 
 # VSCode and other editor folders
 .vscode/
