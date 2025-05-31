@@ -30,6 +30,9 @@ CLASSES = {
 # Model path (relative to src/)
 MODEL_FOLDER = os.path.join(os.path.dirname(__file__), "..", "models", "yolo11n_ncnn_model")
 
+# Automatic HEADLESS mode detection
+HEADLESS = not os.environ.get("DISPLAY")
+
 
 class ModalShareCounter:
     def __init__(self):
@@ -44,9 +47,9 @@ class ModalShareCounter:
         self.last_log_minute = None
 
     def _init_camera(self):
-        #cap = cv2.VideoCapture(CAMERA_INDEX)
-        #cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
-        #cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+        # cap = cv2.VideoCapture(CAMERA_INDEX)
+        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
         video_path = os.path.join(os.path.dirname(__file__), "..", "test_video", "test.mov")
         cap = cv2.VideoCapture(video_path)
         return cap
@@ -110,7 +113,10 @@ class ModalShareCounter:
                     self._draw_bbox(frame, bbox, class_label, display_id)
 
         self._annotate_frame(frame)
-        cv2.imshow('Modal Share Counting (NCNN)', frame)
+
+        # HEADLESS mode check
+        if not HEADLESS:
+            cv2.imshow('Modal Share Counting (NCNN)', frame)
 
         if LOGGING_ENABLED:
             self._log_counts()
