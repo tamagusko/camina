@@ -21,6 +21,7 @@ DRAW_BBOX = False  # True to draw bounding boxes
 # model settings
 # MODEL_PATH = "models/yolov8n.pt"
 MODEL_PATH = "models/yolo11n.pt"
+# MODEL_PATH = "models/20240512_warmup_YOLO11n.pt"
 CONFIDENCE_THRESHOLD = 0.50
 FRAME_SKIP = 5
 
