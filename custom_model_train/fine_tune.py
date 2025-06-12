@@ -18,7 +18,8 @@ def train_yolo11(params):
         save_period=params['save_period'],
         device=params['device'],
         patience=params.get('patience', 10),
-        exist_ok=True
+        exist_ok=True,
+        plots=True
     )
 
 
