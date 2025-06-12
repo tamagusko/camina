@@ -10,21 +10,32 @@ def parse_yaml(yaml_file):
 def train_yolo11(params):
     model = YOLO(params['model'])
 
-    model.train(
-        data=params['data'],
-        imgsz=params['img_size'],
-        epochs=params['epochs'],
-        batch=params['batch'],
-        save_period=params['save_period'],
-        device=params['device'],
-        patience=params.get('patience', 10),
-        exist_ok=True,
-        plots=True
-    )
+    train_args = {
+        'data': params['data'],
+        'imgsz': params['img_size'],
+        'epochs': params['epochs'],
+        'batch': params['batch'],
+        'save_period': params['save_period'],
+        'device': params['device'],
+        'patience': params.get('patience', 10),
+        'exist_ok': True,
+        'plots': True
+    }
+
+    if 'classes' in params:
+        train_args['classes'] = params['classes']
+
+    if 'freeze' in params:
+        train_args['freeze'] = params['freeze']
+
+    model.train(**train_args)
 
 
 def main():
-    params = parse_yaml('train_param.yaml')
+    # run first to improve cyclist class only
+    params = parse_yaml('train_param_warmup.yaml')
+    # run after to fine-tune all dataset 
+    # params = parse_yaml('train_param_finetune.yaml')
     train_yolo11(params)
 
 
