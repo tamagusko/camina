@@ -6,5 +6,7 @@ save_period: 10
 device: 0
 data: datasets/cyclist_yolo/data.yaml
 model: yolo11n.pt
-classes: [2]        # train only on cyclist (assumed class ID 2)
+project: runs/warmup
+name: cyclist_only
+classes: [2]  # cyclist
 freeze: 10          # freeze backbone layers

@@ -2,12 +2,12 @@ import yaml
 from ultralytics import YOLO
 
 
-def parse_yaml(yaml_file):
+def parse_yaml(yaml_file: str) -> dict:
     with open(yaml_file) as file:
         return yaml.safe_load(file)
 
 
-def train_yolo11(params):
+def train_model(params: dict):
     model = YOLO(params['model'])
 
     train_args = {
@@ -18,13 +18,17 @@ def train_yolo11(params):
         'save_period': params['save_period'],
         'device': params['device'],
         'patience': params.get('patience', 10),
+        'project': params.get('project', 'runs/train'),
+        'name': params.get('name', 'default'),
         'exist_ok': True,
         'plots': True
     }
 
+    # Optional: train on selected class indices only
     if 'classes' in params:
         train_args['classes'] = params['classes']
 
+    # Optional: freeze backbone layers
     if 'freeze' in params:
         train_args['freeze'] = params['freeze']
 
@@ -32,11 +36,8 @@ def train_yolo11(params):
 
 
 def main():
-    # run first to improve cyclist class only
     params = parse_yaml('train_param_warmup.yaml')
-    # run after to fine-tune all dataset 
-    # params = parse_yaml('train_param_finetune.yaml')
-    train_yolo11(params)
+    train_model(params)
 
 
 if __name__ == '__main__':
