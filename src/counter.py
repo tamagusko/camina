@@ -89,6 +89,12 @@ class ModalShareCounter:
                 detections.append([x1, y1, x2, y2, conf])
                 class_map[(x1, y1, x2, y2)] = CLASSES[cls_id]
 
+        # Avoid crash if no detections
+        if len(detections) == 0:
+            self._annotate_frame(frame)
+            cv2.imshow('Modal Share Counting (Edge Mode)', frame)
+            return
+
         detections_np = np.array(detections)
         tracked = self.tracker.update(detections_np)
 
@@ -111,6 +117,7 @@ class ModalShareCounter:
 
         if LOGGING_ENABLED:
             self._log_counts()
+
 
     def _draw_bbox(self, frame, bbox, label, display_id):
         x1, y1, x2, y2 = map(int, bbox)
