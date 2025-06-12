@@ -1,8 +1,8 @@
 img_size: 640
 batch: 128
 epochs: 300
-patience: 10
+patience: 50
 save_period: 50
-device: 0  # first gpu
+device: 0
 data: datasets/cyclist_yolo/data.yaml
-model: yolo11n.pt
+model: runs/detect/exp/weights/last.pt  # resume from warm-up model

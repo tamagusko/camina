@@ -1,0 +1,10 @@
+img_size: 640
+batch: 128
+epochs: 50
+patience: 10
+save_period: 10
+device: 0
+data: datasets/cyclist_yolo/data.yaml
+model: yolo11n.pt
+classes: [2]        # train only on cyclist (assumed class ID 2)
+freeze: 10          # freeze backbone layers
