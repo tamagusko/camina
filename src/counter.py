@@ -22,7 +22,7 @@ from config import (
 # Classes of interest
 CLASSES = {
     0: 'person',
-    1: 'bicycle',
+    1: 'cyclist',
     2: 'car',
     3: 'motorcycle',
     5: 'bus',
@@ -44,7 +44,7 @@ class ModalShareCounter:
 
     def _init_camera(self):
         # cap = cv2.VideoCapture(CAMERA_INDEX)
-        cap = cv2.VideoCapture("data/videos/test2.mp4")
+        cap = cv2.VideoCapture("test_video/test.mov")
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
         return cap
