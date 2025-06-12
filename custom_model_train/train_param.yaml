@@ -1,0 +1,8 @@
+img_size: 640
+batch: 128
+epochs: 300
+patience: 10
+save_period: 50
+device: 0  # first gpu
+data: datasets/cyclist_yolo/data.yaml
+model: yolo11n.pt
