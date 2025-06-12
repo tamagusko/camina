@@ -3,11 +3,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 import torch
-import os
 from torch.utils.tensorboard import SummaryWriter
 
-EPOCHS = 100 
-PATIENCE = 10  # Early stopping 
+EPOCHS = 100
 
 
 def select_device():
@@ -16,6 +14,7 @@ def select_device():
     elif torch.backends.mps.is_available():
         return 'mps'
     return 'cpu'
+
 
 def plot_metrics(results_path):
     if not results_path.exists():
@@ -45,53 +44,38 @@ def plot_metrics(results_path):
     plt.tight_layout()
     plt.show()
 
-def train_with_early_stopping(patience=PATIENCE, max_epochs=EPOCHS):
+
+def train_and_report(epochs=EPOCHS):
     device = select_device()
     model = YOLO('yolo11n.pt')
 
-    best_map50 = 0
-    no_improve_counter = 0
-    logs_path = Path('runs') / 'exp_tensorboard'
+    exp_name = 'exp_tensorboard'
+    logs_path = Path('runs') / exp_name
     writer = SummaryWriter(log_dir=logs_path / 'tb_logs')
 
-    for epoch in range(max_epochs):
-        results = model.train(
-            data='datasets/cyclist_yolo/data.yaml',
-            epochs=1,
-            imgsz=640,
-            device=device,
-            project='runs',
-            name='exp_tensorboard',
-            save=True,
-            verbose=False
-        )
+    model.train(
+        data='datasets/cyclist_yolo/data.yaml',
+        epochs=epochs,
+        imgsz=640,
+        device=device,
+        project='runs',
+        name=exp_name,
+        save=True,
+        verbose=True
+    )
 
-        metrics = results.metrics
-        mAP50 = metrics.get('metrics/mAP50(B)', 0)
-        cls_loss = metrics.get('train/cls_loss', 0)
-        box_loss = metrics.get('train/box_loss', 0)
-        recall = metrics.get('metrics/recall(B)', 0)
-
-        writer.add_scalar('Metrics/mAP50', mAP50, epoch)
-        writer.add_scalar('Loss/cls_loss', cls_loss, epoch)
-        writer.add_scalar('Loss/box_loss', box_loss, epoch)
-        writer.add_scalar('Metrics/Recall', recall, epoch)
-
-        if mAP50 > best_map50:
-            best_map50 = mAP50
-            no_improve_counter = 0
-        else:
-            no_improve_counter += 1
-
-        print(f"Epoch {epoch+1:02d}: mAP50={mAP50:.4f}, no_improve={no_improve_counter}")
-
-        if no_improve_counter >= patience:
-            print(f"Early stopping at epoch {epoch+1}: no improvement in {patience} consecutive epochs.")
-            break
+    results_path = logs_path / 'results.csv'
+    if results_path.exists():
+        df = pd.read_csv(results_path)
+        for idx, row in df.iterrows():
+            writer.add_scalar('Metrics/mAP50', row.get('metrics/mAP50(B)', 0), idx)
+            writer.add_scalar('Loss/cls_loss', row.get('train/cls_loss', 0), idx)
+            writer.add_scalar('Loss/box_loss', row.get('train/box_loss', 0), idx)
+            writer.add_scalar('Metrics/Recall', row.get('metrics/recall(B)', 0), idx)
 
     writer.close()
-    plot_metrics(logs_path)
+    plot_metrics(results_path)
 
 
 if __name__ == "__main__":
-    train_with_early_stopping()
+    train_and_report()
