@@ -1,12 +1,13 @@
 img_size: 640
-batch: 128
+batch: 16
 epochs: 100
 patience: 10
 save_period: 10
 device: 0
-data: datasets/cyclist_yolo/data.yaml
+# data: datasets/cyclist_yolo/data.yaml
+data: datasets/SDL-fine-tuned/data.yaml
 model: yolo11n.pt
 project: runs/warmup
 name: cyclist_only
-classes: [1]  # cyclist
+classes: [2]  # cyclist
 freeze: 10          # freeze backbone layers
