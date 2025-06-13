@@ -1,38 +1,23 @@
 import os
 import cv2
+import yaml
 import numpy as np
 from datetime import datetime
 from ultralytics import YOLO
 from sort import Sort
-from config import (
-    LOCATION,
-    CAMERA_ID,
-    LOGGING_ENABLED,
-    LOG_INTERVAL_MINUTES,
-    FRAME_WIDTH,
-    FRAME_HEIGHT,
-    CAMERA_INDEX,
-    MODEL_PATH,
-    FRAME_SKIP,
-    CONFIDENCE_THRESHOLD,
-    IMGSZ,
-    DRAW_BBOX,
-)
 
-# Classes of interest
-CLASSES = {
-    0: 'person',
-    1: 'cyclist',
-    2: 'car',
-    3: 'motorcycle',
-    5: 'bus',
-    7: 'truck',
-}
+# Load config from YAML
+with open("src/config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
+# Load class labels from YAML
+with open("src/classes.yaml", "r") as f:
+    CLASSES = yaml.safe_load(f)
 
 
 class ModalShareCounter:
     def __init__(self):
-        self.model = YOLO(MODEL_PATH)
+        self.model = YOLO(config['model'])
         self.tracker = Sort()
         self.cap = self._init_camera()
         self.frame_count = 0
@@ -43,10 +28,10 @@ class ModalShareCounter:
         self.last_log_minute = None
 
     def _init_camera(self):
-        # cap = cv2.VideoCapture(CAMERA_INDEX)
+        # cap = cv2.VideoCapture(config['camera_index'])
         cap = cv2.VideoCapture("test_video/test.mov")
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, config['frame_width'])
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config['frame_height'])
         return cap
 
     def _get_class_label(self, bbox, class_map):
@@ -62,7 +47,7 @@ class ModalShareCounter:
                 if not ret:
                     break
 
-                if self.frame_count % FRAME_SKIP == 0:
+                if self.frame_count % config['frame_skip'] == 0:
                     self._process_frame(frame)
 
                 self.frame_count += 1
@@ -76,7 +61,7 @@ class ModalShareCounter:
             self._print_summary()
 
     def _process_frame(self, frame):
-        results = self.model.predict(frame, imgsz=IMGSZ, conf=CONFIDENCE_THRESHOLD)[0]
+        results = self.model.predict(frame, imgsz=config['imgsz'], conf=config['confidence_threshold'])[0]
 
         detections = []
         class_map = {}
@@ -89,7 +74,6 @@ class ModalShareCounter:
                 detections.append([x1, y1, x2, y2, conf])
                 class_map[(x1, y1, x2, y2)] = CLASSES[cls_id]
 
-        # Avoid crash if no detections
         if len(detections) == 0:
             self._annotate_frame(frame)
             cv2.imshow('Modal Share Counting (Edge Mode)', frame)
@@ -108,16 +92,15 @@ class ModalShareCounter:
                 if obj_id not in self.seen_ids[class_label]:
                     self.seen_ids[class_label].add(obj_id)
                     self.counts[class_label] += 1
-                if DRAW_BBOX:
+                if config['draw_bbox']:
                     display_id = self.class_id_mapping[class_label][obj_id]
                     self._draw_bbox(frame, bbox, class_label, display_id)
 
         self._annotate_frame(frame)
         cv2.imshow('Modal Share Counting (Edge Mode)', frame)
 
-        if LOGGING_ENABLED:
+        if config['logging_enabled']:
             self._log_counts()
-
 
     def _draw_bbox(self, frame, bbox, label, display_id):
         x1, y1, x2, y2 = map(int, bbox)
@@ -133,7 +116,7 @@ class ModalShareCounter:
 
     def _log_counts(self):
         now = datetime.now()
-        current_interval = now.minute // LOG_INTERVAL_MINUTES
+        current_interval = now.minute // config['log_interval_minutes']
         if self.last_log_minute == current_interval:
             return
 
@@ -141,13 +124,12 @@ class ModalShareCounter:
 
         log_dir = 'data'
         os.makedirs(log_dir, exist_ok=True)
-        log_filename = f"{now.strftime('%Y%m%d')}-{LOCATION}-{CAMERA_ID}.log"
+        log_filename = f"{now.strftime('%Y%m%d')}-{config['location']}-{config['camera_id']}.log"
         log_path = os.path.join(log_dir, log_filename)
 
-        light_status = "NORMAL_LIGHT"
         timestamp = now.strftime("%Y-%m-%d %H:%M")
         counts_str = ", ".join([f"{cls}:{self.counts[cls]}" for cls in CLASSES.values()])
-        log_line = f"{timestamp}, {light_status}, {counts_str}\n"
+        log_line = f"{timestamp}, {counts_str}\n"
 
         with open(log_path, 'a') as f:
             f.write(log_line)
