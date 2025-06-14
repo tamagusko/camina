@@ -26,6 +26,7 @@ def train_model(params: dict):
 
 
 def main():
+    # params = parse_yaml('train_param_finetune.yaml')
     params = parse_yaml('train_param_warmup.yaml')
     train_model(params)
 
