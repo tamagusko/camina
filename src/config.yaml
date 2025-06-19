@@ -1,18 +1,15 @@
-# config.yaml
-
-# Model and tracker
+# Model
 model: models/yolo11n.pt
-tracker: bytetrack.yaml
 
 # Camera settings
 camera_source: test_video/test.mov # or use 0 for real-time camera
 frame_width: 640
 frame_height: 480
-frame_skip: 2
+frame_skip: 5
 
 # Inference settings
 imgsz: 640
-confidence_threshold: 0.5
+confidence_threshold: 0.6
 draw_bbox: true
 
 # Logging and metadata
