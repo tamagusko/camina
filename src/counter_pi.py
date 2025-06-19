@@ -1,165 +1,102 @@
-import os
+"""Head-less modal-share counter for Raspberry Pi 5."""
+
+from datetime import datetime
+from pathlib import Path
+
 import cv2
 import numpy as np
-from datetime import datetime
+import yaml
 from ultralytics import YOLO
 from sort import Sort
-from config import (
-    LOCATION,
-    CAMERA_ID,
-    LOGGING_ENABLED,
-    LOG_INTERVAL_MINUTES,
-    FRAME_WIDTH,
-    FRAME_HEIGHT,
-    CAMERA_INDEX,
-    FRAME_SKIP,
-    CONFIDENCE_THRESHOLD,
-    DRAW_BBOX,
-)
 
-# Classes
-CLASSES = {
-    0: 'person',
-    1: 'bicycle',
-    2: 'car',
-    3: 'motorcycle',
-    5: 'bus',
-    7: 'truck',
-}
+with open("src/config.yaml", "r") as f:
+    CONFIG = yaml.safe_load(f)
 
-# Model path (relative to src/)
-MODEL_FOLDER = os.path.join(os.path.dirname(__file__), "..", "models", "yolo11n_ncnn_model")
+with open("src/classes.yaml", "r") as f:
+    CLASSES = yaml.safe_load(f)
 
-# Automatic HEADLESS mode detection
-HEADLESS = not os.environ.get("DISPLAY")
+
+def nearest_label(bbox, mapping):
+    if not mapping:
+        return None
+    key = min(mapping, key=lambda b: np.linalg.norm(np.array(b) - np.array(bbox)))
+    return mapping[key]
 
 
 class ModalShareCounter:
-    def __init__(self):
-        self.model = YOLO(MODEL_FOLDER)
-        self.tracker = Sort()
-        self.cap = self._init_camera()
-        self.frame_count = 0
+    def __init__(self) -> None:
+        self.model = YOLO(CONFIG["model"])
+        self.tracker = Sort(max_age=90, iou_threshold=0.15)
+
+        src = CONFIG["camera_source"]
+        self.cap = cv2.VideoCapture(src if isinstance(src, str) else int(src))
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CONFIG["frame_width"])
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CONFIG["frame_height"])
+
         self.seen_ids = {cls: set() for cls in CLASSES.values()}
         self.counts = {cls: 0 for cls in CLASSES.values()}
-        self.class_id_mapping = {cls: {} for cls in CLASSES.values()}
-        self.class_id_counters = {cls: 1 for cls in CLASSES.values()}
-        self.last_log_minute = None
+        self.last_interval = None
+        self.frame_count = 0
 
-    def _init_camera(self):
-        # cap = cv2.VideoCapture(CAMERA_INDEX)
-        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
-        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
-        video_path = os.path.join(os.path.dirname(__file__), "..", "test_video", "test.mov")
-        cap = cv2.VideoCapture(video_path)
-        return cap
+    def process_frame(self, frame):
+        result = self.model.predict(
+            frame,
+            imgsz=CONFIG["imgsz"],
+            conf=CONFIG["confidence_threshold"],
+            verbose=False,
+        )[0]
 
-    def _get_class_label(self, bbox, class_map):
-        return class_map.get(
-            min(class_map.keys(), key=lambda b: np.linalg.norm(np.array(b) - np.array(bbox))),
-            None
-        )
+        detections, cls_map = [], {}
+        for box in result.boxes:
+            cid = int(box.cls.item())
+            if cid not in CLASSES:
+                continue
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            detections.append([x1, y1, x2, y2, float(box.conf.item())])
+            cls_map[(x1, y1, x2, y2)] = CLASSES[cid]
+
+        if detections:
+            tracks = self.tracker.update(np.asarray(detections))
+            for x1, y1, x2, y2, tid in tracks:
+                label = nearest_label((x1, y1, x2, y2), cls_map)
+                if label and tid not in self.seen_ids[label]:
+                    self.seen_ids[label].add(tid)
+                    self.counts[label] += 1
+
+        self.maybe_log()
+
+    def maybe_log(self):
+        if not CONFIG["logging_enabled"]:
+            return
+        now = datetime.now()
+        interval = now.minute // CONFIG["log_interval_minutes"]
+        if interval == self.last_interval:
+            return
+        self.last_interval = interval
+
+        Path("data").mkdir(exist_ok=True)
+        log_path = Path("data") / f"{now:%Y%m%d}-{CONFIG['location']}-{CONFIG['camera_id']}.log"
+        line = ", ".join(f"{cls}:{self.counts[cls]}" for cls in CLASSES.values())
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(f"{now:%Y-%m-%d %H:%M}, {line}\n")
 
     def run(self):
         try:
             while True:
-                ret, frame = self.cap.read()
-                if not ret:
+                ok, frame = self.cap.read()
+                if not ok:
                     break
-
-                if self.frame_count % FRAME_SKIP == 0:
-                    self._process_frame(frame)
-
+                if self.frame_count % CONFIG["frame_skip"] == 0:
+                    self.process_frame(frame)
                 self.frame_count += 1
-
-                key = cv2.waitKey(1)
-                if key == ord('q') or key == 27:
-                    break
+        except KeyboardInterrupt:
+            pass
         finally:
             self.cap.release()
-            cv2.destroyAllWindows()
-            self._print_summary()
-
-    def _process_frame(self, frame):
-        results = self.model.predict(frame)[0]
-        detections = []
-        class_map = {}
-
-        for box in results.boxes:
-            cls_id = int(box.cls.item())
-            conf = box.conf.item()
-            if conf < CONFIDENCE_THRESHOLD:
-                continue
-            if cls_id in CLASSES:
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                detections.append([x1, y1, x2, y2, conf])
-                class_map[(x1, y1, x2, y2)] = CLASSES[cls_id]
-
-        detections_np = np.array(detections)
-        tracked = self.tracker.update(detections_np)
-
-        for x1, y1, x2, y2, obj_id in tracked:
-            bbox = (x1, y1, x2, y2)
-            class_label = self._get_class_label(bbox, class_map)
-            if class_label:
-                if obj_id not in self.class_id_mapping[class_label]:
-                    self.class_id_mapping[class_label][obj_id] = self.class_id_counters[class_label]
-                    self.class_id_counters[class_label] += 1
-                if obj_id not in self.seen_ids[class_label]:
-                    self.seen_ids[class_label].add(obj_id)
-                    self.counts[class_label] += 1
-                if DRAW_BBOX:
-                    display_id = self.class_id_mapping[class_label][obj_id]
-                    self._draw_bbox(frame, bbox, class_label, display_id)
-
-        self._annotate_frame(frame)
-
-        # HEADLESS mode check
-        if not HEADLESS:
-            cv2.imshow('Modal Share Counting (NCNN)', frame)
-
-        if LOGGING_ENABLED:
-            self._log_counts()
-
-    def _draw_bbox(self, frame, bbox, label, display_id):
-        x1, y1, x2, y2 = map(int, bbox)
-        text = f"{label} #{display_id}"
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
-        cv2.putText(frame, text, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-
-    def _annotate_frame(self, frame):
-        for idx, (cls, count) in enumerate(self.counts.items()):
-            text = f'{cls}: {count}'
-            position = (10, 30 + 20 * idx)
-            cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-    def _log_counts(self):
-        now = datetime.now()
-        current_interval = now.minute // LOG_INTERVAL_MINUTES
-        if self.last_log_minute == current_interval:
-            return
-
-        self.last_log_minute = current_interval
-
-        log_dir = 'data'
-        os.makedirs(log_dir, exist_ok=True)
-        log_filename = f"{now.strftime('%Y%m%d')}-{LOCATION}-{CAMERA_ID}.log"
-        log_path = os.path.join(log_dir, log_filename)
-
-        light_status = "NORMAL_LIGHT"
-        timestamp = now.strftime("%Y-%m-%d %H:%M")
-        counts_str = ", ".join([f"{cls}:{self.counts[cls]}" for cls in CLASSES.values()])
-        log_line = f"{timestamp}, {light_status}, {counts_str}\n"
-
-        with open(log_path, 'a') as f:
-            f.write(log_line)
-
-    def _print_summary(self):
-        print('Final Modal Share Counts:')
-        for cls, count in self.counts.items():
-            print(f'{cls}: {count}')
+            print("\nFinal counts:")
+            for cls, cnt in self.counts.items():
+                print(f"{cls}: {cnt}")
 
 
-if __name__ == '__main__':
-    counter = ModalShareCounter()
-    counter.run()
+if __name__ == "__main__":
+    ModalShareCounter().run()
