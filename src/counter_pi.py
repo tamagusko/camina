@@ -48,7 +48,7 @@ class OledCounterDisplay:
         for i, cls in enumerate(["person", "cyclist", "bus", "car", "motorcycle", "truck"]):
             label = self.display_labels[cls]
             count = counts.get(cls, 0)
-            draw.text((0, 10 + i * 10), f"{label}: {count}", font=self.font, fill=255)
+            draw.text((0, 9 + i * 9), f"{label}: {count}", font=self.font, fill=255)
 
         self.oled.display(image)
 
