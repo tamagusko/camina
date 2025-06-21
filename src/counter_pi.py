@@ -16,8 +16,6 @@ with open("src/config.yaml", "r") as f:
 with open("src/classes.yaml", "r") as f:
     CLASSES = yaml.safe_load(f)
 
-# Force video test file for evaluation
-CONFIG["camera_source"] = "tests/test.mov"
 
 class OledCounterDisplay:
     def __init__(self):
@@ -43,13 +41,16 @@ class OledCounterDisplay:
         image = Image.new("1", self.oled.size)
         draw = ImageDraw.Draw(image)
 
-        draw.rectangle((0, 0, self.oled.width, 10), outline=255, fill=255)
+        # Header in yellow band
+        draw.rectangle((0, 0, self.oled.width, 12), outline=255, fill=255)
         header = f"{Path(CONFIG['model']).stem} {CONFIG['ver']}"
-        draw.text((2, 0), header, font=self.font, fill=0)
+        draw.text((2, 2), header, font=self.font, fill=0)
 
+        # Class counts in blue area
+        start_y = 16
         for i, (cls, label) in enumerate(self.display_labels.items()):
             count = counts.get(cls, 0)
-            draw.text((0, 12 + i * 10), f"{label}: {count}", font=self.font, fill=255)
+            draw.text((0, start_y + i * 10), f"{label}: {count}", font=self.font, fill=255)
 
         self.oled.display(image)
 
