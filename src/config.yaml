@@ -1,5 +1,7 @@
 # Model
 model: models/yolo11n.pt
+ver: 0.1 beta
+ncnn_model_path: models/yolo11n_ncnn_model/
 
 # Camera settings
 camera_source: test_video/test.mov # or use 0 for real-time camera
