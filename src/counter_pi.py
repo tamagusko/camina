@@ -14,8 +14,9 @@ with open("src/config.yaml", "r") as f:
     CONFIG = yaml.safe_load(f)
 
 with open("src/classes.yaml", "r") as f:
-    CLASSES = yaml.safe_load(f)
+    CLASSES = {int(k): v for k, v in yaml.safe_load(f).items()}
 
+CONFIG["camera_source"] = "tests/test.mov"
 
 class OledCounterDisplay:
     def __init__(self):
@@ -23,6 +24,7 @@ class OledCounterDisplay:
         self.oled = ssd1306(serial)
         self.font = ImageFont.load_default()
         self.previous = {}
+        self.model_name = f"{Path(CONFIG['model']).stem} {CONFIG['ver']}"
 
         self.display_labels = {
             "person": "Ped",
@@ -41,16 +43,12 @@ class OledCounterDisplay:
         image = Image.new("1", self.oled.size)
         draw = ImageDraw.Draw(image)
 
-        # Header in yellow band
-        draw.rectangle((0, 0, self.oled.width, 12), outline=255, fill=255)
-        header = f"{Path(CONFIG['model']).stem} {CONFIG['ver']}"
-        draw.text((2, 2), header, font=self.font, fill=0)
+        draw.text((2, 0), self.model_name, font=self.font, fill=255)
 
-        # Class counts in blue area
-        start_y = 16
-        for i, (cls, label) in enumerate(self.display_labels.items()):
+        for i, cls in enumerate(["person", "cyclist", "bus", "car", "motorcycle", "truck"]):
+            label = self.display_labels[cls]
             count = counts.get(cls, 0)
-            draw.text((0, start_y + i * 10), f"{label}: {count}", font=self.font, fill=255)
+            draw.text((0, 10 + i * 10), f"{label}: {count}", font=self.font, fill=255)
 
         self.oled.display(image)
 
