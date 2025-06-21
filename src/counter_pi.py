@@ -24,7 +24,10 @@ class OledCounterDisplay:
         self.oled = ssd1306(serial)
         self.font = ImageFont.load_default()
         self.previous = {}
-        self.model_name = f"{Path(CONFIG['model']).stem} {CONFIG['ver']}"
+        self.model_name = f"{Path(CONFIG['model']).stem}"
+        self.version = CONFIG['ver']
+        self.location = CONFIG['location']
+        self.camera_id = CONFIG['camera_id']
 
         self.display_labels = {
             "person": "Ped",
@@ -43,12 +46,18 @@ class OledCounterDisplay:
         image = Image.new("1", self.oled.size)
         draw = ImageDraw.Draw(image)
 
-        draw.text((2, 0), self.model_name, font=self.font, fill=255)
+        # Yellow part (top):
+        ped_count = counts.get("person", 0)
+        draw.rectangle((0, 0, self.oled.width, 10), outline=255, fill=255)
+        draw.text((2, 0), f"Ped: {ped_count} | CAMINA", font=self.font, fill=0)
 
-        for i, cls in enumerate(["person", "cyclist", "bus", "car", "motorcycle", "truck"]):
-            label = self.display_labels[cls]
-            count = counts.get(cls, 0)
-            draw.text((0, 9 + i * 9), f"{label}: {count}", font=self.font, fill=255)
+        # Blue part (bottom): other classes and info
+        y_start = 12
+        draw.text((0, y_start + 0), f"Bike: {counts.get('cyclist', 0)} | {datetime.now():%Y%m%d}", font=self.font, fill=255)
+        draw.text((0, y_start + 10), f"Bus: {counts.get('bus', 0)} | {self.version}", font=self.font, fill=255)
+        draw.text((0, y_start + 20), f"Car: {counts.get('car', 0)} | {self.model_name}", font=self.font, fill=255)
+        draw.text((0, y_start + 30), f"Moto: {counts.get('motorcycle', 0)} | {self.camera_id}", font=self.font, fill=255)
+        draw.text((0, y_start + 40), f"Truck: {counts.get('truck', 0)} | {self.location}", font=self.font, fill=255)
 
         self.oled.display(image)
 
