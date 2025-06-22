@@ -6,9 +6,7 @@ import numpy as np
 import yaml
 from ultralytics import YOLO
 from sort import Sort
-from luma.core.interface.serial import i2c
-from luma.oled.device import ssd1306
-from PIL import Image, ImageDraw, ImageFont
+from utils.oled_display import OledCounterDisplay
 
 with open("src/config.yaml", "r") as f:
     CONFIG = yaml.safe_load(f)
@@ -17,50 +15,6 @@ with open("src/classes.yaml", "r") as f:
     CLASSES = {int(k): v for k, v in yaml.safe_load(f).items()}
 
 CONFIG["camera_source"] = "tests/test.mov"
-
-class OledCounterDisplay:
-    def __init__(self):
-        serial = i2c(port=1, address=0x3C)
-        self.oled = ssd1306(serial)
-        self.font = ImageFont.load_default()
-        self.previous = {}
-        self.model_name = f"{Path(CONFIG['model']).stem}"
-        self.version = CONFIG['ver']
-        self.location = CONFIG['location']
-        self.camera_id = CONFIG['camera_id']
-
-        self.display_labels = {
-            "person": "Ped",
-            "cyclist": "Bike",
-            "bus": "Bus",
-            "car": "Car",
-            "motorcycle": "Moto",
-            "truck": "Truck",
-        }
-
-    def update(self, counts):
-        if counts == self.previous:
-            return
-        self.previous = counts.copy()
-
-        image = Image.new("1", self.oled.size)
-        draw = ImageDraw.Draw(image)
-
-        # Yellow part (top):
-        ped_count = counts.get("person", 0)
-        draw.rectangle((0, 0, self.oled.width, 10), outline=255, fill=255)
-        draw.text((2, 0), f"Ped: {ped_count} | CAMINA", font=self.font, fill=0)
-
-        # Blue part (bottom): other classes and info
-        y_start = 12
-        draw.text((0, y_start + 0), f"Bike: {counts.get('cyclist', 0)} | {datetime.now():%Y%m%d}", font=self.font, fill=255)
-        draw.text((0, y_start + 10), f"Bus: {counts.get('bus', 0)} | {self.version}", font=self.font, fill=255)
-        draw.text((0, y_start + 20), f"Car: {counts.get('car', 0)} | {self.model_name}", font=self.font, fill=255)
-        draw.text((0, y_start + 30), f"Moto: {counts.get('motorcycle', 0)} | {self.camera_id}", font=self.font, fill=255)
-        draw.text((0, y_start + 40), f"Truck: {counts.get('truck', 0)} | {self.location}", font=self.font, fill=255)
-
-        self.oled.display(image)
-
 
 class ModalShareCounter:
     def __init__(self):
