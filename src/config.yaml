@@ -19,3 +19,6 @@ location: UCD
 camera_id: cam01
 logging_enabled: true
 log_interval_minutes: 5
+
+# Display settings
+refresh_interval_seconds: 30
