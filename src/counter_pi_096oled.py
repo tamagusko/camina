@@ -6,7 +6,7 @@ import numpy as np
 import yaml
 from ultralytics import YOLO
 from sort import Sort
-from utils.epaper_display import EpaperCounterDisplay
+from utils.oled_display import OledCounterDisplay
 
 with open("src/config.yaml", "r") as f:
     CONFIG = yaml.safe_load(f)
@@ -27,7 +27,7 @@ class ModalShareCounter:
         self.local_ids = {cls: {} for cls in CLASSES.values()}
         self.next_local_id = {cls: 1 for cls in CLASSES.values()}
         self.last_interval = None
-        self.display = EpaperCounterDisplay()
+        self.display = OledCounterDisplay()
 
     @staticmethod
     def _get_class_label(bbox, cls_map):
