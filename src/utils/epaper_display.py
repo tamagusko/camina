@@ -4,7 +4,7 @@ from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 
 import yaml
-import epaper  # Unified Waveshare interface
+import epaper
 
 with open("src/config.yaml", "r") as f:
     CONFIG = yaml.safe_load(f)
@@ -23,11 +23,11 @@ class EpaperCounterDisplay:
         self.font = ImageFont.load_default()
 
         self.display_labels = {
-            "person": "Ped",
-            "cyclist": "Bike",
+            "person": "Pedestrian",
+            "cyclist": "Cyclist",
             "bus": "Bus",
             "car": "Car",
-            "motorcycle": "Moto",
+            "motorcycle": "Motorcycle",
             "truck": "Truck",
         }
 
@@ -37,11 +37,13 @@ class EpaperCounterDisplay:
             return
 
         self.last_update_time = now
+        now_dt = datetime.now()
+        timestamp = now_dt.strftime("%H:%M %y%m%d")
 
         image = Image.new("1", (self.width, self.height), 255)  # White background
         draw = ImageDraw.Draw(image)
 
-        draw.text((5, 0), "CAMINA COUNT", font=self.font, fill=0)
+        draw.text((5, 0), f"CAMINA {timestamp}", font=self.font, fill=0)
 
         for i, (cls, label) in enumerate(self.display_labels.items()):
             count = counts.get(cls, 0)
