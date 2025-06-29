@@ -1,17 +1,19 @@
 # Model
-model: models/yolo11n.pt
+model: models/20250629_warmup_best.pt
+# model: models/yolo11n.pt
 ver: 0.1 beta
-ncnn_model_path: models/yolo11n_ncnn_model/
+# ncnn_model_path: models/yolo11n_ncnn_model/
+ncnn_model_path: models/20250629_warmup_best_ncnn_model/
 
 # Camera settings
-camera_source: test_video/test.mov # or use 0 for real-time camera
+camera_source: tests/test.mov # or use 0 for real-time camera
 frame_width: 640
 frame_height: 480
 frame_skip: 5
 
 # Inference settings
 imgsz: 640
-confidence_threshold: 0.6
+confidence_threshold: 0.65
 draw_bbox: true
 
 # Logging and metadata
@@ -22,3 +24,7 @@ log_interval_minutes: 5
 
 # Display settings
 refresh_interval_seconds: 30
+
+# sort.py
+sort_max_age: 90
+sort_iou_threshold: 0.3

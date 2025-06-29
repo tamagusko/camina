@@ -11,46 +11,26 @@ with open("src/config.yaml", "r") as f:
     CONFIG = yaml.safe_load(f)
 
 with open("src/classes.yaml", "r") as f:
-    CLASSES = yaml.safe_load(f)
+    CLASSES = {int(k): v for k, v in yaml.safe_load(f).items()}
 
 
 class ModalShareCounter:
     def __init__(self):
         self.model = YOLO(CONFIG["model"])
         self.tracker = Sort()
-        self.cap = self._init_capture()
+        self.cap = cv2.VideoCapture(CONFIG["camera_source"])
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CONFIG["frame_width"])
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CONFIG["frame_height"])
         self.frame_count = 0
-        self.seen_ids = {c: set() for c in CLASSES.values()}
-        self.counts = {c: 0 for c in CLASSES.values()}
-        self.local_ids = {c: {} for c in CLASSES.values()}
-        self.next_local_id = {c: 1 for c in CLASSES.values()}
+        self.seen_ids = {cls: set() for cls in CLASSES.values()}
+        self.counts = {cls: 0 for cls in CLASSES.values()}
+        self.local_ids = {cls: {} for cls in CLASSES.values()}
+        self.next_local_id = {cls: 1 for cls in CLASSES.values()}
         self.last_interval = None
 
     @staticmethod
     def _get_class_label(bbox, cls_map):
-        return cls_map.get(
-            min(cls_map, key=lambda b: np.linalg.norm(np.array(b) - np.array(bbox))),
-            None,
-        )
-
-    def _init_capture(self):
-        src = CONFIG["camera_source"]
-        cap = cv2.VideoCapture(src if isinstance(src, str) else int(src))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, CONFIG["frame_width"])
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CONFIG["frame_height"])
-        return cap
-
-    def _draw_bbox(self, frame, bbox, label, disp_id, conf):
-        x1, y1, x2, y2 = map(int, bbox)
-        txt = f"{label} #{disp_id} {conf:.2f}"
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
-        cv2.putText(frame, txt, (x1, y1 - 6),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-
-    def _overlay_totals(self, frame):
-        for idx, (cls_name, cnt) in enumerate(self.counts.items()):
-            cv2.putText(frame, f"{cls_name}: {cnt}", (10, 30 + 20 * idx),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        return cls_map.get(min(cls_map, key=lambda b: np.linalg.norm(np.array(b) - np.array(bbox))), None)
 
     def _log(self):
         now = datetime.now()
@@ -59,20 +39,19 @@ class ModalShareCounter:
             return
         self.last_interval = interval
 
-        log_dir = Path("data")
-        log_dir.mkdir(exist_ok=True)
-        log_path = log_dir / f"{now:%Y%m%d}-{CONFIG['location']}-{CONFIG['camera_id']}.log"
-        counts_str = ", ".join(f"{c}:{self.counts[c]}" for c in CLASSES.values())
-        with log_path.open("a", encoding="utf-8") as f:
-            f.write(f"{now:%Y-%m-%d %H:%M}, {counts_str}\n")
+        log_path = Path("data") / f"{now:%Y%m%d}-{CONFIG['location']}-{CONFIG['camera_id']}.log"
+        log_path.parent.mkdir(exist_ok=True)
+        with log_path.open("a") as f:
+            f.write(f"{now:%Y-%m-%d %H:%M}, " + ", ".join(f"{cls}:{self.counts[cls]}" for cls in CLASSES.values()) + "\n")
 
     def _process_frame(self, frame):
-        res = self.model.predict(frame,
-                                 imgsz=CONFIG["imgsz"],
-                                 conf=CONFIG["confidence_threshold"])[0]
+        results = self.model.predict(frame,
+                                     imgsz=CONFIG["imgsz"],
+                                     conf=CONFIG["confidence_threshold"])[0]
 
-        detections, cls_map = [], {}
-        for box in res.boxes:
+        detections = []
+        cls_map = {}
+        for box in results.boxes:
             cls_id = int(box.cls.item())
             if cls_id not in CLASSES:
                 continue
@@ -82,8 +61,6 @@ class ModalShareCounter:
             cls_map[(x1, y1, x2, y2)] = CLASSES[cls_id]
 
         if not detections:
-            self._overlay_totals(frame)
-            cv2.imshow("Modal-Share Counter", frame)
             return
 
         tracks = self.tracker.update(np.array(detections))
@@ -91,7 +68,6 @@ class ModalShareCounter:
             label = self._get_class_label((x1, y1, x2, y2), cls_map)
             if label is None:
                 continue
-            obj_id = int(obj_id)
 
             if obj_id not in self.local_ids[label]:
                 self.local_ids[label][obj_id] = self.next_local_id[label]
@@ -100,12 +76,16 @@ class ModalShareCounter:
                 self.seen_ids[label].add(obj_id)
                 self.counts[label] += 1
 
-            if CONFIG["draw_bbox"]:
-                self._draw_bbox(frame, (x1, y1, x2, y2),
-                                label, self.local_ids[label][obj_id],
-                                cls_map_inverse := res.boxes.conf.tolist()[0])
+            if CONFIG.get("draw_bbox", True):
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
+                cv2.putText(frame, f"{label} #{self.local_ids[label][obj_id]}", (int(x1), int(y1) - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
 
-        self._overlay_totals(frame)
+        y_offset = 20
+        for idx, (cls_name, cnt) in enumerate(self.counts.items()):
+            cv2.putText(frame, f"{cls_name}: {cnt}", (10, y_offset + idx * 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
         cv2.imshow("Modal-Share Counter", frame)
         if CONFIG["logging_enabled"]:
             self._log()
@@ -125,8 +105,8 @@ class ModalShareCounter:
             self.cap.release()
             cv2.destroyAllWindows()
             print("Final counts:")
-            for cls_name, cnt in self.counts.items():
-                print(f"{cls_name}: {cnt}")
+            for cls, cnt in self.counts.items():
+                print(f"{cls}: {cnt}")
 
 
 if __name__ == "__main__":
