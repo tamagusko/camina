@@ -1,12 +1,12 @@
-# sort.py – SORT tuned to keep a track alive ≈ 3 s (90 frames at 30 fps)
-#  • max_age      : 90
-#  • iou_threshold: 0.15  (gentler matching, good for pedestrians)
-
 from __future__ import annotations
 
 import numpy as np
+import yaml
 from filterpy.kalman import KalmanFilter
 from scipy.optimize import linear_sum_assignment
+
+with open("src/config.yaml", "r") as f:
+    CONFIG = yaml.safe_load(f)
 
 
 class KalmanBoxTracker:
@@ -45,9 +45,6 @@ class KalmanBoxTracker:
         self.hit_streak = 0
         self.age = 0
 
-    # ------------------------------------------------------------------ #
-    #  Public API                                                        #
-    # ------------------------------------------------------------------ #
     def update(self, bbox: np.ndarray) -> None:
         self.time_since_update = 0
         self.hits += 1
@@ -67,9 +64,6 @@ class KalmanBoxTracker:
     def get_state(self) -> np.ndarray:
         return self._x_to_bbox(self.kf.x)
 
-    # ------------------------------------------------------------------ #
-    #  Helpers                                                           #
-    # ------------------------------------------------------------------ #
     @staticmethod
     def _bbox_to_z(bbox: np.ndarray) -> np.ndarray:
         w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -84,28 +78,17 @@ class KalmanBoxTracker:
                          x[0] + w / 2.0, x[1] + h / 2.0]).reshape((4,))
 
 
-# --------------------------------------------------------------------------- #
-#  SORT manager                                                               #
-# --------------------------------------------------------------------------- #
 class Sort:
-    def __init__(self, max_age: int = 90, min_hits: int = 3, iou_threshold: float = 0.15):
-        """
-        Args
-        ----
-        max_age        : frames to keep a lost track alive (≈ 3 s at 30 fps)
-        min_hits       : detections required to confirm a track
-        iou_threshold  : IoU match threshold (lower = more forgiving)
-        """
-        self.max_age = max_age
+    def __init__(self, min_hits: int = 3):
+        self.max_age = CONFIG.get("sort_max_age")
         self.min_hits = min_hits
-        self.iou_threshold = iou_threshold
+        self.iou_threshold = CONFIG.get("sort_iou_threshold")
         self.trackers: list[KalmanBoxTracker] = []
         self.frame_count = 0
 
     def update(self, dets: np.ndarray = np.empty((0, 5))) -> np.ndarray:
         self.frame_count += 1
 
-        # Predict new positions for existing trackers
         predictions, dead_idx = [], []
         for t, trk in enumerate(self.trackers):
             pos = trk.predict()
@@ -117,20 +100,16 @@ class Sort:
         for idx in reversed(dead_idx):
             self.trackers.pop(idx)
 
-        # Associate detections to trackers
         matches, unmatched_dets, unmatched_trks = _associate(
             dets, np.asarray(predictions), self.iou_threshold
         )
 
-        # Update matched trackers
         for det_idx, trk_idx in matches:
             self.trackers[trk_idx].update(dets[det_idx, :])
 
-        # Create new trackers for unmatched detections
         for idx in unmatched_dets:
             self.trackers.append(KalmanBoxTracker(dets[idx, :]))
 
-        # Prepare return array and purge dead tracks
         ret = []
         for trk in self.trackers[:]:
             d = trk.get_state()
@@ -143,9 +122,6 @@ class Sort:
         return np.concatenate(ret) if ret else np.empty((0, 5))
 
 
-# --------------------------------------------------------------------------- #
-#  Association utils                                                          #
-# --------------------------------------------------------------------------- #
 def _associate(detections: np.ndarray, trackers: np.ndarray,
                iou_threshold: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     if trackers.size == 0:

@@ -1,6 +1,6 @@
-0: person
-1: cyclist
-2: car
+0: bus
+1: car
+2: cyclist
 3: motorcycle
-5: bus
-7: truck
+4: person
+5: truck

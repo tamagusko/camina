@@ -2,7 +2,7 @@ import os
 import shutil
 from ultralytics import YOLO
 
-SOURCE_WEIGHTS = "yolo11n.pt"
+SOURCE_WEIGHTS = "models/20250629_warmup_best.pt"
 DEST_DIR = "models/yolo11n_ncnn_model"
 
 os.makedirs(DEST_DIR, exist_ok=True)
