@@ -1,3 +1,8 @@
+"""Modal share counter
+Counts object classes defined in classes.yaml, logs results per interval.
+"""
+from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
 
@@ -5,108 +10,122 @@ import cv2
 import numpy as np
 import yaml
 from ultralytics import YOLO
+
 from sort import Sort
 
-with open("src/config.yaml", "r") as f:
-    CONFIG = yaml.safe_load(f)
+CONFIG: dict = yaml.safe_load(Path("src/config.yaml").read_text())
+CLASSES: dict[int, str] = yaml.safe_load(Path("src/classes.yaml").read_text())
+DATA_DIR = Path("data")
 
-with open("src/classes.yaml", "r") as f:
-    CLASSES = {int(k): v for k, v in yaml.safe_load(f).items()}
+
+def current_interval() -> tuple[int, datetime]:
+    """Return (interval_index, now)."""
+    now = datetime.now()
+    return now.minute // CONFIG["log_interval_minutes"], now
 
 
 class ModalShareCounter:
-    def __init__(self):
+    """Headless object counter that logs detections by class."""
+
+    def __init__(self) -> None:
         self.model = YOLO(CONFIG["model"])
         self.tracker = Sort()
+
         self.cap = cv2.VideoCapture(CONFIG["camera_source"])
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CONFIG["frame_width"])
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CONFIG["frame_height"])
+
         self.frame_count = 0
-        self.seen_ids = {cls: set() for cls in CLASSES.values()}
         self.counts = {cls: 0 for cls in CLASSES.values()}
+        self.seen_ids = {cls: set() for cls in CLASSES.values()}
         self.local_ids = {cls: {} for cls in CLASSES.values()}
         self.next_local_id = {cls: 1 for cls in CLASSES.values()}
-        self.last_interval = None
+        self.last_interval: int | None = None
 
-    @staticmethod
-    def _get_class_label(bbox, cls_map):
-        return cls_map.get(min(cls_map, key=lambda b: np.linalg.norm(np.array(b) - np.array(bbox))), None)
+    # ------------------------------------------------------------------
+    # Core processing
+    # ------------------------------------------------------------------
+    def process_frame(self, frame: np.ndarray) -> None:
+        result = self.model.predict(
+            frame,
+            imgsz=CONFIG["imgsz"],
+            conf=CONFIG["confidence_threshold"],
+        )[0]
 
-    def _log(self):
-        now = datetime.now()
-        interval = now.minute // CONFIG["log_interval_minutes"]
-        if interval == self.last_interval:
-            return
-        self.last_interval = interval
-
-        log_path = Path("data") / f"{now:%Y%m%d}-{CONFIG['location']}-{CONFIG['camera_id']}.log"
-        log_path.parent.mkdir(exist_ok=True)
-        with log_path.open("a") as f:
-            f.write(f"{now:%Y-%m-%d %H:%M}, " + ", ".join(f"{cls}:{self.counts[cls]}" for cls in CLASSES.values()) + "\n")
-
-    def _process_frame(self, frame):
-        results = self.model.predict(frame,
-                                     imgsz=CONFIG["imgsz"],
-                                     conf=CONFIG["confidence_threshold"])[0]
-
-        detections = []
-        cls_map = {}
-        for box in results.boxes:
-            cls_id = int(box.cls.item())
+        dets, cls_map = [], {}
+        for box in result.boxes:
+            cls_id = int(box.cls)
             if cls_id not in CLASSES:
                 continue
-            x1, y1, x2, y2 = box.xyxy[0].tolist()
-            conf = float(box.conf.item())
-            detections.append([x1, y1, x2, y2, conf])
+            x1, y1, x2, y2 = box.xyxy[0]
+            dets.append([x1, y1, x2, y2, float(box.conf)])
             cls_map[(x1, y1, x2, y2)] = CLASSES[cls_id]
 
-        if not detections:
+        if not dets:
             return
 
-        tracks = self.tracker.update(np.array(detections))
-        for x1, y1, x2, y2, obj_id in tracks:
-            label = self._get_class_label((x1, y1, x2, y2), cls_map)
+        for x1, y1, x2, y2, track_id in self.tracker.update(np.asarray(dets)):
+            label = self._match_class((x1, y1, x2, y2), cls_map)
             if label is None:
                 continue
+            self._update_counts(label, track_id)
 
-            if obj_id not in self.local_ids[label]:
-                self.local_ids[label][obj_id] = self.next_local_id[label]
-                self.next_local_id[label] += 1
-            if obj_id not in self.seen_ids[label]:
-                self.seen_ids[label].add(obj_id)
-                self.counts[label] += 1
-
-            if CONFIG.get("draw_bbox", True):
-                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
-                cv2.putText(frame, f"{label} #{self.local_ids[label][obj_id]}", (int(x1), int(y1) - 5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-
-        y_offset = 20
-        for idx, (cls_name, cnt) in enumerate(self.counts.items()):
-            cv2.putText(frame, f"{cls_name}: {cnt}", (10, y_offset + idx * 20),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-        cv2.imshow("Modal-Share Counter", frame)
         if CONFIG["logging_enabled"]:
-            self._log()
+            self._maybe_log()
 
-    def run(self):
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _match_class(
+        bbox: tuple[float, float, float, float],
+        cls_map: dict[tuple[float, float, float, float], str],
+    ) -> str | None:
+        key = min(cls_map, key=lambda b: np.linalg.norm(np.subtract(b, bbox)))
+        return cls_map.get(key)
+
+    def _update_counts(self, label: str, track_id: int) -> None:
+        if track_id not in self.local_ids[label]:
+            self.local_ids[label][track_id] = self.next_local_id[label]
+            self.next_local_id[label] += 1
+        if track_id not in self.seen_ids[label]:
+            self.seen_ids[label].add(track_id)
+            self.counts[label] += 1
+
+    # ------------------------------------------------------------------
+    # Logging
+    # ------------------------------------------------------------------
+    def _maybe_log(self) -> None:
+        interval_idx, now = current_interval()
+        if interval_idx == self.last_interval:
+            return
+        self.last_interval = interval_idx
+
+        DATA_DIR.mkdir(exist_ok=True)
+        path = DATA_DIR / f"{now:%Y%m%d}-{CONFIG['location']}-{CONFIG['camera_id']}.log"
+        line = ", ".join(f"{c}:{self.counts[c]}" for c in CLASSES.values())
+        path.write_text(f"{now:%Y-%m-%d %H:%M}, {line}\n", encoding="utf-8", append=True)
+
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
+    def run(self) -> None:
         try:
             while True:
-                ret, frame = self.cap.read()
-                if not ret:
+                ok, frame = self.cap.read()
+                if not ok:
                     break
                 if self.frame_count % CONFIG["frame_skip"] == 0:
-                    self._process_frame(frame)
+                    self.process_frame(frame)
                 self.frame_count += 1
-                if cv2.waitKey(1) in (ord("q"), 27):
-                    break
         finally:
             self.cap.release()
-            cv2.destroyAllWindows()
-            print("Final counts:")
-            for cls, cnt in self.counts.items():
-                print(f"{cls}: {cnt}")
+            self._print_summary()
+
+    def _print_summary(self) -> None:
+        print("Final counts:")
+        for cls, cnt in self.counts.items():
+            print(f"{cls}: {cnt}")
 
 
 if __name__ == "__main__":
