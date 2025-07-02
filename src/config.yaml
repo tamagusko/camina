@@ -1,5 +1,5 @@
 # Model
-model: models/20250629_warmup_best.pt
+# model: models/20250629_warmup_best.pt
 # model: models/yolo11n.pt
 ver: 0.1 beta
 # ncnn_model_path: models/yolo11n_ncnn_model/
