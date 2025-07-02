@@ -6,7 +6,7 @@ ver: 0.1 beta
 ncnn_model_path: models/20250629_warmup_best_ncnn_model/
 
 # Camera settings
-camera_source: tests/test.mov # or use 0 for real-time camera
+camera_source: 0  # tests/test.mov # or use 0 for real-time camera
 frame_width: 640
 frame_height: 480
 frame_skip: 5
