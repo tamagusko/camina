@@ -1,8 +1,9 @@
-""" Modal‑share counter.
-Counts each class in classes.yaml and logs counts every log_interval_minutes.
+"""Headless modal‑share counter with Waveshare e‑paper output.
+Logs counts every interval and updates e‑paper every `refresh_interval_seconds`.
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -12,17 +13,24 @@ import yaml
 from ultralytics import YOLO
 
 from sort import Sort
+from utils.epaper_display import EpaperCounterDisplay  # <- e‑paper driver
 
+# ------------------------------------------------------------------
 CONFIG = yaml.safe_load(Path("src/config.yaml").read_text())
 CLASSES: dict[int, str] = yaml.safe_load(Path("src/classes.yaml").read_text())
 DATA_DIR = Path("data")
 
+REFRESH_INTERVAL = CONFIG.get("refresh_interval_seconds")
+
 
 def interval_index(now: datetime) -> int:
+    """Return current log‑interval index."""
     return now.minute // CONFIG["log_interval_minutes"]
 
 
 class ModalShareCounter:
+    """Counts tracked objects, logs results, updates e‑paper."""
+
     def __init__(self) -> None:
         model_path = CONFIG.get("ncnn_model_path") or CONFIG["model"]
         self.model = YOLO(model_path)
@@ -32,16 +40,21 @@ class ModalShareCounter:
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CONFIG["frame_width"])
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CONFIG["frame_height"])
 
+        self.display = EpaperCounterDisplay()
+        self.last_display_ts = 0.0
+
         self.frame_count = 0
         self.counts = {cls: 0 for cls in CLASSES.values()}
         self.seen_ids = {cls: set() for cls in CLASSES.values()}
-        self.local_ids = {cls: {} for cls in CLASSES.values()}
-        self.next_local_id = {cls: 1 for cls in CLASSES.values()}
         self.last_interval: int | None = None
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     def process_frame(self, frame: np.ndarray) -> None:
-        pred = self.model.predict(frame, imgsz=CONFIG["imgsz"], conf=CONFIG["confidence_threshold"])[0]
+        pred = self.model.predict(
+            frame,
+            imgsz=CONFIG["imgsz"],
+            conf=CONFIG["confidence_threshold"],
+        )[0]
 
         dets: list[list[float]] = []
         cls_map: dict[tuple[float, float, float, float], str] = {}
@@ -64,8 +77,9 @@ class ModalShareCounter:
 
         if CONFIG["logging_enabled"]:
             self._maybe_log()
+        self._maybe_display()
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     @staticmethod
     def _nearest_label(box: tuple[float, float, float, float], mapping: dict) -> str | None:
         if not mapping:
@@ -73,7 +87,7 @@ class ModalShareCounter:
         key = min(mapping, key=lambda b: np.linalg.norm(np.subtract(b, box)))
         return mapping[key]
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     def _maybe_log(self) -> None:
         now = datetime.now()
         idx = interval_index(now)
@@ -87,7 +101,14 @@ class ModalShareCounter:
         with path.open("a", encoding="utf-8") as f:
             f.write(f"{now:%Y-%m-%d %H:%M}, {line}\n")
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
+    def _maybe_display(self) -> None:
+        now = time.time()
+        if now - self.last_display_ts >= REFRESH_INTERVAL:
+            self.display.update(self.counts)
+            self.last_display_ts = now
+
+    # --------------------------------------------------------------
     def run(self) -> None:
         try:
             while True:
@@ -99,6 +120,7 @@ class ModalShareCounter:
                 self.frame_count += 1
         finally:
             self.cap.release()
+            self.display.clear()
             self._summary()
 
     def _summary(self) -> None:
