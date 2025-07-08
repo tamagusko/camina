@@ -42,7 +42,7 @@ Use the updated `coco_to_cyclist.py` script:
 Run it like this:
 
 ```
-python coco_to_cyclist.py \
+python scripts/data_processing/coco_to_cyclist.py \
   --coco-dir ~/datasets/coco \
   --out-dir ~/datasets/cyclist_yolo11 \
   --iou 0.3
@@ -68,7 +68,7 @@ After running, you’ll have:
 You can visually inspect a few sample images using:
 
 ```
-python validate_yolo_labels.py \
+python scripts/data_processing/validate_yolo_labels.py \
   --dataset-dir ~/datasets/cyclist_yolo11 \
   --filter-class 1  # show only images containing cyclists (class 1)
 ```
@@ -106,14 +106,16 @@ names: [person, cyclist, car, motorcycle, bus, truck]
 Ensure `yolo11n.pt` is available in `models/` or provide the correct path.
 
 ```
-python train.py \
-  --model models/yolo11n.pt \
-  --data ~/datasets/cyclist_yolo11/data.yaml \
-  --epochs 100 \
-  --batch 16 \
-  --imgsz 640 \
+python train.py 
+  --model models/yolo11n.pt 
+  --data ~/datasets/cyclist_yolo11/data.yaml 
+  --epochs 100 
+  --batch 16 
+  --imgsz 640 
   --device 0  # or --device mps for Mac M1/M2
 ```
+
+
 
 ---
 
@@ -138,6 +140,6 @@ runs/train/exp/
 After training, export to edge formats:
 
 ```
-python export.py --weights runs/train/exp/weights/best.pt --format ncnn
+python src/utils/export_ncnn.py --weights runs/train/exp/weights/best.pt --format ncnn
 ```
 

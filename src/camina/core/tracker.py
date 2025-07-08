@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import numpy as np
-import yaml
 from filterpy.kalman import KalmanFilter
 from scipy.optimize import linear_sum_assignment
 
-with open("src/config.yaml", "r") as f:
-    CONFIG = yaml.safe_load(f)
+from camina.utils.config import load_config
+
+CONFIG = load_config()
 
 
 class KalmanBoxTracker:

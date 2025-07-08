@@ -6,7 +6,7 @@
 
 ## ✅ Features
 
-* 🧠 **YOLO11n-based detection**
+* 🧠 **YOLO-based detection**
 * 🚲 **Counts** people, bicycles, cars, motorcycles, buses, trucks
 * 🛰️ **LoRaWAN support** (optional, via Dragino RS485-LN)
 * 🌙 **Low-light detection with IR floodlight**
@@ -25,19 +25,33 @@
 
 ```
 camina/
-├── main.py                         # Main loop: motion → alignment → light mode switching
+├── main.py                         # Main entry point for running the counter
 ├── src/
-│   ├── count.py                    # YOLOv8 + SORT modal counter (day)
-│   ├── lowlight_counter.py         # CLAHE-enhanced low-light counter (IR mode)
-│   ├── motion_detector.py          # Motion detection logic
-│   ├── camera_position_check.py    # Camera misalignment detection
-│   ├── accident_detect.py          # [dev] Accident detection
-│   ├── near_misses_detect.py       # [dev] Near-miss detection
-│   ├── sort.py                     # SORT tracker
-│   └── config.py                   # Central configuration
-├── models/                         # YOLOv8 weights
-├── data/                           # Logs and camera reference
-├── docs/                           # Project docs
+│   ├── camina/                     # Camina package
+│   │   ├── core/
+│   │   │   └── tracker.py          # SORT tracker implementation
+│   │   └── utils/
+│   │       ├── config.py           # Central configuration loader
+│   │       └── display.py          # E-paper display utility
+│   ├── dev/                        # Development scripts (e.g., motion detection, camera checks)
+│   │   ├── camera_position_check.py
+│   │   ├── lowlight_counter.py
+│   │   ├── motion_detector.py
+│   │   └── plugged_counter.py
+│   ├── utils/                      # General utilities (e.g., NCNN export)
+│   │   ├── export_ncnn.py
+│   │   ├── infer_image.py
+│   │   └── oled_display.py
+│   ├── counter.py                  # Main counter logic for PC
+│   ├── counter_pi.py               # Main counter logic for Raspberry Pi
+│   └── dev_sort.py                 # Development script for SORT
+├── configs/                        # Configuration files
+│   ├── classes.yaml                # Defines object classes for detection
+│   └── main_config.yaml            # Main application configuration
+├── models/                         # Trained YOLO models
+├── data/                           # Logs and camera reference images
+├── docs/                           # Project documentation
+├── scripts/                        # Utility scripts (e.g., data processing, training)
 ```
 
 ---
@@ -69,26 +83,27 @@ wget -O models/yolov8n.pt https://github.com/ultralytics/assets/releases/downloa
 
 ## 🚀 Usage
 
-Start main loop (handles motion, alignment, and light mode switching):
+The `main.py` script acts as a launcher for the appropriate counter application (for PC or Raspberry Pi).
+
+To run the counter on a PC:
 
 ```bash
-python main.py
+python main.py pc
 ```
 
-Run directly in a specific mode (e.g. testing):
+To run the counter on a Raspberry Pi:
 
 ```bash
-python src/count.py             # Normal light mode
-python src/lowlight_counter.py # Low-light mode
+python main.py pi
 ```
 
-Press `q` or `ESC` to exit.
+Press `q` or `ESC` to exit the application window.
 
 ---
 
 ## 📝 Logging
 
-* Enabled via `LOGGING_ENABLED = True` in `src/config.py`
+* Enabled via `logging_enabled: true` in `configs/main_config.yaml`
 * Written to `data/YYYYMMDD-<LOCATION>-<CAMERA_ID>.log`
 * Format:
 
@@ -101,28 +116,46 @@ Press `q` or `ESC` to exit.
 
 ## ⚙️ Configuration
 
-Modify `src/config.py` to adjust system behavior:
+Modify `configs/main_config.yaml` to adjust system behavior:
 
-```python
-# Site info
-LOCATION = "dublin"
-CAMERA_ID = "cam01"
+```yaml
+# Model settings
+ncnn_model_path: models/20250629_warmup_best_ncnn_model/ # Path to the NCNN model
 
-# Logging
-LOGGING_ENABLED = True
-LOG_INTERVAL_MINUTES = 5
+# Camera settings
+camera_source: tests/test.mov # Camera source (e.g., 0 for webcam, path to video file)
+frame_width: 640              # Frame width for camera capture
+frame_height: 480             # Frame height for camera capture
+frame_skip: 5                 # Process every Nth frame to reduce load
 
-# Brightness-based switching
-LOW_LIGHT_THRESHOLD = 40
-LOW_LIGHT_CHECK_INTERVAL = 10  # Minutes
+# Inference settings
+imgsz: 640                    # Image size for model inference
+confidence_threshold: 0.65    # Confidence threshold for object detection
+draw_bbox: true               # Whether to draw bounding boxes on the output frame
 
-# Motion detection
-MOTION_CHECK_INTERVAL = 1  # Seconds
-MOTION_THRESHOLD = 500000
-STILL_THRESHOLD = 5  # Seconds
+# Logging and metadata
+location: UCD                 # Location of the deployment
+camera_id: cam01              # Unique ID for the camera
+logging_enabled: true         # Enable/disable logging of counts
+log_interval_minutes: 5       # Interval in minutes for logging counts
 
-# Camera alignment check
-CAMERA_ALIGNMENT_HOURS = [6, 14]  # 6am and 2pm
-CAMERA_CHECK_SIMILARITY_THRESHOLD = 0.85
-CAMERA_REFERENCE_IMAGE = "data/camera_reference.jpg"
+# Display settings (for Raspberry Pi with E-paper display)
+refresh_interval_seconds: 10  # How often to refresh the E-paper display
+
+# SORT tracker settings
+sort_max_age: 90              # Maximum number of frames to keep a track without new detections
+sort_iou_threshold: 0.3       # IoU threshold for matching detections to existing tracks
+
+# main.py specific settings (for motion detection, low light, and alignment checks)
+LOW_LIGHT_CHECK_INTERVAL: 15  # Check for low light conditions every X minutes
+LOW_LIGHT_THRESHOLD: 50       # Threshold for low light detection (average pixel value)
+CAMERA_ALIGNMENT_HOURS: [6, 18] # Hours to run camera alignment check (e.g., 6 AM and 6 PM)
+MOTION_SENSITIVITY: 500       # Motion detection sensitivity (area of the largest contour)
+REFERENCE_FRAME_PATH: "data/img/reference_frame.jpg" # Reference frame for camera alignment check
+ALIGNMENT_THRESHOLD: 0.9      # Threshold for camera alignment check (structural similarity index)
+EMAIL_SENDER: "your_email@gmail.com" # Sender email for notifications
+EMAIL_PASSWORD: "your_password" # Sender email password
+EMAIL_RECIPIENT: "recipient_email@example.com" # Recipient email for notifications
+EMAIL_SUBJECT: "Camera Alignment Alert" # Email subject for alignment alerts
+EMAIL_BODY: "Camera may be misaligned. Please check." # Email body for alignment alerts
 ```
