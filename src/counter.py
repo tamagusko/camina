@@ -3,15 +3,13 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import yaml
 from ultralytics import YOLO
-from sort import Sort
 
-with open("src/config.yaml", "r") as f:
-    CONFIG = yaml.safe_load(f)
+from camina.core.tracker import Sort
+from camina.utils.config import load_config, load_classes
 
-with open("src/classes.yaml", "r") as f:
-    CLASSES = {int(k): v for k, v in yaml.safe_load(f).items()}
+CONFIG = load_config()
+CLASSES = load_classes()
 
 
 class ModalShareCounter:

@@ -4,16 +4,16 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import yaml
 from ultralytics import YOLO
 
-from sort import Sort
-from utils.epaper_display import EpaperCounterDisplay
+from camina.core.tracker import Sort
+from camina.utils.config import load_config, load_classes
+from camina.utils.display import EpaperCounterDisplay
 
 # ---------------------------------------------------------------------------
 # Configuration ----------------------------------------------------------------
-CONFIG = yaml.safe_load(Path("src/config.yaml").read_text())
-CLASSES: dict[int, str] = yaml.safe_load(Path("src/classes.yaml").read_text())
+CONFIG = load_config()
+CLASSES = load_classes()
 DATA_DIR = Path("data")
 REFRESH_INTERVAL = CONFIG.get("refresh_interval_seconds", 10)
 
