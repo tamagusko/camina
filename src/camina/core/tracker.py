@@ -44,6 +44,10 @@ class KalmanBoxTracker:
         self.hits = 0
         self.hit_streak = 0
         self.age = 0
+        
+        # Speed tracking
+        self.history = []  # Store center positions and timestamps
+        self.speeds = []   # Store calculated speeds for averaging
 
     def update(self, bbox: np.ndarray) -> None:
         self.time_since_update = 0
@@ -59,10 +63,83 @@ class KalmanBoxTracker:
         if self.time_since_update > 0:
             self.hit_streak = 0
         self.time_since_update += 1
-        return self._x_to_bbox(self.kf.x)
+        
+        # Update position history for speed calculation
+        pred_bbox = self._x_to_bbox(self.kf.x)
+        cx = float((pred_bbox[0] + pred_bbox[2]) / 2)
+        cy = float((pred_bbox[1] + pred_bbox[3]) / 2)
+        
+        import time
+        current_time = time.time()
+        self.history.append((cx, cy, current_time))
+        
+        # Keep only recent history (last 2 seconds worth)
+        if len(self.history) > 60:  # Assuming ~30 FPS
+            self.history.pop(0)
+            
+        return pred_bbox
 
     def get_state(self) -> np.ndarray:
         return self._x_to_bbox(self.kf.x)
+    
+    def calculate_speed_kmh(self, object_class: str = "person") -> float:
+        """Calculate speed in km/h based on position history."""
+        if len(self.history) < 2:
+            return 0.0
+            
+        # Use the last few positions for more stable speed calculation
+        recent_positions = self.history[-5:] if len(self.history) >= 5 else self.history
+        
+        if len(recent_positions) < 2:
+            return 0.0
+            
+        # Calculate average speed over the trajectory
+        total_distance = 0.0
+        total_time = 0.0
+        
+        for i in range(1, len(recent_positions)):
+            x1, y1, t1 = recent_positions[i-1]
+            x2, y2, t2 = recent_positions[i]
+            
+            # Calculate pixel distance
+            pixel_distance = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+            time_diff = t2 - t1
+            
+            if time_diff > 0:
+                total_distance += pixel_distance
+                total_time += time_diff
+        
+        if total_time <= 0:
+            return 0.0
+            
+        # Convert to real-world speed
+        pixels_per_meter = CONFIG.get("pixels_per_meter", 10)
+        speed_mps = (total_distance / pixels_per_meter) / total_time  # meters per second
+        speed_kmh = speed_mps * 3.6  # Convert to km/h
+        
+        # Apply thresholds to filter out unrealistic speeds
+        speed_thresholds = CONFIG.get("speed_thresholds", {})
+        min_speed = CONFIG.get("speed_min_threshold", 1.0)
+        max_speed = speed_thresholds.get(object_class, 100.0)
+        
+        if speed_kmh < min_speed or speed_kmh > max_speed:
+            return 0.0
+            
+        return speed_kmh
+    
+    def get_average_speed(self) -> float:
+        """Get the average speed from stored speed calculations."""
+        if not self.speeds:
+            return 0.0
+        return sum(self.speeds) / len(self.speeds)
+    
+    def add_speed_measurement(self, speed: float) -> None:
+        """Add a speed measurement to the running average."""
+        if speed > 0:  # Only add valid speeds
+            self.speeds.append(speed)
+            # Keep only recent measurements (last 10)
+            if len(self.speeds) > 10:
+                self.speeds.pop(0)
 
     @staticmethod
     def _bbox_to_z(bbox: np.ndarray) -> np.ndarray:
@@ -120,6 +197,13 @@ class Sort:
                 self.trackers.remove(trk)
 
         return np.concatenate(ret) if ret else np.empty((0, 5))
+    
+    def get_tracker_by_id(self, track_id: int) -> KalmanBoxTracker:
+        """Get tracker by ID for speed calculation."""
+        for tracker in self.trackers:
+            if tracker.id == track_id:
+                return tracker
+        return None
 
 
 def _associate(detections: np.ndarray, trackers: np.ndarray,

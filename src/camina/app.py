@@ -11,7 +11,8 @@ from ultralytics import YOLO
 
 from src.camina.core.tracker import Sort
 from src.camina.utils.config import load_config, load_classes
-from src.camina.utils.display import EpaperCounterDisplay, OledCounterDisplay
+from src.camina.utils.display import create_display
+from src.camina.utils.calibration import DepthCalibrator
 
 
 class VideoCapture:
@@ -65,7 +66,7 @@ class DataLogger:
         self.classes = classes
         self.last_interval: Optional[int] = None
 
-    def log(self, counts: Dict[str, int]) -> None:
+    def log(self, counts: Dict[str, int], avg_speeds: Dict[str, float]) -> None:
         now = datetime.now()
         interval = now.minute // self.log_interval_minutes
         if interval == self.last_interval:
@@ -77,9 +78,17 @@ class DataLogger:
         )
         log_path.parent.mkdir(exist_ok=True)
         with log_path.open("a") as f:
+            # Build log entry with counts and speeds
+            log_entries = []
+            for cls in self.classes.values():
+                count = counts.get(cls, 0)
+                speed = avg_speeds.get(cls, 0.0)
+                log_entries.append(f"{cls}:{count}")
+                log_entries.append(f"{cls}_speed:{speed:.1f}")
+            
             f.write(
                 f"{now:%Y-%m-%d %H:%M}, "
-                + ", ".join(f"{cls}:{counts[cls]}" for cls in self.classes.values())
+                + ", ".join(log_entries)
                 + "\n"
             )
 
@@ -90,22 +99,20 @@ class Display:
     def __init__(self, display_type: Optional[str], classes: Dict[int, str]) -> None:
         self.display_type = display_type
         self.classes = classes
-        if self.display_type == "epaper":
-            self.display = EpaperCounterDisplay()
-        elif self.display_type == "oled":
-            self.display = OledCounterDisplay()
-        else:
-            self.display = None
+        self.display = create_display(display_type)
 
-    def update(self, frame: np.ndarray, counts: Dict[str, int], local_ids: Dict[str, Dict[int, int]]) -> None:
-        if self.display_type == "epaper" or self.display_type == "oled":
-            self.display.update(counts)
-        else:
+    def update(self, frame: np.ndarray, counts: Dict[str, int], avg_speeds: Dict[str, float], local_ids: Dict[str, Dict[int, int]]) -> None:
+        if self.display_type and self.display_type.lower() != "none":
+            self.display.update(counts, avg_speeds)
+        
+        # Always show on screen as well (unless headless)
+        if self.display_type != "headless":
             y_offset = 20
             for idx, (cls_name, cnt) in enumerate(counts.items()):
+                speed = avg_speeds.get(cls_name, 0.0)
                 cv2.putText(
                     frame,
-                    f"{cls_name}: {cnt}",
+                    f"{cls_name}: {cnt} | {speed:.1f} km/h",
                     (10, y_offset + idx * 20),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.6,
@@ -118,6 +125,66 @@ class Display:
         if self.display:
             self.display.clear()
         cv2.destroyAllWindows()
+
+
+class CalibrationMonitor:
+    """Monitors camera position and handles recalibration."""
+    
+    def __init__(self, config: Dict[str, Union[str, int, float, bool]]):
+        self.config = config
+        self.calibrator = DepthCalibrator()
+        self.last_position_check = 0
+        self.check_interval = config.get("camera_alignment_hours", [6, 18])  # Check at 6 AM and 6 PM
+        self.position_change_threshold = 0.1
+        
+    def should_check_position(self) -> bool:
+        """Check if it's time to verify camera position."""
+        current_hour = datetime.now().hour
+        return current_hour in self.check_interval
+    
+    def check_and_prompt_recalibration(self, frame: np.ndarray) -> bool:
+        """
+        Check if camera position changed and prompt for recalibration.
+        
+        Returns:
+            True if recalibration was performed or not needed, False if user declined
+        """
+        if not self.should_check_position():
+            return True
+            
+        # Avoid checking too frequently
+        now = time.time()
+        if now - self.last_position_check < 3600:  # Don't check more than once per hour
+            return True
+            
+        self.last_position_check = now
+        
+        # Check if camera position changed
+        if self.calibrator.check_camera_position_changed(frame, self.position_change_threshold):
+            print("\n" + "="*50)
+            print("CAMERA POSITION CHANGE DETECTED!")
+            print("The camera appears to have moved from its original position.")
+            print("Recalibration is recommended for accurate speed measurements.")
+            print("="*50)
+            
+            # Prompt user for recalibration
+            response = input("Would you like to recalibrate now? (y/n): ").lower().strip()
+            
+            if response in ['y', 'yes']:
+                print("Starting recalibration...")
+                success = self.calibrator.run_calibration(frame)
+                if success:
+                    print("Recalibration completed successfully!")
+                    return True
+                else:
+                    print("Recalibration failed. Please run manual calibration later.")
+                    return False
+            else:
+                print("Skipping recalibration. You can run it manually later with:")
+                print("python scripts/calibrate_camera.py")
+                return False
+        
+        return True
 
 
 class ModalShareCounterApp:
@@ -149,8 +216,18 @@ class ModalShareCounterApp:
         self.counts = {cls: 0 for cls in self.classes.values()}
         self.local_ids = {cls: {} for cls in self.classes.values()}
         self.next_local_id = {cls: 1 for cls in self.classes.values()}
+        
+        # Speed tracking
+        self.speed_measurements = {cls: [] for cls in self.classes.values()}
+        self.avg_speeds = {cls: 0.0 for cls in self.classes.values()}
+        
+        # Calibration monitoring
+        self.calibration_monitor = CalibrationMonitor(config)
 
     def _process_frame(self, frame: np.ndarray) -> None:
+        # Check camera position periodically
+        self.calibration_monitor.check_and_prompt_recalibration(frame)
+        
         results = self.detector.predict(frame)
         detections, cls_map = self._parse_detections(results)
         tracks = self.tracker.update(detections)
@@ -159,10 +236,11 @@ class ModalShareCounterApp:
         if self.config.get("draw_bbox", True):
             self._draw_bounding_boxes(frame, tracks, cls_map)
 
-        self.display.update(frame, self.counts, self.local_ids)
+        self._update_speeds(tracks, cls_map)
+        self.display.update(frame, self.counts, self.avg_speeds, self.local_ids)
 
         if self.config["logging_enabled"]:
-            self.logger.log(self.counts)
+            self.logger.log(self.counts, self.avg_speeds)
 
     def _parse_detections(self, results) -> Tuple[List[List[float]], Dict[Tuple[float, float, float, float], str]]:
         detections = []
@@ -189,6 +267,35 @@ class ModalShareCounterApp:
             if obj_id not in self.seen_ids[label]:
                 self.seen_ids[label].add(obj_id)
                 self.counts[label] += 1
+    
+    def _update_speeds(self, tracks: np.ndarray, cls_map: Dict[Tuple[float, float, float, float], str]) -> None:
+        """Calculate and update average speeds for each class."""
+        for x1, y1, x2, y2, obj_id in tracks:
+            label = self._get_class_label((x1, y1, x2, y2), cls_map)
+            if label is None:
+                continue
+                
+            # Get the tracker for this object
+            tracker = self.tracker.get_tracker_by_id(int(obj_id))
+            if tracker is None:
+                continue
+                
+            # Calculate speed for this object
+            speed = tracker.calculate_speed_kmh(label)
+            
+            # Add speed measurement if valid
+            if speed > 0:
+                self.speed_measurements[label].append(speed)
+                # Keep only recent measurements (last 20 for each class)
+                if len(self.speed_measurements[label]) > 20:
+                    self.speed_measurements[label].pop(0)
+                    
+        # Update average speeds for each class
+        for cls in self.classes.values():
+            if self.speed_measurements[cls]:
+                self.avg_speeds[cls] = sum(self.speed_measurements[cls]) / len(self.speed_measurements[cls])
+            else:
+                self.avg_speeds[cls] = 0.0
 
     def _draw_bounding_boxes(self, frame: np.ndarray, tracks: np.ndarray, cls_map: Dict[Tuple[float, float, float, float], str]) -> None:
         for x1, y1, x2, y2, obj_id in tracks:
