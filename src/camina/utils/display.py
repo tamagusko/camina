@@ -1,16 +1,20 @@
 import time
 from pathlib import Path
 from datetime import datetime
+from typing import Dict, Any
 from PIL import Image, ImageDraw, ImageFont
 
 import yaml
 import epaper
 
-with open("src/config.yaml", "r") as f:
-    CONFIG = yaml.safe_load(f)
+from src.camina.utils.config import load_config
+
+CONFIG = load_config()
 
 class EpaperCounterDisplay:
-    def __init__(self):
+    """E-paper display for showing vehicle counts."""
+    
+    def __init__(self) -> None:
         self.refresh_interval = CONFIG.get("refresh_interval_seconds", 30)
         self.last_update_time = 0
 
@@ -31,7 +35,8 @@ class EpaperCounterDisplay:
             "truck": "Truck",
         }
 
-    def update(self, counts):
+    def update(self, counts: Dict[str, int]) -> None:
+        """Update the e-paper display with new counts."""
         now = time.time()
         if now - self.last_update_time < self.refresh_interval:
             return
@@ -51,28 +56,40 @@ class EpaperCounterDisplay:
 
         self.epd.display(self.epd.getbuffer(image))
 
-    def clear(self):
+    def clear(self) -> None:
+        """Clear the e-paper display."""
         self.epd.Clear()
-from luma.core.interface.serial import i2c
-from luma.oled.device import ssd1306
-from PIL import Image, ImageDraw, ImageFont
+
 
 class OledCounterDisplay:
-    def __init__(self):
-        serial = i2c(port=1, address=0x3C)
-        self.oled = ssd1306(serial)
-        self.font = ImageFont.load_default()
-        self.previous = {}
-        self.labels = {
-            "person": "Pedestrian",
-            "cyclist": "Cyclist",
-            "bus": "Bus",
-            "car": "Car",
-            "motorcycle": "Motorcycle",
-            "truck": "Truck",
-        }
+    """OLED display for showing vehicle counts."""
+    
+    def __init__(self) -> None:
+        try:
+            from luma.core.interface.serial import i2c
+            from luma.oled.device import ssd1306
+            
+            serial = i2c(port=1, address=0x3C)
+            self.oled = ssd1306(serial)
+            self.font = ImageFont.load_default()
+            self.previous = {}
+            self.labels = {
+                "person": "Pedestrian",
+                "cyclist": "Cyclist",
+                "bus": "Bus",
+                "car": "Car",
+                "motorcycle": "Motorcycle",
+                "truck": "Truck",
+            }
+        except ImportError:
+            print("Warning: luma.oled not available, OLED display disabled")
+            self.oled = None
 
-    def update(self, counts: dict):
+    def update(self, counts: Dict[str, int]) -> None:
+        """Update the OLED display with new counts."""
+        if self.oled is None:
+            return
+            
         if counts == self.previous:
             return
         self.previous = counts.copy()
@@ -94,3 +111,8 @@ class OledCounterDisplay:
         draw.text((0, y + 40), f"Truck: {counts.get('truck', 0)}", font=self.font, fill=255)
 
         self.oled.display(image)
+
+    def clear(self) -> None:
+        """Clear the OLED display."""
+        if self.oled is not None:
+            self.oled.clear()

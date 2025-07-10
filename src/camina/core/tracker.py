@@ -4,7 +4,7 @@ import numpy as np
 from filterpy.kalman import KalmanFilter
 from scipy.optimize import linear_sum_assignment
 
-from camina.utils.config import load_config
+from src.camina.utils.config import load_config
 
 CONFIG = load_config()
 

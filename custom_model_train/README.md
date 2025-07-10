@@ -135,11 +135,23 @@ runs/train/exp/
 
 ---
 
-### **8. 🧊 Export for Inference (e.g., NCNN or ONNX)**
+### **8. 🧊 CAMINAv1 Model Export**
 
-After training, export to edge formats:
+The CAMINAv1 model is exported to NCNN format for efficient edge deployment:
 
+```bash
+python src/utils/export_ncnn.py --weights models/20250629_warmup_best.pt --format ncnn
 ```
-python src/utils/export_ncnn.py --weights runs/train/exp/weights/best.pt --format ncnn
-```
+
+This creates the optimized `20250629_warmup_best_ncnn_model/` directory used in production.
+
+---
+
+## 🏆 CAMINAv1 Model Performance
+
+* **Base Model**: YOLO11n
+* **Training Dataset**: COCO 2017 + Synthetic Cyclist Class
+* **Key Innovation**: Dedicated cyclist detection with combined person+bicycle bounding boxes
+* **Deployment**: Optimized NCNN format for Raspberry Pi
+* **Accuracy**: Significantly improved cyclist detection over base YOLO11
 
