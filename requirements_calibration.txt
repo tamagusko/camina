@@ -1,0 +1,17 @@
+# Additional requirements for automatic calibration system
+# Core calibration dependencies
+scikit-image>=0.19.0  # For structural similarity (SSIM)
+torch>=1.9.0          # For Depth Anything V2
+torchvision>=0.10.0   # For Depth Anything V2
+opencv-python>=4.5.0  # Enhanced OpenCV features
+
+# Depth Anything V2 - install from GitHub
+# git+https://github.com/DepthAnything/Depth-Anything-V2.git
+
+# Alternative lightweight depth estimation (fallback)
+transformers>=4.20.0  # For alternative depth models
+timm>=0.6.0          # Model architectures
+
+# Enhanced image processing
+Pillow>=8.0.0        # Image processing
+numpy>=1.21.0        # Numerical computing
