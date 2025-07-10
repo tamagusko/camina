@@ -30,22 +30,15 @@ sort_max_age: 90
 sort_iou_threshold: 0.3
 
 
-# main.py
-# Check for low light conditions every X minutes
-LOW_LIGHT_CHECK_INTERVAL: 15
-# Threshold for low light detection (average pixel value)
-LOW_LIGHT_THRESHOLD: 50
-# Hours to run camera alignment check (e.g., 6 AM and 6 PM)
-CAMERA_ALIGNMENT_HOURS: [6, 18]
-# Motion detection sensitivity (area of the largest contour)
-MOTION_SENSITIVITY: 500
-# Reference frame for camera alignment check
-REFERENCE_FRAME_PATH: "data/img/reference_frame.jpg"
-# Threshold for camera alignment check (structural similarity index)
-ALIGNMENT_THRESHOLD: 0.9
-# Email settings for notifications
-EMAIL_SENDER: "your_email@gmail.com"
-EMAIL_PASSWORD: "your_password"
-EMAIL_RECIPIENT: "recipient_email@example.com"
-EMAIL_SUBJECT: "Camera Alignment Alert"
-EMAIL_BODY: "Camera may be misaligned. Please check."
+# Advanced features (for extended functionality)
+low_light_check_interval: 15
+low_light_threshold: 50
+camera_alignment_hours: [6, 18]
+motion_sensitivity: 500
+reference_frame_path: "data/img/reference_frame.jpg"
+alignment_threshold: 0.9
+email_sender: "your_email@gmail.com"
+email_password: "your_password"
+email_recipient: "recipient_email@example.com"
+email_subject: "Camera Alignment Alert"
+email_body: "Camera may be misaligned. Please check."
