@@ -302,6 +302,57 @@ class CAMINALabelVisualizer:
                 print(f"   {class_name:12}: {count:4d} ({percentage:5.1f}%) "
                       f"conf: {avg_conf:.2f} ({min_conf:.2f}-{max_conf:.2f})")
 
+    def visualize_all_continuously(self, method='matplotlib', save_output=False, output_dir=None):
+        """Continuously visualize all labeled images until interrupted"""
+        print("\n🔄 Continuous Visualization Mode")
+        print("=" * 50)
+        print("📋 Controls:")
+        print("   • Press Ctrl+C to stop")
+        print("   • Close window to continue to next image")
+        print("   • Each image will be shown individually")
+        print("=" * 50)
+
+        # Get all images with labels
+        labeled_images = []
+        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
+
+        for ext in image_extensions:
+            for image_path in self.images_dir.glob(f"*{ext}"):
+                label_file = self.labels_dir / f"{image_path.stem}.txt"
+                labels = self.load_yolo_labels(label_file)
+                if labels:
+                    labeled_images.append((image_path, labels))
+
+        if not labeled_images:
+            print("❌ No labeled images found")
+            return
+
+        print(f"\n🖼️  Found {len(labeled_images)} labeled images")
+        print("Starting continuous visualization...\n")
+
+        try:
+            for idx, (image_path, labels) in enumerate(labeled_images):
+                print(f"📸 [{idx+1}/{len(labeled_images)}] Showing: {image_path.name} ({len(labels)} objects)")
+
+                try:
+                    self.visualize_single_image(
+                        image_path.name,
+                        method=method,
+                        save_output=save_output,
+                        output_dir=output_dir
+                    )
+                except KeyboardInterrupt:
+                    print("\n⏹️  Visualization interrupted by user")
+                    break
+                except Exception as e:
+                    print(f"⚠️  Error visualizing {image_path.name}: {e}")
+                    continue
+
+        except KeyboardInterrupt:
+            print("\n⏹️  Continuous visualization stopped by user")
+
+        print("\n✅ Visualization session completed")
+
     def create_summary_visualization(self, output_path=None, max_images=9):
         """Create a summary grid showing multiple images with labels"""
         # Get images with labels
@@ -402,6 +453,8 @@ def main():
     parser.add_argument("--output-dir", "-o", help="Output directory for saved visualizations")
     parser.add_argument("--summary", action='store_true',
                        help="Create summary visualization with multiple images")
+    parser.add_argument("--continuous", "-c", action='store_true',
+                       help="Continuously show all labeled images (Ctrl+C to stop)")
     parser.add_argument("--stats-only", action='store_true',
                        help="Only show statistics, no visualizations")
 
@@ -452,11 +505,20 @@ def main():
             output_path = Path(args.output_dir) / "camina_summary.png"
         visualizer.create_summary_visualization(output_path)
 
+    # Continuous visualization mode
+    elif args.continuous:
+        visualizer.visualize_all_continuously(
+            method=args.method,
+            save_output=args.save,
+            output_dir=args.output_dir
+        )
+
     # Interactive mode - show first few images
     else:
         print(f"\n🎨 Interactive mode - showing first few labeled images...")
         print("Use --image <name> to visualize specific images")
         print("Use --summary to create a grid visualization")
+        print("Use --continuous to show all images continuously (Ctrl+C to stop)")
 
         # Show first 3 images
         image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
