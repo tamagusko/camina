@@ -1,0 +1,194 @@
+# CAMINA Production Pipeline - Docker Compose
+# Development environment with monitoring services
+
+version: '3.8'
+
+services:
+  # Main CAMINA production pipeline
+  camina-production:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: camina-production
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./output:/app/output
+      - ./config:/app/config
+      # Mount source code for development
+      - .:/app/src
+    ports:
+      - "6006:6006"  # TensorBoard
+      - "8080:8080"  # Jupyter/Development server
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTHONPATH=/app
+      - WANDB_MODE=offline  # Prevent W&B from trying to sync in development
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+    networks:
+      - camina-network
+
+  # TensorBoard service
+  tensorboard:
+    image: tensorflow/tensorflow:latest-gpu
+    container_name: camina-tensorboard
+    restart: unless-stopped
+    volumes:
+      - ./logs/tensorboard:/logs
+    ports:
+      - "6007:6006"
+    command: tensorboard --logdir=/logs --host=0.0.0.0 --port=6006
+    networks:
+      - camina-network
+    depends_on:
+      - camina-production
+
+  # Jupyter Lab for development
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: camina-jupyter
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ./:/app/workspace
+      - ./data:/app/data
+      - ./models:/app/models
+    ports:
+      - "8888:8888"
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - CUDA_VISIBLE_DEVICES=0
+    command: >
+      bash -c "pip install jupyterlab &&
+               jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+               --notebook-dir=/app/workspace"
+    networks:
+      - camina-network
+
+  # Weights & Biases local server (optional)
+  wandb:
+    image: wandb/local:latest
+    container_name: camina-wandb
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    volumes:
+      - wandb-data:/vol
+    environment:
+      - LOCAL_USERNAME=camina
+      - LOCAL_PASSWORD=camina123
+      - WANDB_HOST=http://localhost:8081
+    networks:
+      - camina-network
+
+  # Model serving with ONNX Runtime (for testing inference)
+  model-server:
+    image: mcr.microsoft.com/onnxruntime/server:latest
+    container_name: camina-model-server
+    restart: unless-stopped
+    volumes:
+      - ./models:/models
+      - ./output:/output
+    ports:
+      - "8001:8001"  # HTTP
+      - "8002:8002"  # gRPC
+    command: >
+      bash -c "sleep 60 && onnxruntime_server
+               --http_port=8001
+               --grpc_port=8002
+               --model_path=/models"
+    networks:
+      - camina-network
+    depends_on:
+      - camina-production
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:alpine
+    container_name: camina-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - camina-network
+
+  # PostgreSQL for metadata storage (optional)
+  postgres:
+    image: postgres:15-alpine
+    container_name: camina-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=camina
+      - POSTGRES_USER=camina
+      - POSTGRES_PASSWORD=camina123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - camina-network
+
+volumes:
+  wandb-data:
+    driver: local
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+
+networks:
+  camina-network:
+    driver: bridge
+
+# Usage:
+#
+# Start all services:
+# docker-compose up -d
+#
+# Start only production pipeline:
+# docker-compose up camina-production
+#
+# View logs:
+# docker-compose logs -f camina-production
+#
+# Access services:
+# - TensorBoard: http://localhost:6007
+# - Jupyter Lab: http://localhost:8888
+# - W&B Local: http://localhost:8081
+# - Model Server: http://localhost:8001
+#
+# Scale services:
+# docker-compose up --scale camina-production=2
+#
+# Development workflow:
+# docker-compose exec camina-production bash
+# python camina_dataset_creator.py /app/data/images /app/data/output
+# python camina_yolo11n_trainer.py /app/data/dataset /app/data/training
+#
+# Stop all services:
+# docker-compose down
+#
+# Remove all data:
+# docker-compose down -v

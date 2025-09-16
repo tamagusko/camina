@@ -1,0 +1,62 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "description": "CAMINA Dataset Creator Configuration - 9-class urban mobility object detection",
+    "created_date": "2025-09-16",
+    "author": "CAMINA Team",
+    "target_hardware": "RTX 3060 (12GB VRAM)"
+  },
+  "classes": {
+    "0": "pedestrian",
+    "1": "cyclist",
+    "2": "car",
+    "3": "motorcycle",
+    "4": "bus",
+    "5": "truck",
+    "6": "e-scooter",
+    "7": "SUV",
+    "8": "delivery_van"
+  },
+  "confidence_thresholds": {
+    "pedestrian": 0.30,
+    "cyclist": 0.30,
+    "car": 0.40,
+    "motorcycle": 0.35,
+    "bus": 0.45,
+    "truck": 0.45,
+    "e-scooter": 0.20,
+    "SUV": 0.35,
+    "delivery_van": 0.30
+  },
+  "text_prompts": {
+    "pedestrian": ["person walking", "pedestrian", "person on street", "walking person"],
+    "cyclist": ["person on bicycle", "cyclist", "bike rider", "person cycling"],
+    "car": ["car", "automobile", "sedan", "hatchback", "passenger car"],
+    "motorcycle": ["motorcycle", "motorbike", "scooter", "motor scooter"],
+    "bus": ["bus", "public bus", "city bus", "transit bus"],
+    "truck": ["truck", "lorry", "freight truck", "cargo truck"],
+    "e-scooter": ["electric scooter", "e-scooter", "kick scooter", "standing scooter"],
+    "SUV": ["SUV", "sport utility vehicle", "large car", "crossover"],
+    "delivery_van": ["delivery van", "cargo van", "commercial van", "service van"]
+  },
+  "memory_config": {
+    "max_vram_gb": 10.0,
+    "batch_size_base": 8,
+    "max_batch_size": 32,
+    "min_batch_size": 1,
+    "memory_threshold": 0.85,
+    "cleanup_interval": 100
+  },
+  "detection_settings": {
+    "initial_confidence": 0.1,
+    "iou_threshold": 0.4,
+    "min_bbox_area": 0.01,
+    "supported_formats": [".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"]
+  },
+  "grounding_dino_config": {
+    "model_name": "IDEA-Research/grounding-dino-tiny",
+    "box_threshold": 0.25,
+    "text_threshold": 0.2,
+    "device": "cuda"
+  }
+}

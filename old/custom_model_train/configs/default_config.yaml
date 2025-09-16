@@ -1,0 +1,179 @@
+# CAMINA Default Configuration
+# Version 2.0 - Clean Architecture
+
+# Dataset configuration
+dataset:
+  # SDL dataset path (input)
+  sdl_dataset_path: "datasets/SDL fine-tuned_v3-cyclist_cleaned"
+  
+  # Output dataset path for CAMINA 9-class format
+  output_dataset_path: "datasets/camina_9class"
+  
+  # Dataset split ratios (must sum to 1.0)
+  train_split: 0.8
+  val_split: 0.15
+  test_split: 0.05
+  
+  # Minimum samples per class for balanced training
+  min_samples_per_class: 100
+
+# Video processing configuration
+video_processing:
+  # Frame extraction rate (frames per second)
+  extraction_fps: 0.5
+  
+  # Output image format
+  output_format: "jpg"
+  
+  # JPEG quality (1-100)
+  quality: 95
+  
+  # Maximum frames per video (null for no limit)
+  max_frames_per_video: 1000
+  
+  # Resize frames to specific size (null to keep original)
+  frame_size: [640, 640]
+
+# Training configuration
+training:
+  # Pre-trained model path
+  model_name: "yolo11n.pt"
+  
+  # Training epochs
+  epochs: 100
+  
+  # Batch size (will be adjusted based on available memory)
+  batch_size: 16
+  
+  # Input image size
+  image_size: 640
+  
+  # Computing device ('auto', 'cpu', 'cuda', 'mps')
+  device: "auto"
+  
+  # Number of data loading workers
+  workers: 4
+  
+  # Early stopping patience
+  patience: 10
+  
+  # Learning rate
+  learning_rate: 0.001
+  
+  # Weight decay for regularization
+  weight_decay: 0.0005
+  
+  # Optimizer ('Adam', 'AdamW', 'SGD')
+  optimizer: "AdamW"
+  
+  # Data augmentation parameters
+  mosaic: 1.0          # Mosaic augmentation probability
+  mixup: 0.15          # MixUp augmentation probability
+  copy_paste: 0.3      # Copy-paste augmentation probability
+  flipud: 0.0          # Vertical flip probability
+  fliplr: 0.5          # Horizontal flip probability
+  degrees: 0.0         # Rotation range in degrees
+  translate: 0.1       # Translation range
+  scale: 0.9           # Scale range
+  perspective: 0.0     # Perspective transformation
+  
+  # HSV augmentation
+  hsv_h: 0.015         # Hue augmentation range
+  hsv_s: 0.7           # Saturation augmentation range
+  hsv_v: 0.4           # Value augmentation range
+
+# Auto-labeling configuration
+auto_labeling:
+  # Detection confidence threshold
+  confidence_threshold: 0.3
+  
+  # Non-maximum suppression threshold
+  nms_threshold: 0.4
+  
+  # Minimum bounding box size (normalized)
+  min_box_size: 0.01
+  
+  # Maximum detections per image
+  max_detections: 100
+  
+  # CLIP prompts for new classes
+  clip_prompts:
+    6:  # e-scooter
+      - "electric scooter"
+      - "e-scooter"
+      - "kick scooter"
+      - "motorized scooter"
+    7:  # SUV
+      - "SUV"
+      - "sport utility vehicle"
+      - "large car"
+      - "off-road vehicle"
+    8:  # delivery_van
+      - "delivery van"
+      - "cargo van"
+      - "commercial van"
+      - "package delivery truck"
+
+# Deployment configuration
+deployment:
+  # Target deployment device
+  target_device: "raspberry_pi_5"
+  
+  # Export formats for model deployment
+  export_formats:
+    - "onnx"
+    - "ncnn"
+  
+  # Enable quantization for smaller models
+  quantization: true
+  
+  # Enable optimization for inference
+  optimization: true
+  
+  # Memory limit for deployment (MB)
+  max_memory_mb: 1000
+  
+  # Target inference FPS
+  target_fps: 15
+
+# Advanced settings
+advanced:
+  # Parallel processing
+  max_workers: 4
+  use_multiprocessing: false
+  
+  # Memory management
+  max_memory_gb: 8
+  enable_memory_monitoring: true
+  
+  # Error handling
+  retry_failed_steps: 1
+  continue_on_error: false
+  
+  # Logging
+  log_level: "INFO"
+  save_detailed_logs: true
+  
+  # Validation
+  validate_inputs: true
+  sanitize_paths: true
+
+# Output configuration
+output:
+  # Results directory
+  results_dir: "results"
+  
+  # Logs directory
+  logs_dir: "logs"
+  
+  # Save intermediate results
+  save_intermediate: true
+  
+  # Create comprehensive reports
+  create_report: true
+  
+  # Create visualization plots
+  create_plots: true
+  
+  # Save model architecture graphs
+  save_model_graphs: true

@@ -1,0 +1,15 @@
+path: /home/tiago/repos/camina/img/output_gdino
+train: images
+val: images
+test: images
+nc: 9
+names:
+  0: pedestrian
+  1: cyclist
+  2: car
+  3: motorcycle
+  4: bus
+  5: truck
+  6: e-scooter
+  7: SUV
+  8: delivery_van

@@ -1,0 +1,10 @@
+img_size: 640
+batch: 16
+epochs: 100
+patience: 10
+save_period: 10
+device: 0
+data: datasets/SDL-fine-tuned/data.yaml
+model: yolo11n.pt
+project: runs/warmup
+name: cyclist_dataset

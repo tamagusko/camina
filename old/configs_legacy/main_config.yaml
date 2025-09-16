@@ -1,0 +1,61 @@
+# Model
+# model: models/20250629_warmup_best.pt
+# model: models/yolo11n.pt
+ver: 0.1 beta
+# ncnn_model_path: models/yolo11n_ncnn_model/
+ncnn_model_path: models/20250629_warmup_best_ncnn_model/
+
+# Camera settings
+camera_source: tests/test.mov # or use 0 for real-time camera
+frame_width: 640
+frame_height: 480
+frame_skip: 5
+
+# Inference settings
+imgsz: 640
+confidence_threshold: 0.65
+draw_bbox: true
+
+# Logging and metadata
+location: UCD
+camera_id: cam01
+logging_enabled: true
+log_interval_minutes: 5
+
+# Display settings
+display_type: epaper # Options: epaper, oled, none, headless
+refresh_interval_seconds: 10
+
+# sort.py
+sort_max_age: 90
+sort_iou_threshold: 0.3
+
+# Speed estimation settings
+fps: 30 # Camera FPS for speed calculation
+pixels_per_meter: 10 # Calibration factor: pixels per meter (needs calibration)
+speed_thresholds: # Max realistic speeds in km/h to filter out errors
+  person: 25 # Max 25 km/h for walking/running
+  cyclist: 60 # Max 60 km/h for cycling
+  bus: 100 # Max 100 km/h for buses
+  car: 120 # Max 120 km/h for cars
+  motorcycle: 150 # Max 150 km/h for motorcycles  
+  truck: 100 # Max 100 km/h for trucks
+speed_min_threshold: 1.0 # Min speed in km/h to avoid stationary objects
+
+# Automatic calibration settings
+calibration_enabled: true # Enable automatic calibration system
+calibration_threshold: 0.1 # Sensitivity for camera position change detection (0.0-1.0)
+auto_recalibration: true # Automatically prompt for recalibration when position changes
+
+# Advanced features (for extended functionality)
+low_light_check_interval: 15
+low_light_threshold: 50
+camera_alignment_hours: [6, 18]
+motion_sensitivity: 500
+reference_frame_path: "data/img/reference_frame.jpg"
+alignment_threshold: 0.9
+email_sender: "your_email@gmail.com"
+email_password: "your_password"
+email_recipient: "recipient_email@example.com"
+email_subject: "Camera Alignment Alert"
+email_body: "Camera may be misaligned. Please check."
