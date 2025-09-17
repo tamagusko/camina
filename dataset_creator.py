@@ -533,16 +533,30 @@ class HybridDetector:
 
             self.secondary_model = YOLOWorld(model_name)
 
-            # Set up class names for new classes only
-            new_class_names = list(self.hybrid_config.new_classes.values())
-            self.secondary_model.set_classes(new_class_names)
+            # Set up text prompts for new classes (more effective than just class names)
+            new_class_prompts = []
+            new_class_mapping = {}  # Maps prompt index to (class_id, class_name)
+            prompt_index = 0
+
+            for class_id in self.hybrid_config.new_classes:
+                class_name = self.hybrid_config.new_classes[class_id]
+                prompts = self.class_config.get_text_prompts(class_name)
+                for prompt in prompts:
+                    new_class_prompts.append(prompt)
+                    new_class_mapping[prompt_index] = (class_id, class_name)
+                    prompt_index += 1
+
+            # Store the mapping for detection processing
+            self.yolo_world_class_mapping = new_class_mapping
+            self.secondary_model.set_classes(new_class_prompts)
 
             # Move to device
             if self.device.type == "cuda":
                 self.secondary_model.to(self.device)
 
             logger.info(f"YOLO-World secondary model loaded successfully")
-            logger.info(f"New classes configured: {new_class_names}")
+            logger.info(f"Text prompts configured: {new_class_prompts}")
+            logger.info(f"Class mapping: {new_class_mapping}")
             return True
 
         except ImportError:
@@ -759,26 +773,21 @@ class HybridDetector:
 
                         img_width, img_height = dimensions
 
-                        # Map from secondary model class IDs to CAMINA class IDs
-                        new_class_list = list(self.hybrid_config.new_classes.values())
-
-                        # Vectorized processing for better performance
+                        # Map from YOLO-World prompt indices to CAMINA class IDs using our mapping
                         valid_boxes = []
                         valid_confidences = []
                         valid_classes = []
 
-                        for box, conf, secondary_class_id in zip(boxes, confidences, class_ids):
-                            if secondary_class_id < len(new_class_list):
-                                class_name = new_class_list[secondary_class_id]
-                                camina_class_id = self.class_config.get_class_id(class_name)
+                        for box, conf, prompt_class_id in zip(boxes, confidences, class_ids):
+                            if prompt_class_id in self.yolo_world_class_mapping:
+                                camina_class_id, class_name = self.yolo_world_class_mapping[prompt_class_id]
 
-                                if camina_class_id is not None:
-                                    # Apply class-specific confidence threshold
-                                    threshold = self.class_config.get_confidence_threshold(class_name)
-                                    if conf >= threshold:
-                                        valid_boxes.append(box)
-                                        valid_confidences.append(conf)
-                                        valid_classes.append((camina_class_id, class_name))
+                                # Apply class-specific confidence threshold
+                                threshold = self.class_config.get_confidence_threshold(class_name)
+                                if conf >= threshold:
+                                    valid_boxes.append(box)
+                                    valid_confidences.append(conf)
+                                    valid_classes.append((camina_class_id, class_name))
 
                         # Convert coordinates in batch if we have valid detections
                         if valid_boxes:
