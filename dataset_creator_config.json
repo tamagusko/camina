@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "description": "CAMINA Dataset Creator Configuration - 9-class urban mobility object detection",
     "created_date": "2025-09-16",
-    "author": "CAMINA Team",
+    "author": "TiagoTamagusko",
     "target_hardware": "RTX 3060 (12GB VRAM)"
   },
   "classes": {
@@ -53,10 +53,39 @@
     "min_bbox_area": 0.01,
     "supported_formats": [".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"]
   },
+  "detection_mode": {
+    "comment": "This configuration only supports hybrid detection mode: YOLO11n for COCO classes + YOLO-World/Grounding DINO for new classes"
+  },
+  "hybrid_config": {
+    "enabled": true,
+    "primary_model": "yolo11n",
+    "yolo11_model": "yolo11n.pt",
+    "secondary_model": "yolo_world",
+    "coco_classes": {
+      "0": "pedestrian",
+      "2": "car",
+      "3": "motorcycle",
+      "4": "bus",
+      "5": "truck"
+    },
+    "new_classes": {
+      "1": "cyclist",
+      "6": "e-scooter",
+      "7": "SUV",
+      "8": "delivery_van"
+    },
+    "comment": "Hybrid approach: YOLO11 for COCO classes (faster, more accurate) + YOLO-World/Grounding DINO for new classes (targeted detection)"
+  },
+  "yolo_world_config": {
+    "model_name": "yolov8l-world.pt",
+    "device": "cuda",
+    "comment": "YOLO-World model configuration - faster inference, good for real-time applications"
+  },
   "grounding_dino_config": {
-    "model_name": "IDEA-Research/grounding-dino-tiny",
+    "model_name": "IDEA-Research/grounding-dino-base",
     "box_threshold": 0.25,
     "text_threshold": 0.2,
-    "device": "cuda"
+    "device": "cuda",
+    "comment": "Grounding DINO base model - good balance of performance vs speed"
   }
 }

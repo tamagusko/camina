@@ -19,16 +19,29 @@
 ```bash
 git clone https://github.com/your-username/camina.git
 cd camina
+
+# Set up virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Verify installation
+python verify_installation.py
 ```
 
 ### 2. Auto-Label Dataset
 ```bash
-# YOLO-World implementation
-python dataset_creator_yolow.py
+# YOLO-World implementation (faster, good for general detection)
+python dataset_creator_yolow.py /path/to/images /path/to/output --verbose
 
-# Or Grounding DINO implementation
-python dataset_creator_groundingDino.py
+# Or Grounding DINO implementation (more precise, better for complex scenes)
+python dataset_creator_groundingDino.py /path/to/images /path/to/output --verbose
+
+# Example with test images
+python dataset_creator_yolow.py img/test test_output_yolow --verbose
+python dataset_creator_groundingDino.py img/test test_output_gdino --verbose
 ```
 
 ### 3. Train Edge Model
@@ -38,8 +51,18 @@ python camina_yolo11n_trainer.py
 
 ### 4. Validate & Visualize
 ```bash
-python visualize_labels.py
-python quick_check_labels.py
+# Visualize labels with statistics
+python visualize_labels.py /path/to/dataset --stats-only
+
+# Generate visualization images
+python visualize_labels.py /path/to/dataset --save --output-dir visualizations
+
+# Quick label validation
+python quick_check_labels.py /path/to/dataset
+
+# Example with test outputs
+python visualize_labels.py test_output_yolow --stats-only
+python visualize_labels.py test_output_gdino --save --output-dir viz_gdino
 ```
 
 ---
