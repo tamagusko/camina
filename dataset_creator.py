@@ -1271,15 +1271,121 @@ class DatasetValidator:
         return validation_results
 
 
+class PreviewGenerator:
+    """Generate preview images with bounding boxes for visual inspection"""
+
+    def __init__(self, class_config: ClassConfig):
+        self.class_config = class_config
+
+        # CAMINA 9-class names with colors (BGR format for OpenCV)
+        self.class_names = [
+            'pedestrian',    # 0
+            'cyclist',       # 1
+            'car',           # 2
+            'motorcycle',    # 3
+            'bus',           # 4
+            'truck',         # 5
+            'e-scooter',     # 6
+            'SUV',           # 7
+            'delivery_van'   # 8
+        ]
+
+        # Color palette for each class (BGR format for OpenCV)
+        self.colors = [
+            (255, 100, 100),  # pedestrian - light blue
+            (100, 255, 100),  # cyclist - light green
+            (100, 100, 255),  # car - light red
+            (255, 255, 100),  # motorcycle - cyan
+            (255, 100, 255),  # bus - magenta
+            (100, 255, 255),  # truck - yellow
+            (200, 150, 100),  # e-scooter - light brown
+            (150, 100, 200),  # SUV - purple
+            (100, 200, 150),  # delivery_van - teal
+        ]
+
+    def draw_boxes_on_image(self, image_path: Path, detections: List[Dict], show_confidence: bool = True) -> np.ndarray:
+        """Draw bounding boxes on image using OpenCV"""
+        # Load image
+        image = cv2.imread(str(image_path))
+        if image is None:
+            logger.error(f"Could not load image: {image_path}")
+            return None
+
+        img_height, img_width = image.shape[:2]
+
+        for detection in detections:
+            class_id = detection['class_id']
+            if class_id >= len(self.class_names):
+                continue
+
+            # Convert normalized coordinates to pixel coordinates
+            x_center = int(detection['x_center'] * img_width)
+            y_center = int(detection['y_center'] * img_height)
+            box_width = int(detection['width'] * img_width)
+            box_height = int(detection['height'] * img_height)
+
+            # Calculate box corners
+            x1 = int(x_center - box_width // 2)
+            y1 = int(y_center - box_height // 2)
+            x2 = int(x_center + box_width // 2)
+            y2 = int(y_center + box_height // 2)
+
+            # Get class info
+            class_name = self.class_names[class_id]
+            color = self.colors[class_id]
+            confidence = detection['confidence']
+
+            # Draw bounding box
+            cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
+
+            # Prepare label text
+            if show_confidence:
+                text = f"{class_name}: {confidence:.2f}"
+            else:
+                text = class_name
+
+            # Calculate text size and position
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.5
+            thickness = 1
+            (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, thickness)
+
+            # Draw text background
+            cv2.rectangle(image, (x1, y1 - text_height - 5), (x1 + text_width, y1), color, -1)
+
+            # Draw text
+            cv2.putText(image, text, (x1, y1 - 5), font, font_scale, (255, 255, 255), thickness)
+
+        return image
+
+    def save_preview(self, image_path: Path, detections: List[Dict], output_path: Path) -> bool:
+        """Generate and save a preview image with bounding boxes"""
+        try:
+            labeled_image = self.draw_boxes_on_image(image_path, detections)
+            if labeled_image is not None:
+                success = cv2.imwrite(str(output_path), labeled_image)
+                if success:
+                    logger.debug(f"Preview saved: {output_path}")
+                    return True
+                else:
+                    logger.error(f"Failed to save preview: {output_path}")
+            return False
+        except Exception as e:
+            logger.error(f"Error generating preview for {image_path}: {str(e)}")
+            return False
+
+
 def process_images(input_dir: Path, output_dir: Path, detector: HybridDetector,
                   verbose: bool = False) -> Dict:
-    """Process all images in input directory and create optimized YOLO dataset"""
+    """Process all images in input directory and create optimized YOLO dataset with preview"""
 
     # Create output directories
     images_output_dir = output_dir / 'images'
     labels_output_dir = output_dir / 'labels'
+    preview_output_dir = output_dir / 'preview'
     images_output_dir.mkdir(parents=True, exist_ok=True)
     labels_output_dir.mkdir(parents=True, exist_ok=True)
+    preview_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Get image files
     supported_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp']
@@ -1299,6 +1405,9 @@ def process_images(input_dir: Path, output_dir: Path, detector: HybridDetector,
     logger.info(f"Found {len(valid_image_files)} valid images to process")
     if len(image_files) > len(valid_image_files):
         logger.warning(f"Skipped {len(image_files) - len(valid_image_files)} invalid image files")
+
+    # Initialize preview generator
+    preview_generator = PreviewGenerator(detector.class_config)
 
     processed_count = 0
     error_count = 0
@@ -1324,6 +1433,10 @@ def process_images(input_dir: Path, output_dir: Path, detector: HybridDetector,
                         # Save labels
                         label_file = labels_output_dir / f"{image_file.stem}.txt"
                         detector.save_yolo_labels(detections, label_file)
+
+                        # Generate preview with bounding boxes
+                        preview_file = preview_output_dir / f"{image_file.stem}_preview.jpg"
+                        preview_generator.save_preview(image_file, detections, preview_file)
 
                         total_detections += len(detections)
 
@@ -1361,6 +1474,7 @@ def process_images(input_dir: Path, output_dir: Path, detector: HybridDetector,
     logger.info("=" * 60)
     logger.info(f"Model used: {stats['model']}")
     logger.info(f"Processed: {processed_count} images")
+    logger.info(f"Preview images generated: {processed_count}")
     logger.info(f"Errors: {error_count}")
     logger.info(f"Total detections: {stats['total_detections']}")
     logger.info(f"Average detections per image: {stats['avg_detections_per_image']:.2f}")
