@@ -63,18 +63,18 @@
     "secondary_model": "yolo_world",
     "coco_classes": {
       "0": "pedestrian",
+      "1": "cyclist",
       "2": "car",
       "3": "motorcycle",
       "4": "bus",
       "5": "truck"
     },
     "new_classes": {
-      "1": "cyclist",
       "6": "e-scooter",
       "7": "SUV",
       "8": "delivery_van"
     },
-    "comment": "Hybrid approach: YOLO11 for COCO classes (faster, more accurate) + YOLO-World/Grounding DINO for new classes (targeted detection)"
+    "comment": "Hybrid approach: YOLO11 for COCO classes including cyclist (created from person+bicycle union) + YOLO-World/Grounding DINO for new classes (targeted detection)"
   },
   "yolo_world_config": {
     "model_name": "yolov8l-world.pt",
@@ -87,5 +87,11 @@
     "text_threshold": 0.2,
     "device": "cuda",
     "comment": "Grounding DINO base model - good balance of performance vs speed"
+  },
+  "cyclist_detection_config": {
+    "iou_threshold": 0.20,
+    "spatial_margin_px": 5,
+    "enabled": true,
+    "comment": "Cyclist detection parameters for person+bicycle union logic. IoU threshold for overlapping person/bicycle detections."
   }
 }

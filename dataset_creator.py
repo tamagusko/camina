@@ -18,9 +18,9 @@ Configuration is loaded from dataset_creator_config.json
 Classes: pedestrian, cyclist, car, motorcycle, bus, truck, e-scooter, SUV, delivery_van
 
 Hybrid Detection Model:
-- YOLO11n for COCO classes: pedestrian, car, motorcycle, bus, truck (fastest & most accurate)
-- YOLO-World or Grounding DINO for new classes: cyclist, e-scooter, SUV, delivery_van (targeted detection)
-- Benefits: 3-4x speed improvement, highest accuracy on standard classes, good detection on new classes
+- YOLO11n for COCO classes: pedestrian, cyclist (from person+bicycle union), car, motorcycle, bus, truck
+- YOLO-World or Grounding DINO for new classes: e-scooter, SUV, delivery_van (targeted detection)
+- Benefits: 3-4x speed improvement, highest accuracy on standard classes, cyclist detection from rule-based pairing
 
 Author: CAMINA Team
 Date: 2025-09-17
@@ -374,6 +374,7 @@ class HybridConfig:
     # COCO class IDs mapping to CAMINA classes
     COCO_TO_CAMINA_MAPPING = {
         0: 0,    # person -> pedestrian
+        1: 1,    # bicycle -> used for cyclist creation
         2: 2,    # car -> car
         3: 3,    # motorcycle -> motorcycle
         5: 4,    # bus -> bus
@@ -414,15 +415,21 @@ class HybridConfig:
 
 
 class HybridDetector:
-    """Optimized hybrid detector combining YOLO11 for COCO classes with YOLO-World/Grounding DINO for new classes"""
+    """Optimized hybrid detector combining YOLO11 for COCO classes with YOLO-World/Grounding DINO for new classes
+
+    Includes cyclist detection logic that combines person and bicycle detections from YOLO11
+    to create cyclist class through union of overlapping bounding boxes.
+    """
 
     def __init__(self, class_config: ClassConfig, memory_config: MemoryConfig,
-                 hybrid_config: HybridConfig, yolo_world_config: Dict, grounding_dino_config: Dict):
+                 hybrid_config: HybridConfig, yolo_world_config: Dict, grounding_dino_config: Dict,
+                 cyclist_detection_config: Dict):
         self.class_config = class_config
         self.memory_config = memory_config
         self.hybrid_config = hybrid_config
         self.yolo_world_config = yolo_world_config
         self.grounding_dino_config = grounding_dino_config
+        self.cyclist_detection_config = cyclist_detection_config
         self.memory_manager = MemoryManager(memory_config)
 
         # Image cache for performance optimization
@@ -444,6 +451,11 @@ class HybridDetector:
         self.class_stats = {name: 0 for name in class_config.CLASSES.values()}
 
         logger.info(f"Initializing optimized hybrid detector (YOLO11 + {hybrid_config.secondary_model})...")
+
+        # Cyclist detection configuration (from example file logic)
+        self.iou_threshold_cyclist = cyclist_detection_config.get("iou_threshold", 0.20)  # Min IoU for pedestrian ⨂ cycle pairing
+        self.lower_margin_px = cyclist_detection_config.get("spatial_margin_px", 5)  # Cycle must be at least this many px lower than pedestrian
+        self.min_side_px = 4  # Drop detector boxes smaller than this (px)
 
     def _setup_device(self) -> torch.device:
         """Setup and validate CUDA device"""
@@ -602,6 +614,145 @@ class HybridDetector:
             logger.error(f"Failed to initialize Grounding DINO secondary: {str(e)}")
             return False
 
+    def _iou_xyxy(self, box_a: List[float], box_b: List[float]) -> float:
+        """Calculate IoU between two boxes in xyxy format"""
+        ax1, ay1, ax2, ay2 = box_a
+        bx1, by1, bx2, by2 = box_b
+
+        # Calculate intersection
+        ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+        ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+        iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
+        intersection = iw * ih
+
+        # Calculate union
+        area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+        area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+        union = area_a + area_b - intersection + 1e-9
+
+        return intersection / union
+
+    def _union_box(self, box_a: List[float], box_b: List[float]) -> List[float]:
+        """Create union bounding box from two boxes in xyxy format"""
+        ax1, ay1, ax2, ay2 = box_a
+        bx1, by1, bx2, by2 = box_b
+        return [min(ax1, bx1), min(ay1, by1), max(ax2, bx2), max(ay2, by2)]
+
+    def _bottom_y(self, xyxy: List[float]) -> float:
+        """Get bottom y coordinate of bounding box"""
+        return xyxy[3]
+
+    def _pair_pedestrian_bicycle_to_cyclist(self, ped_detections: List[Dict],
+                                           bicycle_detections: List[Dict],
+                                           img_width: int, img_height: int) -> Tuple[List[Dict], List[int]]:
+        """
+        Pair pedestrian and bicycle detections to create cyclist detections.
+
+        Logic from example file:
+        - Find overlapping person and bicycle boxes with IoU >= threshold
+        - Bicycle must be positioned lower than person (bottom edge)
+        - Create union bounding box for matched pairs
+        - Return cyclist detections and indices of unmatched pedestrians
+
+        Args:
+            ped_detections: List of pedestrian detections (in YOLO format)
+            bicycle_detections: List of bicycle detections (in YOLO format)
+            img_width: Image width for coordinate conversion
+            img_height: Image height for coordinate conversion
+
+        Returns:
+            cyclist_detections: List of cyclist detections created from pairs
+            unmatched_ped_indices: List of pedestrian indices not paired
+        """
+        if not ped_detections or not bicycle_detections:
+            return [], list(range(len(ped_detections)))
+
+        # Convert YOLO format to xyxy for IoU calculation
+        ped_boxes_xyxy = []
+        for ped in ped_detections:
+            x_center, y_center, width, height = ped['x_center'], ped['y_center'], ped['width'], ped['height']
+            x1 = (x_center - width / 2) * img_width
+            y1 = (y_center - height / 2) * img_height
+            x2 = (x_center + width / 2) * img_width
+            y2 = (y_center + height / 2) * img_height
+            ped_boxes_xyxy.append([x1, y1, x2, y2])
+
+        bicycle_boxes_xyxy = []
+        for bicycle in bicycle_detections:
+            x_center, y_center, width, height = bicycle['x_center'], bicycle['y_center'], bicycle['width'], bicycle['height']
+            x1 = (x_center - width / 2) * img_width
+            y1 = (y_center - height / 2) * img_height
+            x2 = (x_center + width / 2) * img_width
+            y2 = (y_center + height / 2) * img_height
+            bicycle_boxes_xyxy.append([x1, y1, x2, y2])
+
+        # Greedy pairing algorithm from example file
+        used_bicycles = set()
+        cyclist_detections = []
+        matched_peds = set()
+
+        for ped_idx, ped_box in enumerate(ped_boxes_xyxy):
+            best_match = None
+            ped_bottom_y = self._bottom_y(ped_box)
+
+            for bicycle_idx, bicycle_box in enumerate(bicycle_boxes_xyxy):
+                if bicycle_idx in used_bicycles:
+                    continue
+
+                # Check if bicycle is positioned lower than pedestrian
+                bicycle_bottom_y = self._bottom_y(bicycle_box)
+                if bicycle_bottom_y < ped_bottom_y + self.lower_margin_px:
+                    continue
+
+                # Calculate IoU
+                iou_score = self._iou_xyxy(ped_box, bicycle_box)
+                if iou_score >= self.iou_threshold_cyclist:
+                    if best_match is None or iou_score > best_match['score']:
+                        best_match = {
+                            'ped_idx': ped_idx,
+                            'bicycle_idx': bicycle_idx,
+                            'score': iou_score,
+                            'union_box': self._union_box(ped_box, bicycle_box)
+                        }
+
+            if best_match is not None:
+                # Create cyclist detection from union box
+                union_box = best_match['union_box']
+                x1, y1, x2, y2 = union_box
+
+                # Convert back to YOLO format
+                x_center = ((x1 + x2) / 2) / img_width
+                y_center = ((y1 + y2) / 2) / img_height
+                width = (x2 - x1) / img_width
+                height = (y2 - y1) / img_height
+
+                # Combine confidences using geometric mean with IoU factor
+                ped_conf = ped_detections[ped_idx]['confidence']
+                bicycle_conf = bicycle_detections[best_match['bicycle_idx']]['confidence']
+                combined_conf = (ped_conf * bicycle_conf * best_match['score']) ** (1/3)
+
+                cyclist_detections.append({
+                    'class_id': 1,  # cyclist class ID
+                    'class_name': 'cyclist',
+                    'confidence': float(combined_conf),
+                    'x_center': float(x_center),
+                    'y_center': float(y_center),
+                    'width': float(width),
+                    'height': float(height),
+                    'source': 'yolo11_cyclist'
+                })
+
+                matched_peds.add(ped_idx)
+                used_bicycles.add(best_match['bicycle_idx'])
+
+        # Get unmatched pedestrian indices
+        unmatched_ped_indices = [i for i in range(len(ped_detections)) if i not in matched_peds]
+
+        logger.debug(f"Cyclist pairing: {len(ped_detections)} pedestrians, {len(bicycle_detections)} bicycles -> "
+                    f"{len(cyclist_detections)} cyclists, {len(unmatched_ped_indices)} unmatched pedestrians")
+
+        return cyclist_detections, unmatched_ped_indices
+
     def detect_objects(self, image_path: Union[str, Path]) -> List[Dict]:
         """Detect objects using optimized hybrid approach with image caching"""
         if not self._models_initialized:
@@ -678,13 +829,17 @@ class HybridDetector:
             self.class_stats[detection['class_name']] += 1
 
     def _detect_yolo11_coco(self, image: Image.Image, dimensions: Tuple[int, int]) -> List[Dict]:
-        """Detect COCO classes using YOLO11 with optimized processing"""
+        """Detect COCO classes using YOLO11 with cyclist creation logic"""
         try:
             with torch_inference_mode():
                 # Convert PIL image to numpy array for YOLO11
                 image_array = np.array(image)
                 results = self.yolo11_model(image_array, verbose=False)
-                detections = []
+
+                # Separate collections for person, bicycle, and other detections
+                person_detections = []
+                bicycle_detections = []
+                other_detections = []
 
                 if results and len(results) > 0:
                     result = results[0]
@@ -696,13 +851,8 @@ class HybridDetector:
 
                         img_width, img_height = dimensions
 
-                        # Vectorized processing for better performance
-                        valid_indices = []
-                        valid_boxes = []
-                        valid_confidences = []
-                        valid_classes = []
-
-                        for idx, (box, conf, coco_class_id) in enumerate(zip(boxes, confidences, class_ids)):
+                        # Process all detections and separate by type
+                        for box, conf, coco_class_id in zip(boxes, confidences, class_ids):
                             # Check if this is a COCO class we want to detect
                             if coco_class_id in self.hybrid_config.COCO_TO_CAMINA_MAPPING:
                                 camina_class_id = self.hybrid_config.COCO_TO_CAMINA_MAPPING[coco_class_id]
@@ -713,33 +863,68 @@ class HybridDetector:
                                     # Apply class-specific confidence threshold
                                     threshold = self.class_config.get_confidence_threshold(class_name)
                                     if conf >= threshold:
-                                        valid_indices.append(idx)
-                                        valid_boxes.append(box)
-                                        valid_confidences.append(conf)
-                                        valid_classes.append((camina_class_id, class_name))
+                                        # Check box size filter
+                                        box_width = box[2] - box[0]
+                                        box_height = box[3] - box[1]
+                                        if box_width >= self.min_side_px and box_height >= self.min_side_px:
 
-                        # Convert coordinates in batch if we have valid detections
-                        if valid_boxes:
-                            valid_boxes = np.array(valid_boxes)
-                            yolo_coords = CoordinateConverter.xyxy_to_yolo_vectorized(
-                                valid_boxes, img_width, img_height
-                            )
+                                            # Convert to YOLO format
+                                            x_center = ((box[0] + box[2]) / 2) / img_width
+                                            y_center = ((box[1] + box[3]) / 2) / img_height
+                                            width = box_width / img_width
+                                            height = box_height / img_height
 
-                            for idx, (coords, conf, (class_id, class_name)) in enumerate(
-                                zip(yolo_coords, valid_confidences, valid_classes)
-                            ):
-                                detections.append({
-                                    'class_id': class_id,
-                                    'class_name': class_name,
-                                    'confidence': float(conf),
-                                    'x_center': float(coords[0]),
-                                    'y_center': float(coords[1]),
-                                    'width': float(coords[2]),
-                                    'height': float(coords[3]),
-                                    'source': 'yolo11'
-                                })
+                                            detection = {
+                                                'class_id': camina_class_id,
+                                                'class_name': class_name,
+                                                'confidence': float(conf),
+                                                'x_center': float(x_center),
+                                                'y_center': float(y_center),
+                                                'width': float(width),
+                                                'height': float(height),
+                                                'source': 'yolo11'
+                                            }
 
-                return detections
+                                            # Separate person and bicycle for cyclist pairing
+                                            if coco_class_id == 0:  # person
+                                                person_detections.append(detection)
+                                            elif coco_class_id == 1:  # bicycle
+                                                bicycle_detections.append(detection)
+                                            else:  # other vehicle classes
+                                                other_detections.append(detection)
+
+                # Create cyclists from person + bicycle pairs
+                cyclist_detections = []
+                unmatched_person_indices = []
+
+                if person_detections and bicycle_detections:
+                    cyclist_detections, unmatched_person_indices = self._pair_pedestrian_bicycle_to_cyclist(
+                        person_detections, bicycle_detections, img_width, img_height
+                    )
+                else:
+                    unmatched_person_indices = list(range(len(person_detections)))
+
+                # Combine final detections
+                final_detections = []
+
+                # Add cyclists
+                final_detections.extend(cyclist_detections)
+
+                # Add unmatched persons as pedestrians
+                for idx in unmatched_person_indices:
+                    final_detections.append(person_detections[idx])
+
+                # Add other vehicle detections (car, motorcycle, bus, truck)
+                final_detections.extend(other_detections)
+
+                # Note: we intentionally do NOT add standalone bicycles to final output
+                # as per the example file logic
+
+                logger.debug(f"YOLO11 detection summary: {len(person_detections)} persons, {len(bicycle_detections)} bicycles -> "
+                           f"{len(cyclist_detections)} cyclists, {len(unmatched_person_indices)} pedestrians, "
+                           f"{len(other_detections)} vehicles")
+
+                return final_detections
 
         except Exception as e:
             logger.error(f"YOLO11 detection failed: {str(e)}")
@@ -1221,9 +1406,9 @@ Examples:
 
 Detection Model:
   Hybrid approach (YOLO11n + YOLO-World/Grounding DINO):
-  - YOLO11n for COCO classes (pedestrian, car, motorcycle, bus, truck)
-  - YOLO-World or Grounding DINO for new classes (cyclist, e-scooter, SUV, delivery_van)
-  - Fastest processing with highest accuracy on standard classes
+  - YOLO11n for COCO classes (pedestrian, cyclist from person+bicycle union, car, motorcycle, bus, truck)
+  - YOLO-World or Grounding DINO for new classes (e-scooter, SUV, delivery_van)
+  - Fastest processing with highest accuracy on standard classes, rule-based cyclist detection
 
 Configuration:
   Edit dataset_creator_config.json to select secondary model and adjust parameters.
@@ -1294,7 +1479,8 @@ Configuration:
         # Initialize hybrid detector
         detector = HybridDetector(
             class_config, memory_config, hybrid_config,
-            config['yolo_world_config'], config['grounding_dino_config']
+            config['yolo_world_config'], config['grounding_dino_config'],
+            config['cyclist_detection_config']
         )
         if not detector.initialize_models():
             logger.error("Failed to initialize hybrid models. Exiting.")
@@ -1304,7 +1490,7 @@ Configuration:
         logger.info(f"Starting optimized image processing...")
         logger.info(f"Input directory: {input_dir}")
         logger.info(f"Output directory: {output_dir}")
-        logger.info(f"Model: optimized hybrid (YOLO11n + {hybrid_config.secondary_model})")
+        logger.info(f"Model: optimized hybrid (YOLO11n with cyclist detection + {hybrid_config.secondary_model})")
 
         try:
             results = process_images(input_dir, output_dir, detector, args.verbose)
