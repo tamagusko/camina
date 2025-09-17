@@ -58,3 +58,12 @@ coverage.xml
 dist/
 build/
 .eggs/
+
+# Large model files (download separately)
+*.pth
+*.pt
+*.safetensors
+*.bin
+groundingdino_swint_ogc.pth
+yolo11n.pt
+yolov8l-world.pt
