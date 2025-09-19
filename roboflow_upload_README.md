@@ -72,8 +72,3 @@ The script has been optimized with a **function-based architecture** for better 
 - Python 3.8+
 - No additional dependencies (uses standard library only)
 - Completed CAMINA pipeline runs (./run.sh or ./run_imagenet.sh)
-
-## Archived Files
-
-Files moved to `archive/` folder:
-- `upload_to_roboflow.py` - Deprecated automatic upload script
