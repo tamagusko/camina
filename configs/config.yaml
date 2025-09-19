@@ -1,0 +1,144 @@
+# CAMINA Production Configuration
+# Two-stage Detection Pipeline Configuration
+
+metadata:
+  version: "2.0.0"
+  description: "CAMINA Production - Two-stage urban mobility object detection"
+  created_date: "2025-09-19"
+  author: "CAMINA Team"
+  target_hardware: "RTX 3060 12GB VRAM + 32GB RAM"
+  optimization_level: "maximum_performance"
+
+# Detection pipeline stages
+detection_stages:
+  stage_a:
+    name: "YOLO11l + Cyclist Logic"
+    enabled: true
+    model_path: "models/yolo11l.pt"
+    device: "cuda"
+    classes:
+      0: "person"
+      1: "cyclist"  # Generated via cyclist logic
+      2: "car"
+      3: "motorcycle"
+      4: "bus"
+      5: "truck"
+    confidence_threshold: 0.1
+
+  stage_b:
+    name: "YOLO-World Open Vocabulary"
+    enabled: true
+    model_path: "models/yolov8m-worldv2.pt"
+    device: "cuda"
+    classes:
+      6: "e-scooter"
+      7: "SUV"
+      8: "delivery_van"
+    confidence_thresholds:
+      e-scooter: 0.50
+      SUV: 0.50
+      delivery_van: 0.50
+
+# Text prompts for YOLO-World
+text_prompts:
+  e-scooter:
+    - "e-scooter"
+    - "eletrical scooter"
+    - "person standing on a scooter"
+    - "rider on e-scooter"
+  SUV:
+    - "SUV"
+    - "sport utility vehicle"
+    - "crossover SUV"
+    - "family SUV"
+  delivery_van:
+    - "delivery van"
+    - "cargo van"
+    - "commercial van"
+    - "service van"
+    - "package delivery vehicle"
+    - "white delivery van"
+    - "logistics van"
+    - "courier van"
+    - "postal van"
+    - "freight van"
+
+# Cyclist detection logic configuration
+cyclist_detection:
+  enabled: true
+  iou_threshold: 0.20
+  spatial_margin_px: 5
+  lower_margin_px: 5
+  min_bbox_area: 0.01
+  confidence_threshold: 0.1
+
+# E-scooter spatial association configuration
+escooter_association:
+  enabled: true
+  iou_threshold: 0.15           # Lower than cyclist (e-scooters have more flexible positioning)
+  vertical_margin_px: 10        # Vertical margin for e-scooter positioning
+  spatial_margin_px: 5          # Spatial margin for geometric validation
+  min_bbox_area: 0.01           # Minimum bounding box area (normalized)
+  confidence_threshold: 0.1     # Minimum confidence for input detections
+
+# NMS consolidation settings
+nms_consolidation:
+  enabled: true
+  iou_threshold: 0.4
+  confidence_strategy: "weighted_average"  # or "max", "geometric_mean"
+  deterministic_tiebreaker: true
+  class_priority_order: [6, 7, 8, 1, 0, 2, 3, 4, 5]  # YOLO-World classes first (e-scooter, SUV, delivery_van), then others
+
+# Memory and performance settings optimized for RTX 3060 12GB + 32GB RAM
+performance:
+  max_vram_gb: 12.0
+  batch_size_base: 32          # Increased base batch size for 12GB VRAM
+  max_batch_size: 128          # Higher max batch for large datasets
+  min_batch_size: 8            # Higher minimum for better GPU utilization
+  memory_threshold: 0.85       # Use more VRAM (85% of 12GB = ~10.2GB)
+  cleanup_interval: 50         # More frequent cleanup for optimal memory
+  num_workers: 8               # Utilize more CPU cores with 32GB RAM
+  prefetch_factor: 4           # Optimize data loading pipeline
+  pin_memory: true             # Faster GPU transfers with ample RAM
+  mixed_precision: true        # Use FP16 for better performance
+
+# Detection settings
+detection:
+  min_bbox_area: 0.01
+  supported_formats: [".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"]
+  max_image_size: [1920, 1080]
+
+
+# Output configuration
+output:
+  format: "coco"  # COCO-style annotations
+  include_summary: true
+  summary_format: "ndjson"  # or "parquet"
+  save_visualizations: true
+  visualization_confidence_threshold: 0.3
+
+# Logging configuration
+logging:
+  level: "INFO"
+  file: "logs/camina.log"
+  max_file_size: "10MB"
+  backup_count: 5
+  format: "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
+
+# Reproducibility settings
+reproducibility:
+  random_seed: 42
+  torch_seed: 42
+  deterministic: true
+  benchmark: false
+
+# CLI defaults optimized for RTX 3060 12GB + 32GB RAM
+cli:
+  default_images_dir: "data/images"
+  default_output_dir: "outputs"
+  default_device: "cuda"
+  default_batch_size: 32       # Higher default batch size for 12GB VRAM
+  clean_on_start: false
+  aggressive_memory_management: true
+  gpu_memory_fraction: 0.85    # Use 85% of 12GB VRAM by default

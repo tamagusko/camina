@@ -20,8 +20,22 @@ bkp/
 
 # Logs and runtime files
 *.log
+*.log.*
+logs/
 *.sqlite3
 *.db
+
+# Output directories
+outputs/
+temp/
+tmp/
+
+# Legacy files (moved to archive)
+dataset_creator.py
+dataset_creator_config.json
+hybrid_annotate_scooter_dedup.py
+yolo_world_conservative.py
+fix_class_mapping.py
 
 
 # VSCode and other editor folders
@@ -67,3 +81,6 @@ build/
 groundingdino_swint_ogc.pth
 yolo11n.pt
 yolov8l-world.pt
+
+# Generated datasets (keep local, don't upload to GitHub)
+roboflow_datasets/

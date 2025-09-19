@@ -1,0 +1,314 @@
+# CAMINA Production Pipeline Configuration
+# Optimized for RTX 3060 training and Raspberry Pi 5 deployment
+
+# Dataset Creation Configuration
+dataset_creator:
+  # YOLO-World Model Settings
+  yolo_world_model: "yolov8s-world.pt"  # or "yolov8m-world.pt" for better accuracy
+
+  # Memory Management (RTX 3060 12GB optimized)
+  memory_config:
+    max_vram_gb: 10.0                     # Reserve 2GB for system
+    batch_size_base: 8                    # Base batch size
+    max_batch_size: 32                    # Maximum for RTX 3060
+    min_batch_size: 1                     # Minimum for stability
+    memory_threshold: 0.85                # Use 85% of available VRAM
+    cleanup_interval: 100                 # Clean memory every N images
+
+  # 9-Class Urban Mobility Detection
+  classes:
+    0: "person"
+    1: "cyclist"
+    2: "car"
+    3: "motorcycle"
+    4: "bus"
+    5: "truck"
+    6: "e-scooter"
+    7: "SUV"
+    8: "delivery_van"
+
+  # Class-specific confidence thresholds
+  confidence_thresholds:
+    person: 0.25        # Lower for persons (important for safety)
+    cyclist: 0.30           # Medium threshold
+    car: 0.40               # Higher (common class)
+    motorcycle: 0.35        # Medium threshold
+    bus: 0.45               # Higher (distinctive)
+    truck: 0.45             # Higher (distinctive)
+    e-scooter: 0.20         # Lower (new class, harder to detect)
+    SUV: 0.35               # Medium threshold
+    delivery_van: 0.30      # Medium threshold
+
+  # YOLO-World text prompts for each class
+  text_prompts:
+    person:
+      - "person walking"
+      - "person"
+      - "person on street"
+      - "walking person"
+    cyclist:
+      - "person on bicycle"
+      - "cyclist"
+      - "bike rider"
+      - "person cycling"
+    car:
+      - "car"
+      - "automobile"
+      - "sedan"
+      - "hatchback"
+      - "passenger car"
+    motorcycle:
+      - "motorcycle"
+      - "motorbike"
+      - "scooter"
+      - "motor scooter"
+    bus:
+      - "bus"
+      - "public bus"
+      - "city bus"
+      - "transit bus"
+    truck:
+      - "truck"
+      - "lorry"
+      - "freight truck"
+      - "cargo truck"
+    e-scooter:
+      - "electric scooter"
+      - "e-scooter"
+      - "kick scooter"
+      - "standing scooter"
+    SUV:
+      - "SUV"
+      - "sport utility vehicle"
+      - "large car"
+      - "crossover"
+    delivery_van:
+      - "delivery van"
+      - "cargo van"
+      - "commercial van"
+      - "service van"
+
+  # Processing settings
+  processing:
+    max_workers: 1                        # Parallel processing workers
+    validation_enabled: true              # Validate dataset after creation
+    save_visualizations: false            # Save detection visualizations
+    output_format: "yolo"                 # Output format (yolo, coco, etc.)
+
+# Training Configuration
+trainer:
+  # Model Configuration
+  model:
+    base_model: "yolo11n.pt"              # Base YOLO11n model
+    input_size: 640                       # Input image size
+
+  # Training Parameters (RTX 3060 optimized)
+  training:
+    epochs: 200                           # Training epochs
+    batch_size: 16                        # Base batch size
+    max_batch_size: 32                    # Maximum for RTX 3060
+    min_batch_size: 4                     # Minimum for stability
+    accumulate_grad_batches: 1            # Gradient accumulation
+
+    # Memory optimization
+    mixed_precision: true                 # Enable AMP for RTX 3060
+    gradient_checkpointing: true          # Reduce memory usage
+    memory_efficient: true                # Memory efficient mode
+
+  # Optimizer Settings
+  optimization:
+    optimizer: "AdamW"                    # Optimizer type
+    learning_rate: 0.001                  # Initial learning rate
+    weight_decay: 0.0001                  # L2 regularization
+    momentum: 0.9                         # SGD momentum (if using SGD)
+
+    # Learning rate scheduling
+    lr_scheduler: "OneCycleLR"            # Learning rate scheduler
+    warmup_epochs: 10                     # Warmup epochs
+    warmup_momentum: 0.8                  # Warmup momentum
+    warmup_bias_lr: 0.1                   # Warmup bias learning rate
+
+  # Early Stopping
+  early_stopping:
+    patience: 30                          # Epochs to wait for improvement
+    min_delta: 0.001                      # Minimum change to qualify as improvement
+
+  # Data Splits
+  data_splits:
+    train: 0.7                            # Training split
+    val: 0.2                              # Validation split
+    test: 0.1                             # Test split
+
+  # Data Augmentation (optimized for urban scenes)
+  augmentation:
+    # Mosaic and mixing augmentations
+    mosaic: 1.0                           # Mosaic probability
+    mixup: 0.1                            # MixUp probability
+    copy_paste: 0.3                       # Copy-paste probability
+
+    # Spatial augmentations
+    degrees: 10.0                         # Rotation degrees
+    translate: 0.2                        # Translation fraction
+    scale: 0.9                            # Scale range
+    shear: 2.0                            # Shear degrees
+    perspective: 0.0001                   # Perspective transform
+
+    # Flip augmentations
+    fliplr: 0.5                           # Horizontal flip probability
+    flipud: 0.0                           # Vertical flip probability
+
+    # Color augmentations
+    hsv_h: 0.015                          # HSV Hue augmentation
+    hsv_s: 0.7                            # HSV Saturation augmentation
+    hsv_v: 0.4                            # HSV Value augmentation
+
+    # Urban-specific augmentations
+    blur: 0.1                             # Gaussian blur probability
+    noise: 0.05                           # Gaussian noise probability
+
+  # Class Balancing
+  class_balancing:
+    enabled: true                         # Enable class weights
+    focal_loss: true                      # Use focal loss
+    focal_alpha: 0.25                     # Focal loss alpha
+    focal_gamma: 2.0                      # Focal loss gamma
+
+# Edge Deployment Configuration (Raspberry Pi 5)
+edge_deployment:
+  # Target Hardware
+  target:
+    device: "raspberry_pi_5"              # Target device
+    memory_limit_mb: 1000                 # Memory limit
+    target_fps: 15                        # Target inference FPS
+    max_model_size_mb: 25                 # Maximum model size
+
+  # Model Optimization
+  optimization:
+    quantization: true                    # Enable quantization
+    quantization_type: "dynamic"          # Quantization type
+    calibration_samples: 100              # Calibration samples for static quantization
+
+    pruning: true                         # Enable pruning
+    pruning_sparsity: 0.3                 # Pruning sparsity (30%)
+
+    distillation: false                   # Knowledge distillation (optional)
+    teacher_model: "yolo11s.pt"           # Teacher model for distillation
+
+  # Export Formats
+  export:
+    formats: ["onnx", "ncnn", "tflite"]   # Export formats
+    onnx_opset: 12                        # ONNX opset version
+    onnx_simplify: true                   # Simplify ONNX model
+
+    # Optimization flags
+    optimize_for_mobile: true             # Mobile optimization
+    half_precision: true                  # FP16 precision
+    batch_norm_folding: true              # Batch norm folding
+
+  # Deployment Package
+  deployment_package:
+    create_package: true                  # Create deployment package
+    include_inference_script: true        # Include ready-to-use inference script
+    include_requirements: true            # Include Pi-specific requirements
+    include_documentation: true           # Include setup documentation
+    include_benchmarks: true              # Include performance benchmarks
+
+# Roboflow Integration
+roboflow:
+  # API Configuration
+  api:
+    workspace: "your-workspace"           # Roboflow workspace
+    project: "camina-9class"              # Project name
+    version: 1                            # Dataset version
+    api_key: "your-api-key"               # API key (use environment variable)
+
+  # Upload Settings
+  upload:
+    batch_size: 100                       # Upload batch size
+    include_annotations: true             # Upload auto-generated annotations
+    annotation_format: "yolo"             # Annotation format
+
+  # Download Settings
+  download:
+    format: "yolo"                        # Download format
+    include_weights: false                # Include pre-trained weights
+
+# Logging and Monitoring
+logging:
+  # Log Levels
+  level: "INFO"                           # Log level (DEBUG, INFO, WARNING, ERROR)
+  console: true                           # Log to console
+  file: true                              # Log to file
+
+  # Log Files
+  file_config:
+    dataset_creator: "logs/dataset_creator.log"
+    trainer: "logs/trainer.log"
+    max_size_mb: 100                      # Maximum log file size
+    backup_count: 5                       # Number of backup files
+
+  # Monitoring
+  monitoring:
+    wandb:
+      enabled: false                      # Enable Weights & Biases
+      project: "camina-production"        # W&B project name
+      entity: "your-entity"               # W&B entity
+
+    tensorboard:
+      enabled: true                       # Enable TensorBoard
+      log_dir: "logs/tensorboard"         # TensorBoard log directory
+
+# Performance Optimization
+performance:
+  # System Optimization
+  system:
+    num_workers: 8                        # Data loading workers
+    pin_memory: true                      # Pin memory for faster GPU transfer
+    persistent_workers: true              # Keep workers alive between epochs
+
+  # GPU Optimization
+  gpu:
+    benchmark: true                       # Enable CUDA benchmark mode
+    deterministic: false                  # Deterministic mode (slower but reproducible)
+    allow_tf32: true                      # Allow TF32 on Ampere GPUs
+
+  # Memory Management
+  memory:
+    empty_cache_interval: 50              # Empty GPU cache every N batches
+    gradient_accumulation: 1              # Gradient accumulation steps
+    max_split_size_mb: 128                # Maximum memory split size
+
+# Validation and Testing
+validation:
+  # Metrics
+  metrics:
+    iou_thresholds: [0.5, 0.75]          # IoU thresholds for mAP calculation
+    confidence_threshold: 0.001           # Confidence threshold for validation
+    nms_threshold: 0.6                    # NMS threshold for validation
+
+  # Test Time Augmentation
+  tta:
+    enabled: false                        # Enable TTA (slower but more accurate)
+    scales: [1.0]                         # TTA scales
+    flips: [0]                            # TTA flips (0: none, 1: horizontal, 2: vertical, 3: both)
+
+# Advanced Features
+advanced:
+  # Model Architecture
+  architecture:
+    backbone_freeze: false                # Freeze backbone layers
+    neck_freeze: false                    # Freeze neck layers
+    head_freeze: false                    # Freeze head layers
+
+  # Loss Function
+  loss:
+    box_loss_gain: 0.05                   # Box loss gain
+    cls_loss_gain: 0.5                    # Classification loss gain
+    dfl_loss_gain: 1.5                    # Distribution focal loss gain
+
+  # Post-processing
+  post_processing:
+    conf_thres: 0.25                      # Confidence threshold
+    iou_thres: 0.45                       # IoU threshold for NMS
+    max_det: 300                          # Maximum detections per image
+    agnostic_nms: false                   # Class-agnostic NMS
