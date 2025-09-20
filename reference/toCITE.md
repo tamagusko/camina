@@ -1,1 +1,5 @@
-Chen, D. (2024). Object Detection for E-scooters [Data set]. Zenodo. https://doi.org/10.5281/zenodo.10578641
+@article{apurv2021detection,
+title={Detection of E-scooter Riders in Naturalistic Scenes},
+author={Apurv, Kumar and Tian, Renran and Sherony, Rini},
+journal={arXiv preprint arXiv:2111.14060},
+year={2021} }.
