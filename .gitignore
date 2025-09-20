@@ -78,9 +78,11 @@ build/
 *.pt
 *.safetensors
 *.bin
-groundingdino_swint_ogc.pth
-yolo11n.pt
-yolov8l-world.pt
+models/camina/
+models/yolo_base/*.pt
+models/yolo_world/*.pt
+models/yolo_world/*.pth
 
-# Generated datasets (keep local, don't upload to GitHub)
-roboflow_datasets/
+# Generated datasets and archives (keep local, don't upload to GitHub)
+archive/roboflow_datasets/
+archive/data_preparation/

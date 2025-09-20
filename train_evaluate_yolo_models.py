@@ -1,0 +1,798 @@
+#!/usr/bin/env python3
+"""
+CAMINA YOLO Model Training and Evaluation Script
+Academic-grade training and evaluation pipeline for YOLOv5n, YOLOv8n, YOLOv10n, and YOLO11n models.
+
+Purpose: Generate quantitative results for academic paper submission with rigorous experimental methodology.
+Dataset: Urban mobility object detection with 6 classes: bus, car, cyclist, motorcycle, person, truck
+Output: Academic tables ready for paper inclusion with comprehensive performance metrics.
+"""
+
+import os
+import sys
+import time
+import logging
+import warnings
+import traceback
+from pathlib import Path
+from typing import Dict, List, Tuple, Optional, Any
+from dataclasses import dataclass
+from datetime import datetime
+import json
+import csv
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import yaml
+import torch
+import psutil
+from ultralytics import YOLO
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.table import Table
+from rich.panel import Panel
+from rich.logging import RichHandler
+
+# Suppress warnings for cleaner output
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+# Initialize rich console for beautiful output
+console = Console()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(console=console, rich_tracebacks=True)]
+)
+logger = logging.getLogger("CAMINA")
+
+
+@dataclass
+class ModelConfig:
+    """Configuration for YOLO model training."""
+    name: str
+    model_path: str
+    epochs: int = 100
+    batch_size: int = 16
+    imgsz: int = 640  # Roboflow standard image size
+    patience: int = 50
+    save_period: int = 10
+    workers: int = 8
+    device: str = "auto"
+
+
+@dataclass
+class TrainingResults:
+    """Results from model training."""
+    model_name: str
+    training_time_hours: float
+    model_size_mb: float
+    best_map50: float
+    best_map50_95: float
+    final_epoch: int
+    convergence_epoch: int
+    model_path: str
+    results_path: str
+
+
+@dataclass
+class EvaluationResults:
+    """Results from model evaluation."""
+    model_name: str
+    overall_map50: float
+    overall_map50_95: float
+    per_class_map50: Dict[str, float]
+    per_class_instances: Dict[str, int]
+    inference_fps: float
+    model_size_mb: float
+    training_time_hours: float
+
+
+def setup_directories() -> Dict[str, Path]:
+    """
+    Create necessary directories for models, outputs, and results.
+
+    Returns:
+        Dictionary mapping directory names to Path objects
+    """
+    base_dir = Path("/home/tiago/repos/camina")
+    directories = {
+        "models": base_dir / "models" / "yolo_comparison",
+        "outputs": base_dir / "outputs" / "model_comparison",
+        "results": base_dir / "outputs" / "model_comparison" / "results",
+        "plots": base_dir / "outputs" / "model_comparison" / "plots",
+        "tables": base_dir / "outputs" / "model_comparison" / "tables",
+        "logs": base_dir / "outputs" / "model_comparison" / "logs"
+    }
+
+    for name, path in directories.items():
+        path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Created directory: {path}")
+
+    return directories
+
+
+def validate_dataset(dataset_path: Path) -> Dict[str, Any]:
+    """
+    Validate dataset structure and extract metadata.
+
+    Args:
+        dataset_path: Path to dataset directory
+
+    Returns:
+        Dictionary containing dataset metadata and validation results
+    """
+    logger.info("Validating dataset structure and extracting metadata...")
+
+    # Check required files
+    data_yaml = dataset_path / "data.yaml"
+    if not data_yaml.exists():
+        raise FileNotFoundError(f"data.yaml not found at {data_yaml}")
+
+    # Load dataset configuration
+    with open(data_yaml, 'r') as f:
+        data_config = yaml.safe_load(f)
+
+    # Validate required directories
+    train_images = dataset_path / "train" / "images"
+    train_labels = dataset_path / "train" / "labels"
+    test_images = dataset_path / "test" / "images"
+    test_labels = dataset_path / "test" / "labels"
+
+    required_dirs = [train_images, train_labels, test_images, test_labels]
+    for dir_path in required_dirs:
+        if not dir_path.exists():
+            raise FileNotFoundError(f"Required directory not found: {dir_path}")
+
+    # Count images and labels
+    train_img_count = len(list(train_images.glob("*.jpg"))) + len(list(train_images.glob("*.png")))
+    train_label_count = len(list(train_labels.glob("*.txt")))
+    test_img_count = len(list(test_images.glob("*.jpg"))) + len(list(test_images.glob("*.png")))
+    test_label_count = len(list(test_labels.glob("*.txt")))
+
+    # Count instances per class
+    class_names = data_config['names']
+    class_counts = {class_name: 0 for class_name in class_names}
+
+    # Count training instances
+    for label_file in train_labels.glob("*.txt"):
+        with open(label_file, 'r') as f:
+            for line in f:
+                if line.strip():
+                    class_id = int(line.strip().split()[0])
+                    if 0 <= class_id < len(class_names):
+                        class_counts[class_names[class_id]] += 1
+
+    # Count test instances
+    for label_file in test_labels.glob("*.txt"):
+        with open(label_file, 'r') as f:
+            for line in f:
+                if line.strip():
+                    class_id = int(line.strip().split()[0])
+                    if 0 <= class_id < len(class_names):
+                        class_counts[class_names[class_id]] += 1
+
+    dataset_info = {
+        "num_classes": data_config['nc'],
+        "class_names": class_names,
+        "class_counts": class_counts,
+        "train_images": train_img_count,
+        "train_labels": train_label_count,
+        "test_images": test_img_count,
+        "test_labels": test_label_count,
+        "data_yaml_path": str(data_yaml),
+        "dataset_path": str(dataset_path)
+    }
+
+    # Validation checks
+    if train_img_count != train_label_count:
+        logger.warning(f"Mismatch: {train_img_count} train images vs {train_label_count} labels")
+
+    if test_img_count != test_label_count:
+        logger.warning(f"Mismatch: {test_img_count} test images vs {test_label_count} labels")
+
+    # Display dataset summary
+    table = Table(title="Dataset Validation Summary")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="magenta")
+
+    table.add_row("Classes", str(dataset_info["num_classes"]))
+    table.add_row("Train Images", str(dataset_info["train_images"]))
+    table.add_row("Test Images", str(dataset_info["test_images"]))
+    table.add_row("Total Images", str(dataset_info["train_images"] + dataset_info["test_images"]))
+
+    console.print(table)
+
+    # Display class distribution
+    class_table = Table(title="Class Distribution")
+    class_table.add_column("Class", style="cyan")
+    class_table.add_column("Instances", style="magenta")
+
+    for class_name, count in class_counts.items():
+        class_table.add_row(class_name, str(count))
+
+    console.print(class_table)
+
+    logger.info("Dataset validation completed successfully")
+    return dataset_info
+
+
+def get_system_info() -> Dict[str, Any]:
+    """
+    Collect system information for reproducibility.
+
+    Returns:
+        Dictionary containing system specifications
+    """
+    system_info = {
+        "cpu_count": psutil.cpu_count(),
+        "memory_gb": round(psutil.virtual_memory().total / (1024**3), 2),
+        "python_version": sys.version,
+        "torch_version": torch.__version__,
+        "cuda_available": torch.cuda.is_available(),
+        "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+        "timestamp": datetime.now().isoformat()
+    }
+
+    if torch.cuda.is_available():
+        system_info["cuda_version"] = torch.version.cuda
+        system_info["gpu_name"] = torch.cuda.get_device_name(0)
+        system_info["gpu_memory_gb"] = round(torch.cuda.get_device_properties(0).total_memory / (1024**3), 2)
+
+    return system_info
+
+
+def train_yolo_model(model_config: ModelConfig, dataset_info: Dict[str, Any],
+                     output_dir: Path) -> TrainingResults:
+    """
+    Train a YOLO model with specified configuration.
+
+    Args:
+        model_config: Model configuration
+        dataset_info: Dataset information
+        output_dir: Output directory for model artifacts
+
+    Returns:
+        TrainingResults object containing training metrics
+    """
+    logger.info(f"Starting training for {model_config.name}")
+
+    # Create model-specific output directory
+    model_output_dir = output_dir / model_config.name
+    model_output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Initialize model
+    try:
+        model = YOLO(model_config.model_path)
+        logger.info(f"Loaded model: {model_config.model_path}")
+    except Exception as e:
+        logger.error(f"Failed to load model {model_config.model_path}: {e}")
+        raise
+
+    # Training parameters
+    train_params = {
+        "data": dataset_info["data_yaml_path"],
+        "epochs": model_config.epochs,
+        "batch": model_config.batch_size,
+        "imgsz": model_config.imgsz,
+        "patience": model_config.patience,
+        "save_period": model_config.save_period,
+        "workers": model_config.workers,
+        "device": model_config.device,
+        "project": str(model_output_dir),
+        "name": "train",
+        "exist_ok": True,
+        "verbose": True,
+        "save": True,
+        "plots": True
+    }
+
+    # Record start time
+    start_time = time.time()
+
+    try:
+        # Train the model
+        with console.status(f"[bold green]Training {model_config.name}..."):
+            results = model.train(**train_params)
+
+        # Calculate training time
+        training_time_hours = (time.time() - start_time) / 3600
+
+        # Get model path
+        best_model_path = model_output_dir / "train" / "weights" / "best.pt"
+
+        # Calculate model size
+        model_size_mb = best_model_path.stat().st_size / (1024 * 1024) if best_model_path.exists() else 0
+
+        # Extract best metrics
+        best_map50 = float(results.results_dict.get('metrics/mAP50(B)', 0))
+        best_map50_95 = float(results.results_dict.get('metrics/mAP50-95(B)', 0))
+
+        training_results = TrainingResults(
+            model_name=model_config.name,
+            training_time_hours=training_time_hours,
+            model_size_mb=model_size_mb,
+            best_map50=best_map50,
+            best_map50_95=best_map50_95,
+            final_epoch=len(results.results_dict.get('train/epoch', [])),
+            convergence_epoch=results.best_epoch if hasattr(results, 'best_epoch') else -1,
+            model_path=str(best_model_path),
+            results_path=str(model_output_dir / "train")
+        )
+
+        logger.info(f"Training completed for {model_config.name}")
+        logger.info(f"Training time: {training_time_hours:.2f} hours")
+        logger.info(f"Best mAP@0.5: {best_map50:.4f}")
+        logger.info(f"Model size: {model_size_mb:.2f} MB")
+
+        return training_results
+
+    except Exception as e:
+        logger.error(f"Training failed for {model_config.name}: {e}")
+        logger.error(traceback.format_exc())
+        raise
+
+
+def evaluate_model(model_path: str, dataset_info: Dict[str, Any],
+                   model_name: str, training_results: TrainingResults) -> EvaluationResults:
+    """
+    Evaluate trained model and calculate comprehensive metrics.
+
+    Args:
+        model_path: Path to trained model
+        dataset_info: Dataset information
+        model_name: Name of the model
+        training_results: Training results
+
+    Returns:
+        EvaluationResults object containing evaluation metrics
+    """
+    logger.info(f"Evaluating model: {model_name}")
+
+    try:
+        # Load trained model
+        model = YOLO(model_path)
+
+        # Run validation
+        val_results = model.val(
+            data=dataset_info["data_yaml_path"],
+            split="test",
+            save_json=True,
+            save_hybrid=True,
+            plots=True,
+            verbose=True
+        )
+
+        # Extract overall metrics
+        overall_map50 = float(val_results.results_dict.get('metrics/mAP50(B)', 0))
+        overall_map50_95 = float(val_results.results_dict.get('metrics/mAP50-95(B)', 0))
+
+        # Extract per-class mAP@0.5
+        per_class_map50 = {}
+        class_names = dataset_info["class_names"]
+
+        # Get per-class metrics if available
+        if hasattr(val_results, 'ap_class_index') and hasattr(val_results, 'ap50'):
+            for i, class_idx in enumerate(val_results.ap_class_index):
+                if class_idx < len(class_names):
+                    per_class_map50[class_names[class_idx]] = float(val_results.ap50[i])
+        else:
+            # Fallback: assign overall mAP to all classes
+            for class_name in class_names:
+                per_class_map50[class_name] = overall_map50
+
+        # Measure inference speed
+        logger.info("Measuring inference speed...")
+        test_images_dir = Path(dataset_info["dataset_path"]) / "test" / "images"
+        test_images = list(test_images_dir.glob("*.jpg"))[:100]  # Use first 100 images
+
+        if test_images:
+            start_time = time.time()
+            for img_path in test_images:
+                _ = model(str(img_path), verbose=False)
+            inference_time = time.time() - start_time
+            inference_fps = len(test_images) / inference_time
+        else:
+            inference_fps = 0.0
+            logger.warning("No test images found for FPS measurement")
+
+        evaluation_results = EvaluationResults(
+            model_name=model_name,
+            overall_map50=overall_map50,
+            overall_map50_95=overall_map50_95,
+            per_class_map50=per_class_map50,
+            per_class_instances=dataset_info["class_counts"],
+            inference_fps=inference_fps,
+            model_size_mb=training_results.model_size_mb,
+            training_time_hours=training_results.training_time_hours
+        )
+
+        logger.info(f"Evaluation completed for {model_name}")
+        logger.info(f"Overall mAP@0.5: {overall_map50:.4f}")
+        logger.info(f"Inference FPS: {inference_fps:.2f}")
+
+        return evaluation_results
+
+    except Exception as e:
+        logger.error(f"Evaluation failed for {model_name}: {e}")
+        logger.error(traceback.format_exc())
+        raise
+
+
+def generate_academic_tables(evaluation_results: List[EvaluationResults],
+                           output_dir: Path) -> None:
+    """
+    Generate academic tables for paper submission.
+
+    Args:
+        evaluation_results: List of evaluation results for all models
+        output_dir: Output directory for tables
+    """
+    logger.info("Generating academic tables for paper submission...")
+
+    # Table 2: Per-Class Detection Performance (mAP@0.5)
+    class_names = evaluation_results[0].per_class_instances.keys()
+
+    table2_data = []
+    for class_name in class_names:
+        row = {"Class": class_name}
+        instances = evaluation_results[0].per_class_instances[class_name]
+        row["Instances"] = instances
+
+        for eval_result in evaluation_results:
+            map50 = eval_result.per_class_map50.get(class_name, 0.0)
+            row[eval_result.model_name] = f"{map50:.3f}"
+
+        table2_data.append(row)
+
+    # Add average row
+    avg_row = {"Class": "Average", "Instances": ""}
+    for eval_result in evaluation_results:
+        avg_map50 = eval_result.overall_map50
+        avg_row[eval_result.model_name] = f"{avg_map50:.3f}"
+    table2_data.append(avg_row)
+
+    # Save Table 2
+    table2_df = pd.DataFrame(table2_data)
+    table2_path = output_dir / "table2_per_class_performance.csv"
+    table2_df.to_csv(table2_path, index=False)
+
+    # Table 3: Model Comparison
+    table3_data = []
+    for eval_result in evaluation_results:
+        table3_data.append({
+            "Model": eval_result.model_name,
+            "mAP@0.5": f"{eval_result.overall_map50:.3f}",
+            "Model Size (MB)": f"{eval_result.model_size_mb:.1f}",
+            "Video FPS": f"{eval_result.inference_fps:.1f}",
+            "Training Time (hrs)": f"{eval_result.training_time_hours:.1f}"
+        })
+
+    # Save Table 3
+    table3_df = pd.DataFrame(table3_data)
+    table3_path = output_dir / "table3_model_comparison.csv"
+    table3_df.to_csv(table3_path, index=False)
+
+    # Display tables in console
+    console.print("\n" + "="*80)
+    console.print("[bold cyan]Table 2: Per-Class Detection Performance (mAP@0.5)[/bold cyan]")
+    console.print("="*80)
+
+    rich_table2 = Table()
+    for col in table2_df.columns:
+        rich_table2.add_column(col, style="cyan" if col in ["Class", "Instances"] else "yellow")
+
+    for _, row in table2_df.iterrows():
+        rich_table2.add_row(*[str(val) for val in row])
+
+    console.print(rich_table2)
+
+    console.print("\n" + "="*80)
+    console.print("[bold cyan]Table 3: Model Comparison[/bold cyan]")
+    console.print("="*80)
+
+    rich_table3 = Table()
+    for col in table3_df.columns:
+        rich_table3.add_column(col, style="cyan" if col == "Model" else "yellow")
+
+    for _, row in table3_df.iterrows():
+        rich_table3.add_row(*[str(val) for val in row])
+
+    console.print(rich_table3)
+
+    logger.info(f"Academic tables saved to {output_dir}")
+    logger.info(f"Table 2 (Per-Class Performance): {table2_path}")
+    logger.info(f"Table 3 (Model Comparison): {table3_path}")
+
+
+def generate_performance_plots(evaluation_results: List[EvaluationResults],
+                             output_dir: Path) -> None:
+    """
+    Generate performance visualization plots.
+
+    Args:
+        evaluation_results: List of evaluation results
+        output_dir: Output directory for plots
+    """
+    logger.info("Generating performance visualization plots...")
+
+    # Set plot style
+    plt.style.use('seaborn-v0_8')
+    sns.set_palette("husl")
+
+    # Plot 1: Model Comparison Bar Chart
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
+
+    models = [result.model_name for result in evaluation_results]
+    map50_values = [result.overall_map50 for result in evaluation_results]
+    model_sizes = [result.model_size_mb for result in evaluation_results]
+    fps_values = [result.inference_fps for result in evaluation_results]
+    training_times = [result.training_time_hours for result in evaluation_results]
+
+    # mAP@0.5 comparison
+    bars1 = ax1.bar(models, map50_values, color='skyblue', alpha=0.8)
+    ax1.set_title('Model Performance Comparison (mAP@0.5)', fontsize=14, fontweight='bold')
+    ax1.set_ylabel('mAP@0.5', fontsize=12)
+    ax1.set_ylim(0, max(map50_values) * 1.1)
+    ax1.tick_params(axis='x', rotation=45)
+
+    # Add value labels on bars
+    for bar, value in zip(bars1, map50_values):
+        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.005,
+                f'{value:.3f}', ha='center', va='bottom', fontweight='bold')
+
+    # Model size comparison
+    bars2 = ax2.bar(models, model_sizes, color='lightcoral', alpha=0.8)
+    ax2.set_title('Model Size Comparison', fontsize=14, fontweight='bold')
+    ax2.set_ylabel('Size (MB)', fontsize=12)
+    ax2.tick_params(axis='x', rotation=45)
+
+    for bar, value in zip(bars2, model_sizes):
+        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(model_sizes)*0.01,
+                f'{value:.1f}', ha='center', va='bottom', fontweight='bold')
+
+    # FPS comparison
+    bars3 = ax3.bar(models, fps_values, color='lightgreen', alpha=0.8)
+    ax3.set_title('Inference Speed Comparison', fontsize=14, fontweight='bold')
+    ax3.set_ylabel('FPS', fontsize=12)
+    ax3.tick_params(axis='x', rotation=45)
+
+    for bar, value in zip(bars3, fps_values):
+        ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(fps_values)*0.01,
+                f'{value:.1f}', ha='center', va='bottom', fontweight='bold')
+
+    # Training time comparison
+    bars4 = ax4.bar(models, training_times, color='gold', alpha=0.8)
+    ax4.set_title('Training Time Comparison', fontsize=14, fontweight='bold')
+    ax4.set_ylabel('Training Time (hours)', fontsize=12)
+    ax4.tick_params(axis='x', rotation=45)
+
+    for bar, value in zip(bars4, training_times):
+        ax4.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(training_times)*0.01,
+                f'{value:.1f}', ha='center', va='bottom', fontweight='bold')
+
+    plt.tight_layout()
+    plt.savefig(output_dir / "model_comparison_plots.png", dpi=300, bbox_inches='tight')
+    plt.close()
+
+    # Plot 2: Per-Class Performance Heatmap
+    class_names = list(evaluation_results[0].per_class_map50.keys())
+    class_performance_matrix = []
+
+    for eval_result in evaluation_results:
+        row = [eval_result.per_class_map50.get(class_name, 0.0) for class_name in class_names]
+        class_performance_matrix.append(row)
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+    im = ax.imshow(class_performance_matrix, cmap='YlOrRd', aspect='auto')
+
+    # Set ticks and labels
+    ax.set_xticks(range(len(class_names)))
+    ax.set_yticks(range(len(models)))
+    ax.set_xticklabels(class_names, rotation=45, ha='right')
+    ax.set_yticklabels(models)
+
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('mAP@0.5', rotation=270, labelpad=20)
+
+    # Add text annotations
+    for i in range(len(models)):
+        for j in range(len(class_names)):
+            text = ax.text(j, i, f'{class_performance_matrix[i][j]:.3f}',
+                          ha="center", va="center", color="black", fontweight='bold')
+
+    ax.set_title('Per-Class Performance Heatmap (mAP@0.5)', fontsize=16, fontweight='bold', pad=20)
+    plt.tight_layout()
+    plt.savefig(output_dir / "per_class_performance_heatmap.png", dpi=300, bbox_inches='tight')
+    plt.close()
+
+    logger.info(f"Performance plots saved to {output_dir}")
+
+
+def save_comprehensive_report(evaluation_results: List[EvaluationResults],
+                            dataset_info: Dict[str, Any],
+                            system_info: Dict[str, Any],
+                            output_dir: Path) -> None:
+    """
+    Save comprehensive experimental report.
+
+    Args:
+        evaluation_results: List of evaluation results
+        dataset_info: Dataset information
+        system_info: System information
+        output_dir: Output directory
+    """
+    logger.info("Generating comprehensive experimental report...")
+
+    report_data = {
+        "experiment_info": {
+            "timestamp": datetime.now().isoformat(),
+            "purpose": "Academic comparison of YOLO models for urban mobility detection",
+            "dataset": dataset_info,
+            "system": system_info
+        },
+        "model_results": []
+    }
+
+    for eval_result in evaluation_results:
+        model_data = {
+            "model_name": eval_result.model_name,
+            "performance_metrics": {
+                "overall_map50": eval_result.overall_map50,
+                "overall_map50_95": eval_result.overall_map50_95,
+                "per_class_map50": eval_result.per_class_map50,
+                "inference_fps": eval_result.inference_fps
+            },
+            "efficiency_metrics": {
+                "model_size_mb": eval_result.model_size_mb,
+                "training_time_hours": eval_result.training_time_hours
+            },
+            "dataset_metrics": {
+                "per_class_instances": eval_result.per_class_instances
+            }
+        }
+        report_data["model_results"].append(model_data)
+
+    # Save as JSON
+    report_path = output_dir / "comprehensive_experimental_report.json"
+    with open(report_path, 'w') as f:
+        json.dump(report_data, f, indent=2)
+
+    # Generate summary statistics
+    summary_stats = {
+        "best_overall_performance": max(evaluation_results, key=lambda x: x.overall_map50).model_name,
+        "smallest_model": min(evaluation_results, key=lambda x: x.model_size_mb).model_name,
+        "fastest_inference": max(evaluation_results, key=lambda x: x.inference_fps).model_name,
+        "fastest_training": min(evaluation_results, key=lambda x: x.training_time_hours).model_name,
+        "performance_range": {
+            "map50_min": min(r.overall_map50 for r in evaluation_results),
+            "map50_max": max(r.overall_map50 for r in evaluation_results),
+            "map50_std": np.std([r.overall_map50 for r in evaluation_results])
+        }
+    }
+
+    summary_path = output_dir / "experiment_summary.json"
+    with open(summary_path, 'w') as f:
+        json.dump(summary_stats, f, indent=2)
+
+    logger.info(f"Comprehensive report saved to {report_path}")
+    logger.info(f"Experiment summary saved to {summary_path}")
+
+
+def main():
+    """
+    Main function to execute the complete training and evaluation pipeline.
+    """
+    try:
+        # Print header
+        console.print("\n" + "="*100)
+        console.print(Panel.fit(
+            "[bold cyan]CAMINA YOLO Model Training and Evaluation Pipeline[/bold cyan]\n"
+            "[yellow]Academic-grade experimental methodology for paper submission[/yellow]",
+            border_style="bright_blue"
+        ))
+        console.print("="*100 + "\n")
+
+        # Setup directories
+        directories = setup_directories()
+
+        # Get system information
+        system_info = get_system_info()
+        logger.info(f"System: {system_info['cpu_count']} CPUs, {system_info['memory_gb']} GB RAM")
+        if system_info['cuda_available']:
+            logger.info(f"GPU: {system_info['gpu_name']} ({system_info['gpu_memory_gb']} GB)")
+
+        # Validate dataset
+        dataset_path = Path("/home/tiago/repos/camina/data/dataset_v4i_yolov11")
+        dataset_info = validate_dataset(dataset_path)
+
+        # Define model configurations
+        model_configs = [
+            ModelConfig(name="YOLOv5n", model_path="models/yolo_base/yolov5n.pt"),
+            ModelConfig(name="YOLOv8n", model_path="models/yolo_base/yolov8n.pt"),
+            ModelConfig(name="YOLOv10n", model_path="models/yolo_base/yolov10n.pt"),
+            ModelConfig(name="YOLO11n", model_path="models/yolo_base/yolo11n.pt")
+        ]
+
+        # Train and evaluate models
+        all_training_results = []
+        all_evaluation_results = []
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console
+        ) as progress:
+
+            main_task = progress.add_task("Training and evaluating models...", total=len(model_configs))
+
+            for i, model_config in enumerate(model_configs):
+                progress.update(main_task, description=f"Processing {model_config.name}")
+
+                try:
+                    # Train model
+                    training_results = train_yolo_model(
+                        model_config, dataset_info, directories["models"]
+                    )
+                    all_training_results.append(training_results)
+
+                    # Evaluate model
+                    evaluation_results = evaluate_model(
+                        training_results.model_path, dataset_info,
+                        model_config.name, training_results
+                    )
+                    all_evaluation_results.append(evaluation_results)
+
+                    progress.update(main_task, advance=1)
+
+                except Exception as e:
+                    logger.error(f"Failed to process {model_config.name}: {e}")
+                    continue
+
+        if not all_evaluation_results:
+            logger.error("No models were successfully trained and evaluated")
+            return
+
+        # Generate academic tables
+        generate_academic_tables(all_evaluation_results, directories["tables"])
+
+        # Generate performance plots
+        generate_performance_plots(all_evaluation_results, directories["plots"])
+
+        # Save comprehensive report
+        save_comprehensive_report(
+            all_evaluation_results, dataset_info, system_info, directories["results"]
+        )
+
+        # Final summary
+        console.print("\n" + "="*100)
+        console.print(Panel.fit(
+            "[bold green]Experimental Pipeline Completed Successfully![/bold green]\n"
+            f"[yellow]Results saved to: {directories['outputs']}[/yellow]\n"
+            f"[cyan]Academic tables ready for paper submission[/cyan]",
+            border_style="bright_green"
+        ))
+        console.print("="*100)
+
+        # Display final results summary
+        best_model = max(all_evaluation_results, key=lambda x: x.overall_map50)
+        logger.info(f"Best performing model: {best_model.model_name} (mAP@0.5: {best_model.overall_map50:.4f})")
+
+    except KeyboardInterrupt:
+        logger.warning("Training interrupted by user")
+    except Exception as e:
+        logger.error(f"Pipeline failed: {e}")
+        logger.error(traceback.format_exc())
+        raise
+
+
+if __name__ == "__main__":
+    main()

@@ -1,34 +1,45 @@
 # CAMINA Documentation
 
-This directory contains detailed documentation for the CAMINA hybrid detection system.
+This directory contains all documentation for the CAMINA (Computer-Aided Mobility Investigation and Analysis) project.
 
 ## 📚 Documentation Structure
+
+### Academic Papers
+- **[../paper/](../paper/)** - Academic paper drafts and evaluations
+  - `draft_v3.md` - Latest paper draft
+  - `evaluation_draft_v3.md` - Evaluation methodology and results
 
 ### Quick Start
 - **[Main README.md](../README.md)** - Complete setup and usage guide
 - **[Installation Guide](installation.md)** - Detailed installation instructions
 - **[Model Download Guide](MODEL_DOWNLOAD.md)** - Model files and setup
+- **[Run Scripts Guide](run_scripts.md)** - Guide to running different analysis scripts
 
 ### Technical Documentation
 - **[Cyclist Detection Implementation](CYCLIST_DETECTION_IMPLEMENTATION.md)** - Detailed cyclist logic algorithm
 - **[Model Configuration](model_configuration.md)** - Model-specific settings
 - **[Code Style Guide](CODE_STYLE.md)** - Development standards
+- **[Training Pipeline](training_pipeline.md)** - Training methodology and pipeline
+- **[YOLO Training](yolo_training.md)** - YOLO model training documentation
 
 ### Research and Analysis
 - **[Optimization Analysis](OPTIMIZATION_ANALYSIS.md)** - Performance optimization details
 - **[Optimization Summary](OPTIMIZATION_SUMMARY.md)** - Key optimization results
+- **[Dataset Details](DATASET_DETAILS.md)** - Dataset composition and statistics
 
 ### Development
 - **[Equipment Specifications](EQUIPMENTS.md)** - Hardware requirements and recommendations
 - **[Models Information](MODELS.md)** - Detailed model specifications
 - **[Bug Reports](BUGS.md)** - Known issues and workarounds
 - **[TODO Items](TODO.md)** - Development roadmap
+- **[Troubleshooting](TROUBLESHOOTING.md)** - Common issues and solutions
 
-### Legacy Documentation
-- **[Dataset Creators](dataset_creators.md)** - Legacy dataset creation tools
-- **[Calibration](calibration.md)** - Model calibration procedures
+### Reference Materials
+- **[Academic Reports](ACADEMIC_REPORTS.md)** - Academic report templates and guidelines
+- **[Roboflow Upload](roboflow_upload.md)** - Instructions for dataset upload to Roboflow
+- **[Calibration](calibration.md)** - Camera calibration procedures
 - **[Deployment](deployment.md)** - Deployment guidelines
-- **[Visualization](visualization.md)** - Visualization tools
+- **[Visualization](visualization.md)** - Visualization tools and techniques
 
 ## 🚀 Getting Started
 

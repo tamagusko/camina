@@ -79,17 +79,19 @@ Table 2 presents the detailed per-class detection performance, highlighting the 
 
 Table 2: Per-Class Detection Performance (mAP@0.5)
 
-| Class | New | mAP@0.5 | Samples |
-| :---- | :---- | :---- | :---- |
-| Person | **No (COCO)** |  |  |
-| **Cyclist** | **Yes (rule-based)** |  |  |
-| Car | **No (COCO)** |  |  |
-| **E-scooter** | **Yes (open-vocabulary detection)** |  |  |
-| **SUV** | **Yes (open-vocabulary detection)** |  |  |
-| Motorcycle | **COCO** |  |  |
-| Bus | **COCO** |  |  |
-| **Delivery Van** | **Yes (open-vocabulary detection)** |  |  |
-| Truck | **COCO** |  |  |
+| Class | New | mAP@0.5\* | Instances (autolabel) | Instances  (manual fixing)\* |
+| :---- | :---- | :---- | :---- | :---- |
+| Person | **No (COCO)** |  | 1,758 \+ 7,802 |  |
+| **Cyclist** | **Yes (rule-based)** |  | 796 |  |
+| Car | **No (COCO)** |  | 15,336 \+ 7,802 |  |
+| **E-scooter** | **Yes (open-vocabulary detection)** |  | 0 |  |
+| **SUV** | **Yes (open-vocabulary detection)** |  | 650 \+ 297 |  |
+| Motorcycle | **COCO** |  | 79 \+ 432 |  |
+| Bus | **COCO** |  | 232 \+ 336 |  |
+| **Delivery Van** | **Yes (open-vocabulary detection)** |  | 89 \+ 52 |  |
+| Truck | **COCO** |  | 796 \+ 213 |  |
+
+Note: The model was trained and evaluated based on the dataset corrected by manual labeling fixing.
 
 The performance distribution reflects the hybrid architecture's strategic design. Traditional COCO classes (person, car, motorcycle, bus, truck) benefit from YOLO11n's robust pre-training, while emerging mobility classes marked as "New" (cyclist, e-scooter, SUV, delivery van) represent our system's capability to address contemporary urban transportation patterns. The cyclist class, although derived from COCO components, is marked as "New" due to our novel rule-based creation methodology, which eliminates traditional double-counting issues.  
 To validate our choice of YOLO11n as the primary detection model, we conducted baseline comparisons across the YOLO family evolution (Table 3). Performance analysis revealed that YOLO11n achieved \[mAP@0.5\], representing a \[percentage improvement\] over the baseline YOLOv5n model (\[baseline mAP\]). Model size variations ranged from \[smallest size\] MB to \[largest size\] MB, directly impacting deployment feasibility on resource-constrained edge devices. Training time analysis showed \[fastest model\] required only \[training hours\] hours compared to \[slowest model\] at \[training hours\] hours, highlighting efficiency differences in model optimization processes.
