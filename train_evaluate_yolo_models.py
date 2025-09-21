@@ -685,6 +685,269 @@ def save_comprehensive_report(evaluation_results: List[EvaluationResults],
     logger.info(f"Experiment summary saved to {summary_path}")
 
 
+def generate_markdown_report(evaluation_results: List[EvaluationResults],
+                           dataset_info: Dict[str, Any],
+                           system_info: Dict[str, Any],
+                           output_dir: Path) -> None:
+    """
+    Generate comprehensive markdown report with completed academic tables.
+
+    Args:
+        evaluation_results: List of evaluation results
+        dataset_info: Dataset information
+        system_info: System information
+        output_dir: Output directory
+    """
+    logger.info("Generating comprehensive markdown report...")
+
+    # Class mapping for academic tables
+    class_definitions = {
+        'bus': ('COCONUT', 'Any bus'),
+        'car': ('No (COCO)', 'Any car'),
+        'cyclist': ('Yes (rule-based)', 'A person on a bicycle'),
+        'motorcycle': ('COCONUT', 'Person on a motorcycle'),
+        'person': ('No (COCO)', 'Any person'),
+        'truck': ('COCONUT', 'Any truck'),
+        'e-scooter': ('Yes (open-vocabulary)', 'A person on an e-scooter'),
+        'SUV': ('Yes (open-vocabulary)', 'Any SUV or Pickup Truck'),
+        'delivery_van': ('Yes (open-vocabulary)', 'Any delivery van')
+    }
+
+    # Get best performing model
+    best_model = max(evaluation_results, key=lambda x: x.overall_map50)
+
+    # Get averaged per-class performance across all models
+    all_classes = set()
+    for result in evaluation_results:
+        all_classes.update(result.per_class_map50.keys())
+
+    avg_per_class_map50 = {}
+    total_instances = {}
+
+    for class_name in all_classes:
+        values = [r.per_class_map50.get(class_name, 0.0) for r in evaluation_results]
+        avg_per_class_map50[class_name] = np.mean([v for v in values if v > 0])
+
+        # Get instance count from best model
+        instance_counts = [r.per_class_instances.get(class_name, 0) for r in evaluation_results]
+        total_instances[class_name] = max(instance_counts) if instance_counts else 0
+
+    # Generate markdown content
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    markdown_content = f"""# CAMINA YOLO Model Comparison Report
+
+**Generated:** {timestamp}
+**Dataset:** {dataset_info.get('dataset_path', 'N/A')}
+**Total Images:** {dataset_info.get('total_images', 0)} ({dataset_info.get('train_images', 0)} train, {dataset_info.get('test_images', 0)} test)
+**Total Classes:** {dataset_info.get('num_classes', 0)}
+**System:** {system_info.get('gpu_name', 'Unknown GPU')} ({system_info.get('gpu_memory_gb', 0):.1f}GB)
+
+## Executive Summary
+
+Comprehensive evaluation of **YOLOv5n**, **YOLOv8n**, **YOLOv10n**, and **YOLO11n** models for urban mobility detection using a rigorous academic methodology. All models were trained with identical parameters (640x640 resolution, 100 epochs, batch size 16) for fair comparison.
+
+### Key Findings
+
+- **Best Overall Performance:** {best_model.model_name} (mAP@0.5: {best_model.overall_map50:.3f})
+- **Model Size Range:** {min(r.model_size_mb for r in evaluation_results):.1f}MB - {max(r.model_size_mb for r in evaluation_results):.1f}MB
+- **Inference Speed Range:** {min(r.inference_fps for r in evaluation_results):.1f} - {max(r.inference_fps for r in evaluation_results):.1f} FPS
+- **Training Time Range:** {min(r.training_time_hours for r in evaluation_results):.2f} - {max(r.training_time_hours for r in evaluation_results):.2f} hours
+
+## Table 2: Per-Class Detection Performance (mAP@0.5)
+
+| Class | New Definition¹ | mAP@0.5 | Instances² |
+|-------|----------------|---------|-----------|"""
+
+    # Add per-class results
+    class_order = ['person', 'cyclist', 'car', 'e-scooter', 'SUV', 'motorcycle', 'bus', 'delivery_van', 'truck']
+
+    for class_name in class_order:
+        if class_name in avg_per_class_map50:
+            definition = class_definitions.get(class_name, ('Unknown', 'Unknown'))[0]
+            map50 = avg_per_class_map50[class_name]
+            instances = total_instances[class_name]
+
+            # Format class name for display
+            display_name = {
+                'person': 'Pedestrian',
+                'cyclist': 'Cyclist',
+                'car': 'car',
+                'e-scooter': 'E-scooter',
+                'SUV': 'SUV',
+                'motorcycle': 'Motorcyclist',
+                'bus': 'bus',
+                'delivery_van': 'Delivery Van',
+                'truck': 'truck'
+            }.get(class_name, class_name)
+
+            markdown_content += f"\n| {display_name} | {definition} | {map50:.3f} | {instances:,} |"
+
+    markdown_content += f"""
+
+¹ **New Definition:** Whether this class required new detection methods beyond standard COCO
+² **Instances:** Total annotation instances in the dataset
+
+## Table 3: Model Comparison (mAP@0.5)
+
+| Model | mAP@0.5 | Model Size (MB) | Video FPS | Training Time (hrs) |
+|-------|---------|-----------------|-----------|-------------------|"""
+
+    # Add model comparison results
+    for result in evaluation_results:
+        markdown_content += f"\n| {result.model_name} | {result.overall_map50:.3f} | {result.model_size_mb:.1f} | {result.inference_fps:.1f} | {result.training_time_hours:.2f} |"
+
+    markdown_content += f"""
+
+## Detailed Analysis
+
+### Performance Metrics
+
+**Mean Average Precision (mAP@0.5):**
+- Best performing model: **{best_model.model_name}** ({best_model.overall_map50:.3f})
+- Performance spread: {max(r.overall_map50 for r in evaluation_results) - min(r.overall_map50 for r in evaluation_results):.3f}
+- Standard deviation: {np.std([r.overall_map50 for r in evaluation_results]):.3f}
+
+**Efficiency Analysis:**
+- Most efficient (FPS/MB): **{max(evaluation_results, key=lambda x: x.inference_fps/x.model_size_mb).model_name}**
+- Fastest training: **{min(evaluation_results, key=lambda x: x.training_time_hours).model_name}** ({min(r.training_time_hours for r in evaluation_results):.2f}h)
+- Smallest model: **{min(evaluation_results, key=lambda x: x.model_size_mb).model_name}** ({min(r.model_size_mb for r in evaluation_results):.1f}MB)
+
+### Class-Specific Insights
+
+**Best Performing Classes (mAP@0.5 > 0.6):**"""
+
+    # Add top performing classes
+    top_classes = [(k, v) for k, v in avg_per_class_map50.items() if v > 0.6]
+    top_classes.sort(key=lambda x: x[1], reverse=True)
+
+    for class_name, map50 in top_classes[:5]:
+        markdown_content += f"\n- **{class_name}**: {map50:.3f}"
+
+    markdown_content += f"""
+
+**Challenging Classes (mAP@0.5 < 0.5):**"""
+
+    # Add challenging classes
+    challenging_classes = [(k, v) for k, v in avg_per_class_map50.items() if v < 0.5]
+    challenging_classes.sort(key=lambda x: x[1])
+
+    for class_name, map50 in challenging_classes[:5]:
+        markdown_content += f"\n- **{class_name}**: {map50:.3f}"
+
+    markdown_content += f"""
+
+## Methodology
+
+### Training Configuration
+- **Image Resolution:** 640×640 pixels (Roboflow standard)
+- **Epochs:** 100 (with early stopping, patience=50)
+- **Batch Size:** 16
+- **Optimizer:** AdamW with default learning rate scheduling
+- **Data Augmentation:** Standard YOLO augmentation pipeline
+
+### Evaluation Protocol
+- **Metrics:** mAP@0.5, mAP@0.5:0.95, precision, recall
+- **Hardware:** {system_info.get('gpu_name', 'Unknown GPU')} ({system_info.get('gpu_memory_gb', 0):.1f}GB VRAM)
+- **Inference:** Single-image inference for FPS measurement
+- **Validation:** Standard COCO evaluation protocol
+
+### Dataset Statistics
+- **Total Images:** {dataset_info.get('total_images', 0):,}
+- **Training Images:** {dataset_info.get('train_images', 0):,}
+- **Validation Images:** {dataset_info.get('test_images', 0):,}
+- **Classes:** {dataset_info.get('num_classes', 0)}
+- **Total Annotations:** {sum(total_instances.values()):,}
+
+## Conclusions
+
+### Model Recommendations
+
+1. **Best Overall Performance:** {best_model.model_name}
+   - Highest mAP@0.5: {best_model.overall_map50:.3f}
+   - Inference Speed: {best_model.inference_fps:.1f} FPS
+   - Model Size: {best_model.model_size_mb:.1f}MB
+
+2. **Best Efficiency Trade-off:** {max(evaluation_results, key=lambda x: x.overall_map50 / (x.model_size_mb / 5)).model_name}
+   - Balances accuracy, speed, and size
+
+3. **Production Deployment:** Consider {min(evaluation_results, key=lambda x: x.model_size_mb).model_name} for edge devices
+   - Smallest model size: {min(r.model_size_mb for r in evaluation_results):.1f}MB
+
+### Academic Contributions
+
+This study provides quantitative evidence for YOLO model selection in urban mobility detection scenarios, with particular focus on:
+
+- **Multi-class urban object detection** performance comparison
+- **Resource-constrained deployment** considerations
+- **Academic reproducibility** through standardized evaluation
+
+### Future Work
+
+- Evaluation on additional urban mobility datasets
+- Investigation of model ensemble approaches
+- Optimization for specific deployment scenarios (edge devices, cloud)
+- Analysis of failure modes and edge cases
+
+---
+
+**Generated by CAMINA Academic Training Pipeline**
+**Repository:** https://github.com/tamagusko/camina
+**Branch:** TRA2026
+**Timestamp:** {timestamp}
+"""
+
+    # Save markdown report
+    report_path = output_dir / "model_comparison_report.md"
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write(markdown_content)
+
+    # Also generate academic tables separately for easy copy-paste
+    tables_content = f"""# Academic Tables for Paper Submission
+
+## Table 2: Per-Class Detection Performance (mAP@0.5)
+
+| Class | New Definition¹ | mAP@0.5 | Instances² |
+|-------|----------------|---------|-----------|"""
+
+    for class_name in class_order:
+        if class_name in avg_per_class_map50:
+            definition = class_definitions.get(class_name, ('Unknown', 'Unknown'))[0]
+            map50 = avg_per_class_map50[class_name]
+            instances = total_instances[class_name]
+
+            display_name = {
+                'person': 'Pedestrian',
+                'cyclist': 'Cyclist',
+                'car': 'car',
+                'e-scooter': 'E-scooter',
+                'SUV': 'SUV',
+                'motorcycle': 'Motorcyclist',
+                'bus': 'bus',
+                'delivery_van': 'Delivery Van',
+                'truck': 'truck'
+            }.get(class_name, class_name)
+
+            tables_content += f"\n| {display_name} | {definition} | {map50:.3f} | {instances:,} |"
+
+    tables_content += f"""
+
+## Table 3: Model Comparison (mAP@0.5)
+
+| Model | mAP@0.5 | Model Size (MB) | Video FPS | Training Time (hrs) |
+|-------|---------|-----------------|-----------|-------------------|"""
+
+    for result in evaluation_results:
+        tables_content += f"\n| {result.model_name} | {result.overall_map50:.3f} | {result.model_size_mb:.1f} | {result.inference_fps:.1f} | {result.training_time_hours:.2f} |"
+
+    tables_path = output_dir / "academic_tables.md"
+    with open(tables_path, 'w', encoding='utf-8') as f:
+        f.write(tables_content)
+
+    logger.info(f"Comprehensive markdown report saved to {report_path}")
+    logger.info(f"Academic tables saved to {tables_path}")
+
+
 def main():
     """
     Main function to execute the complete training and evaluation pipeline.
@@ -772,12 +1035,18 @@ def main():
             all_evaluation_results, dataset_info, system_info, directories["results"]
         )
 
+        # Generate markdown report with completed academic tables
+        generate_markdown_report(
+            all_evaluation_results, dataset_info, system_info, directories["results"]
+        )
+
         # Final summary
         console.print("\n" + "="*100)
         console.print(Panel.fit(
             "[bold green]Experimental Pipeline Completed Successfully![/bold green]\n"
             f"[yellow]Results saved to: {directories['outputs']}[/yellow]\n"
-            f"[cyan]Academic tables ready for paper submission[/cyan]",
+            f"[cyan]Academic tables ready for paper submission[/cyan]\n"
+            f"[magenta]Markdown report: outputs/model_comparison/results/model_comparison_report.md[/magenta]",
             border_style="bright_green"
         ))
         console.print("="*100)
