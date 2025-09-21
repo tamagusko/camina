@@ -1,89 +1,219 @@
 # CAMINA Documentation
 
-This directory contains all documentation for the CAMINA (Computer-Aided Mobility Investigation and Analysis) project.
+Complete documentation for the CAMINA (Computer-Aided Mobility Investigation and Analysis) project.
 
-## 📚 Documentation Structure
+## 🚀 Quick Start
 
-### Academic Papers
-- **[../paper/](../paper/)** - Academic paper drafts and evaluations
-  - `draft_v3.md` - Latest paper draft
-  - `evaluation_draft_v3.md` - Evaluation methodology and results
+New to CAMINA? Start here:
 
-### Quick Start
-- **[Main README.md](../README.md)** - Complete setup and usage guide
-- **[Installation Guide](installation.md)** - Detailed installation instructions
-- **[Model Download Guide](MODEL_DOWNLOAD.md)** - Model files and setup
-- **[Run Scripts Guide](run_scripts.md)** - Guide to running different analysis scripts
+1. **[Quick Start Guide](quick_start.md)** - Get running in 5 minutes
+2. **[User Guide](user_guide.md)** - Comprehensive usage instructions
+3. **[Configuration Guide](configuration.md)** - Advanced settings and optimization
 
-### Technical Documentation
-- **[Cyclist Detection Implementation](CYCLIST_DETECTION_IMPLEMENTATION.md)** - Detailed cyclist logic algorithm
+## 📚 Core Documentation
+
+### User Guides
+- **[Quick Start](quick_start.md)** - Basic setup and first detection
+- **[User Guide](user_guide.md)** - Complete usage documentation
+- **[Configuration](configuration.md)** - Advanced configuration options
+- **[Training Guide](training_guide.md)** - Model training for research
+
+### Technical References
 - **[Model Configuration](model_configuration.md)** - Model-specific settings
-- **[Code Style Guide](CODE_STYLE.md)** - Development standards
-- **[Training Pipeline](training_pipeline.md)** - Training methodology and pipeline
-- **[YOLO Training](yolo_training.md)** - YOLO model training documentation
+- **[Cyclist Detection](CYCLIST_DETECTION_IMPLEMENTATION.md)** - Spatial association algorithm
+- **[Installation](installation.md)** - Detailed setup instructions
+- **[Code Style](CODE_STYLE.md)** - Development standards
 
-### Research and Analysis
-- **[Optimization Analysis](OPTIMIZATION_ANALYSIS.md)** - Performance optimization details
-- **[Optimization Summary](OPTIMIZATION_SUMMARY.md)** - Key optimization results
+### Research & Analysis
 - **[Dataset Details](DATASET_DETAILS.md)** - Dataset composition and statistics
+- **[Optimization Analysis](OPTIMIZATION_ANALYSIS.md)** - Performance optimization
+- **[Optimization Summary](OPTIMIZATION_SUMMARY.md)** - Key optimization results
+- **[Model Download](MODEL_DOWNLOAD.md)** - Model files and setup
 
-### Development
-- **[Equipment Specifications](EQUIPMENTS.md)** - Hardware requirements and recommendations
-- **[Models Information](MODELS.md)** - Detailed model specifications
-- **[Bug Reports](BUGS.md)** - Known issues and workarounds
-- **[TODO Items](TODO.md)** - Development roadmap
+### Operations
+- **[Run Scripts](run_scripts.md)** - Guide to execution scripts
+- **[Training Pipeline](training_pipeline.md)** - Academic training methodology
+- **[YOLO Training](yolo_training.md)** - YOLO model training documentation
 - **[Troubleshooting](TROUBLESHOOTING.md)** - Common issues and solutions
 
-### Reference Materials
-- **[Academic Reports](ACADEMIC_REPORTS.md)** - Academic report templates and guidelines
-- **[Roboflow Upload](roboflow_upload.md)** - Instructions for dataset upload to Roboflow
-- **[Calibration](calibration.md)** - Camera calibration procedures
-- **[Deployment](deployment.md)** - Deployment guidelines
-- **[Visualization](visualization.md)** - Visualization tools and techniques
+## 🎯 Quick Navigation
 
-## 🚀 Getting Started
+### I want to...
 
-1. **New Users**: Start with the [main README.md](../README.md)
-2. **Developers**: Review [Code Style Guide](CODE_STYLE.md) and [Cyclist Detection Implementation](CYCLIST_DETECTION_IMPLEMENTATION.md)
-3. **Researchers**: Check [Optimization Analysis](OPTIMIZATION_ANALYSIS.md) and [Models Information](MODELS.md)
-4. **Issues**: Consult [Bug Reports](BUGS.md) and troubleshooting section in main README
+**🚀 Get started quickly** → [Quick Start Guide](quick_start.md)
 
-## 📋 Key Concepts
+**📖 Learn how to use CAMINA** → [User Guide](user_guide.md)
 
-### Two-Stage Detection Pipeline
-1. **Stage A**: YOLO11n + cyclist logic for base classes
-2. **Stage B**: YOLO-World for specialized classes (e-scooter, SUV, delivery_van)
-3. **Stage C**: NMS consolidation with priority system
+**⚙️ Configure detection settings** → [Configuration Guide](configuration.md)
 
-### Priority System
-- YOLO-World classes (6, 7, 8) suppress overlapping YOLO11n classes
-- Configurable class priority order: `[6, 7, 8, 1, 0, 2, 3, 4, 5]`
-- Deterministic tie-breaking for reproducible results
+**🧠 Train my own models** → [Training Guide](training_guide.md)
 
-### Cyclist Detection Logic
-- Rule-based algorithm combining person + bicycle detections
-- Geometric constraints and spatial relationship validation
-- IoU threshold: 0.20, spatial margin: 5px
+**🔧 Install and setup** → [Installation Guide](installation.md)
 
-## 🔧 Configuration
+**🐛 Fix problems** → [Troubleshooting Guide](TROUBLESHOOTING.md)
+
+**📊 Understand the algorithms** → [Cyclist Detection Implementation](CYCLIST_DETECTION_IMPLEMENTATION.md)
+
+## 🏗️ CAMINA Architecture
+
+### Three-Stage Detection Pipeline
+
+1. **Stage A**: Base object detection (YOLO11n)
+   - Classes: person, car, motorcycle, bus, truck
+   - Fast general object detection
+
+2. **Cyclist Logic**: Spatial association algorithm
+   - Combines person + bicycle → cyclist
+   - Geometric validation and proximity checks
+
+3. **Stage B**: Specialized detection (YOLO-World)
+   - Classes: e-scooter, SUV, delivery_van
+   - Open-vocabulary detection for specialized objects
+
+4. **NMS Consolidation**: Priority-based suppression
+   - YOLO-World classes suppress overlapping Stage A detections
+   - Configurable priority system
+
+### Class Mapping
+```
+0: person      5: truck
+1: cyclist     6: e-scooter
+2: car         7: SUV
+3: motorcycle  8: delivery_van
+4: bus
+```
+
+## 📋 Configuration Overview
 
 Main configuration file: `configs/config.yaml`
 
-Key sections:
-- `detection_stages`: Stage A and B settings
-- `cyclist_detection`: Cyclist logic parameters
-- `nms_consolidation`: Priority and suppression rules
-- `text_prompts`: YOLO-World class prompts
-- `performance`: Memory and batch settings
+```yaml
+detection_stages:     # Two-stage detection settings
+cyclist_detection:    # Spatial association logic
+nms_consolidation:    # Priority-based suppression
+text_prompts:         # YOLO-World class prompts
+performance:          # Hardware optimization
+```
 
-## 📞 Support
+Key parameters:
+- **Confidence thresholds**: 0.25 (Stage A), 0.35 (Stage B)
+- **IoU threshold**: 0.20 (cyclist logic), 0.35 (NMS)
+- **Class priority**: `[6, 7, 8, 1, 0, 2, 3, 4, 5]`
+- **Image size**: 640x640 (Roboflow compatible)
 
-For issues and questions:
-1. Check the [troubleshooting section](../README.md#-troubleshooting) in main README
-2. Review [Bug Reports](BUGS.md) for known issues
-3. Consult [TODO Items](TODO.md) for planned improvements
-4. Check git commit history for recent changes
+## 🎓 Academic Research
+
+### Paper and Evaluation
+- **[Main Paper](../paper/draft_v3.md)** - Latest academic paper draft
+- **[Paper Evaluation](../paper/evaluation_draft_v3.md)** - Comprehensive review and recommendations
+
+### Training and Benchmarks
+- **[Training Guide](training_guide.md)** - Academic model training methodology
+- **[YOLO Training](yolo_training.md)** - Multi-model comparison pipeline
+- **[Optimization Analysis](OPTIMIZATION_ANALYSIS.md)** - Performance benchmarks
+
+### Expected Results
+- **mAP@0.5**: 0.4-0.7 (urban mobility datasets)
+- **Training time**: ~45-60 minutes per model (RTX 3060)
+- **Model sizes**: 4-6MB (nano variants)
+- **Inference speed**: 20-40 FPS (depending on model)
+
+## 🛠️ Development
+
+### Code Organization
+- **Main detection**: `main.py`
+- **Training pipeline**: `train_evaluate_yolo_models.py`
+- **Configuration**: `configs/config.yaml`
+- **Models**: `models/` (organized by type)
+- **Documentation**: `docs/` (this folder)
+
+### Contributing
+- **[Code Style Guide](CODE_STYLE.md)** - Development standards
+- **[Installation Guide](installation.md)** - Development setup
+
+## 🔧 Common Use Cases
+
+### Traffic Monitoring
+```bash
+python main.py --input traffic_video.mp4 --config configs/traffic_config.yaml
+```
+
+### Pedestrian Safety Analysis
+```bash
+python main.py --input pedestrian_area/ --config configs/pedestrian_config.yaml --batch
+```
+
+### Micro-mobility Research
+```bash
+python main.py --input micromobility_data/ --config configs/micromobility_config.yaml --batch
+```
+
+### Academic Model Training
+```bash
+source venv_yolo/bin/activate
+python train_evaluate_yolo_models.py
+```
+
+## 📊 Performance Optimization
+
+### Hardware Recommendations
+- **Minimum**: 6GB GPU, 16GB RAM
+- **Recommended**: 8GB+ GPU, 32GB RAM
+- **Optimal**: RTX 3060/4060 or better
+
+### Memory Optimization
+```yaml
+performance:
+  batch_size: 16        # Adjust based on GPU memory
+  memory_cleanup_interval: 100
+  device: auto          # Automatic GPU/CPU selection
+```
+
+### Speed vs Quality
+- **High Quality**: Lower confidence thresholds, smaller batches
+- **High Speed**: Higher confidence thresholds, larger batches
+- **Balanced**: Default configuration (recommended)
+
+## 📞 Support and Troubleshooting
+
+### Getting Help
+1. **Check [Troubleshooting Guide](TROUBLESHOOTING.md)** for common issues
+2. **Review configuration** in [Configuration Guide](configuration.md)
+3. **Verify installation** using [Installation Guide](installation.md)
+4. **Check model files** using [Model Download Guide](MODEL_DOWNLOAD.md)
+
+### Common Issues
+- **CUDA out of memory** → Reduce batch size
+- **No detections found** → Lower confidence thresholds
+- **Slow processing** → Increase batch size or use faster models
+- **Poor detection quality** → Review dataset and configuration
+
+## 📈 Academic Usage
+
+### Citation
+```bibtex
+@misc{camina_2024,
+  title={CAMINA: Computer-Aided Mobility Investigation and Analysis},
+  author={Your Name},
+  year={2024},
+  note={Urban mobility object detection system}
+}
+```
+
+### Reproducibility
+- **Fixed random seeds** for consistent results
+- **Documented configurations** for all experiments
+- **Version control** for code and model changes
+- **Standardized evaluation** metrics and protocols
+
+## 🔄 Recent Updates
+
+- **Repository reorganization** with clean documentation structure
+- **Academic training pipeline** for YOLO model comparison
+- **Enhanced configuration system** with environment-specific settings
+- **Comprehensive user guides** and quick start documentation
+- **Performance optimization** guidelines and best practices
 
 ---
 
-**Note**: This documentation reflects the production CAMINA system (v2.0+). Legacy documentation for older versions is preserved in the `archive/` directory.
+**Note**: This documentation reflects the current CAMINA system. Legacy documentation is preserved in the `archive/` directory.
