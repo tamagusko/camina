@@ -44,8 +44,8 @@ create_framework_diagram <- function() {
   # 1. INPUT LAYER
   draw_rounded_rect(2, 10.5, 3, 0.8, colors$input, "INPUT LAYER")
   draw_label(2, 9.8, "Urban Images Dataset", 0.7, "black", 2)
-  draw_label(2, 9.5, "2,295 images", 0.6, "grey30")
-  draw_label(2, 9.2, "(1,295 ImageNet + 1,000 additional)", 0.6, "grey30")
+  draw_label(2, 9.5, "1,895 images", 0.6, "grey30")
+  draw_label(2, 9.2, "(1,295 ImageNet + 600 additional)", 0.6, "grey30")
 
   # 2. HYBRID DETECTION ARCHITECTURE
   draw_rounded_rect(5, 8.5, 6, 0.6, colors$fusion, "HYBRID DETECTION ARCHITECTURE")
@@ -54,9 +54,8 @@ create_framework_diagram <- function() {
   draw_rounded_rect(2.5, 7.2, 2.8, 0.8, colors$yolo11n, "YOLO11n Branch")
   draw_label(2.5, 6.6, "Primary Model", 0.7, "black", 2)
   draw_label(2.5, 6.3, "6 COCO Classes:", 0.6, "grey30")
-  draw_label(2.5, 6.0, "Person -> Pedestrian", 0.6, "grey30")
-  draw_label(2.5, 5.7, "Bicycle (for cyclist logic)", 0.6, "grey30")
-  draw_label(2.5, 5.4, "Car, Motorcycle, Bus, Truck", 0.6, "grey30")
+  draw_label(2.5, 6.0, "Person + Bicycle (for cyclist logic)", 0.6, "grey30")
+  draw_label(2.5, 5.7, "Car, Motorcycle, Bus, Truck", 0.6, "grey30")
 
   # YOLO-World Branch
   draw_rounded_rect(7.5, 7.2, 2.8, 0.8, colors$yoloworld, "YOLO-World Branch")
