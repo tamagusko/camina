@@ -1,10 +1,10 @@
 task: detect
 mode: train
-model: yolov5n.pt
-data: /home/tiago/repos/camina/data/dataset_v4i_yolov11/data.yaml
-epochs: 100
+model: models/yolo_base/yolov5n.pt
+data: /home/tiago/repos/camina/data/datasetV3_stratified/data.yaml
+epochs: 150
 time: null
-patience: 50
+patience: 75
 batch: 16
 imgsz: 640
 save: true

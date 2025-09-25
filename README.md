@@ -18,7 +18,7 @@ source venv_camina/bin/activate  # Linux/Mac
 pip install ultralytics rich pyyaml opencv-python pillow
 
 # Run detection
-python camina.py --input data/images/ --output outputs/
+python main.py --images_dir data/images/ --output_dir outputs/
 ```
 
 ## 📋 Detected Classes
@@ -97,37 +97,39 @@ nms_consolidation:
 
 ### Basic Detection
 ```bash
-# Single image
-python camina.py --input image.jpg --output results/
-
 # Batch processing
-python camina.py --input data/images/ --output results/ --batch
+python main.py --images_dir data/images/ --output_dir results/
 
-# Video processing
-python camina.py --input video.mp4 --output results/
+# Use custom configuration
+python main.py --config configs/config.yaml --images_dir data/images/
+
+# Quick run with shell script
+./scripts/run.sh
 ```
 
 ### Academic Model Training
 ```bash
 # Activate training environment
-source venv_yolo/bin/activate
+source venv/bin/activate
 
 # Train YOLO comparison models (YOLOv5n, YOLOv8n, YOLOv10n, YOLO11n)
 python train_evaluate_yolo_models.py
+# OR use the training script
+./scripts/run_yolo_comparison.sh
 
-# Results saved to models/yolo_comparison/ and outputs/model_comparison/
+# Results saved to outputs/model_comparison/
 ```
 
 ### Custom Configuration
 ```bash
 # Use custom settings
-python camina.py --config configs/research_config.yaml --input data/
+python main.py --config configs/config.yaml --images_dir data/images/
 
-# GPU memory optimization
-python camina.py --input data/ --batch_size 8 --device cuda:0
+# GPU processing with custom device
+python main.py --images_dir data/images/ --device cuda:0
 
-# CPU-only processing
-python camina.py --input data/ --device cpu --batch_size 1
+# Verbose output for debugging
+python main.py --images_dir data/images/ --verbose
 ```
 
 ## 📊 Output Formats

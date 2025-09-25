@@ -8,6 +8,26 @@ This directory contains deprecated scripts, old implementations, and historical 
 Contains scripts used for dataset preparation and upload:
 - `prepared_data_roboflow.py` - Original data preparation script for Roboflow
 - `prepare_escooter_roboflow.py` - E-scooter specific dataset preparation
+- `select_diverse.py` - Data selection and diversity analysis script
+
+### `data_experimental/`
+Contains experimental data directories that were used during development:
+- `test/` - Test dataset with 44 samples
+- `wrong_label/` - Examples of incorrect labeling for reference
+
+### `backups/`
+Contains backup files and datasets:
+- Large dataset files (*.zip)
+- Database backups
+- Configuration backups
+
+### `references/`
+Contains reference materials and citations:
+- `toCITE.md` - Academic papers and references to cite
+- Research papers and documentation links
+
+### `scripts/` (moved to `/scripts/`)
+Shell scripts for running CAMINA workflows have been moved to the main `/scripts/` directory for better organization.
 
 ### `roboflow_datasets/`
 Contains generated reports and documentation from Roboflow dataset uploads:

@@ -28,6 +28,9 @@ import seaborn as sns
 import yaml
 import torch
 import psutil
+import shutil
+from collections import Counter
+from sklearn.model_selection import train_test_split
 from ultralytics import YOLO
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
@@ -57,10 +60,10 @@ class ModelConfig:
     """Configuration for YOLO model training."""
     name: str
     model_path: str
-    epochs: int = 100
+    epochs: int = 150
     batch_size: int = 16
     imgsz: int = 640  # Roboflow standard image size
-    patience: int = 50
+    patience: int = 75
     save_period: int = 10
     workers: int = 8
     device: str = "auto"
@@ -141,10 +144,10 @@ def validate_dataset(dataset_path: Path) -> Dict[str, Any]:
     # Validate required directories
     train_images = dataset_path / "train" / "images"
     train_labels = dataset_path / "train" / "labels"
-    test_images = dataset_path / "test" / "images"
-    test_labels = dataset_path / "test" / "labels"
+    val_images = dataset_path / "val" / "images"
+    val_labels = dataset_path / "val" / "labels"
 
-    required_dirs = [train_images, train_labels, test_images, test_labels]
+    required_dirs = [train_images, train_labels, val_images, val_labels]
     for dir_path in required_dirs:
         if not dir_path.exists():
             raise FileNotFoundError(f"Required directory not found: {dir_path}")
@@ -152,8 +155,8 @@ def validate_dataset(dataset_path: Path) -> Dict[str, Any]:
     # Count images and labels
     train_img_count = len(list(train_images.glob("*.jpg"))) + len(list(train_images.glob("*.png")))
     train_label_count = len(list(train_labels.glob("*.txt")))
-    test_img_count = len(list(test_images.glob("*.jpg"))) + len(list(test_images.glob("*.png")))
-    test_label_count = len(list(test_labels.glob("*.txt")))
+    val_img_count = len(list(val_images.glob("*.jpg"))) + len(list(val_images.glob("*.png")))
+    val_label_count = len(list(val_labels.glob("*.txt")))
 
     # Count instances per class
     class_names = data_config['names']
@@ -168,8 +171,8 @@ def validate_dataset(dataset_path: Path) -> Dict[str, Any]:
                     if 0 <= class_id < len(class_names):
                         class_counts[class_names[class_id]] += 1
 
-    # Count test instances
-    for label_file in test_labels.glob("*.txt"):
+    # Count validation instances
+    for label_file in val_labels.glob("*.txt"):
         with open(label_file, 'r') as f:
             for line in f:
                 if line.strip():
@@ -183,8 +186,8 @@ def validate_dataset(dataset_path: Path) -> Dict[str, Any]:
         "class_counts": class_counts,
         "train_images": train_img_count,
         "train_labels": train_label_count,
-        "test_images": test_img_count,
-        "test_labels": test_label_count,
+        "val_images": val_img_count,
+        "val_labels": val_label_count,
         "data_yaml_path": str(data_yaml),
         "dataset_path": str(dataset_path)
     }
@@ -193,8 +196,8 @@ def validate_dataset(dataset_path: Path) -> Dict[str, Any]:
     if train_img_count != train_label_count:
         logger.warning(f"Mismatch: {train_img_count} train images vs {train_label_count} labels")
 
-    if test_img_count != test_label_count:
-        logger.warning(f"Mismatch: {test_img_count} test images vs {test_label_count} labels")
+    if val_img_count != val_label_count:
+        logger.warning(f"Mismatch: {val_img_count} validation images vs {val_label_count} labels")
 
     # Display dataset summary
     table = Table(title="Dataset Validation Summary")
@@ -203,8 +206,8 @@ def validate_dataset(dataset_path: Path) -> Dict[str, Any]:
 
     table.add_row("Classes", str(dataset_info["num_classes"]))
     table.add_row("Train Images", str(dataset_info["train_images"]))
-    table.add_row("Test Images", str(dataset_info["test_images"]))
-    table.add_row("Total Images", str(dataset_info["train_images"] + dataset_info["test_images"]))
+    table.add_row("Validation Images", str(dataset_info["val_images"]))
+    table.add_row("Total Images", str(dataset_info["train_images"] + dataset_info["val_images"]))
 
     console.print(table)
 
@@ -245,6 +248,235 @@ def get_system_info() -> Dict[str, Any]:
         system_info["gpu_memory_gb"] = round(torch.cuda.get_device_properties(0).total_memory / (1024**3), 2)
 
     return system_info
+
+
+def create_stratified_split(source_dataset_path: Path, output_dataset_path: Path,
+                           val_size: float = 0.2, random_state: int = 42) -> Dict[str, Any]:
+    """
+    Create stratified train-validation split from a source dataset.
+
+    Args:
+        source_dataset_path: Path to source dataset directory
+        output_dataset_path: Path for output stratified dataset
+        val_size: Fraction of dataset to use for validation (default 0.2 for 80/20 split)
+        random_state: Random seed for reproducibility
+
+    Returns:
+        Dictionary containing split information and statistics
+    """
+    logger.info(f"Creating stratified 80/20 train-validation split from {source_dataset_path}")
+
+    # Load dataset configuration
+    data_yaml = source_dataset_path / "data.yaml"
+    if not data_yaml.exists():
+        raise FileNotFoundError(f"data.yaml not found at {data_yaml}")
+
+    with open(data_yaml, 'r') as f:
+        data_config = yaml.safe_load(f)
+
+    class_names = data_config['names']
+
+    # Find all images and corresponding labels
+    image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
+    all_images = []
+    all_labels = []
+
+    # Look for images in common YOLO dataset structures
+    possible_image_dirs = [
+        source_dataset_path / "images",
+        source_dataset_path / "train" / "images",
+        source_dataset_path / "valid" / "images",
+        source_dataset_path
+    ]
+
+    possible_label_dirs = [
+        source_dataset_path / "labels",
+        source_dataset_path / "train" / "labels",
+        source_dataset_path / "valid" / "labels",
+        source_dataset_path
+    ]
+
+    images_found = False
+    labels_found = False
+
+    for img_dir in possible_image_dirs:
+        if img_dir.exists():
+            for ext in image_extensions:
+                images = list(img_dir.glob(f"*{ext}"))
+                if images:
+                    all_images.extend(images)
+                    images_found = True
+
+    for lbl_dir in possible_label_dirs:
+        if lbl_dir.exists():
+            labels = list(lbl_dir.glob("*.txt"))
+            if labels:
+                all_labels.extend(labels)
+                labels_found = True
+
+    if not images_found:
+        raise FileNotFoundError("No images found in source dataset")
+    if not labels_found:
+        raise FileNotFoundError("No label files found in source dataset")
+
+    logger.info(f"Found {len(all_images)} images and {len(all_labels)} labels")
+
+    # Match images with labels
+    image_label_pairs = []
+    image_classes = []
+
+    for img_path in all_images:
+        # Find corresponding label file
+        label_path = None
+        img_stem = img_path.stem
+
+        for lbl_path in all_labels:
+            if lbl_path.stem == img_stem:
+                label_path = lbl_path
+                break
+
+        if label_path and label_path.exists():
+            # Read label file to get classes
+            classes_in_image = set()
+            try:
+                with open(label_path, 'r') as f:
+                    for line in f:
+                        if line.strip():
+                            class_id = int(line.strip().split()[0])
+                            if 0 <= class_id < len(class_names):
+                                classes_in_image.add(class_id)
+
+                if classes_in_image:
+                    image_label_pairs.append((img_path, label_path))
+                    # Use the first class for stratification (could be improved)
+                    primary_class = min(classes_in_image)
+                    image_classes.append(primary_class)
+
+            except Exception as e:
+                logger.warning(f"Error reading label file {label_path}: {e}")
+                continue
+
+    if not image_label_pairs:
+        raise ValueError("No valid image-label pairs found")
+
+    logger.info(f"Matched {len(image_label_pairs)} image-label pairs")
+
+    # Count class distribution
+    class_counts = Counter(image_classes)
+    logger.info("Class distribution before split:")
+    for class_id, count in sorted(class_counts.items()):
+        class_name = class_names[class_id] if class_id < len(class_names) else f"class_{class_id}"
+        logger.info(f"  {class_name}: {count} images")
+
+    # Check if stratified split is possible (all classes must have at least 2 samples)
+    min_class_count = min(class_counts.values())
+    if min_class_count < 2:
+        logger.warning(f"Cannot perform stratified split: some classes have < 2 samples. "
+                      f"Minimum class count: {min_class_count}. Using random split instead.")
+        # Perform regular random split without stratification
+        train_pairs, val_pairs, train_classes, val_classes = train_test_split(
+            image_label_pairs,
+            image_classes,
+            test_size=val_size,
+            random_state=random_state
+        )
+    else:
+        # Perform stratified split
+        train_pairs, val_pairs, train_classes, val_classes = train_test_split(
+            image_label_pairs,
+            image_classes,
+            test_size=val_size,
+            stratify=image_classes,
+            random_state=random_state
+        )
+
+    logger.info(f"Split completed: {len(train_pairs)} train, {len(val_pairs)} validation images")
+
+    # Create output directory structure
+    output_dataset_path.mkdir(parents=True, exist_ok=True)
+
+    train_img_dir = output_dataset_path / "train" / "images"
+    train_lbl_dir = output_dataset_path / "train" / "labels"
+    val_img_dir = output_dataset_path / "val" / "images"
+    val_lbl_dir = output_dataset_path / "val" / "labels"
+
+    for dir_path in [train_img_dir, train_lbl_dir, val_img_dir, val_lbl_dir]:
+        dir_path.mkdir(parents=True, exist_ok=True)
+
+    # Copy files to appropriate directories
+    logger.info("Copying files to train/validation directories...")
+
+    # Copy training files
+    for img_path, lbl_path in train_pairs:
+        shutil.copy2(img_path, train_img_dir / img_path.name)
+        shutil.copy2(lbl_path, train_lbl_dir / lbl_path.name)
+
+    # Copy validation files
+    for img_path, lbl_path in val_pairs:
+        shutil.copy2(img_path, val_img_dir / img_path.name)
+        shutil.copy2(lbl_path, val_lbl_dir / lbl_path.name)
+
+    # Create updated data.yaml
+    updated_data_config = data_config.copy()
+    updated_data_config['train'] = str(train_img_dir)
+    updated_data_config['val'] = str(val_img_dir)  # YOLO uses 'val' for validation
+
+    output_data_yaml = output_dataset_path / "data.yaml"
+    with open(output_data_yaml, 'w') as f:
+        yaml.dump(updated_data_config, f, default_flow_style=False)
+
+    # Calculate final class distributions
+    train_class_counts = Counter(train_classes)
+    val_class_counts = Counter(val_classes)
+
+    # Log final distributions
+    logger.info("Final class distribution:")
+    table = Table(title="Stratified Split Results")
+    table.add_column("Class", style="cyan")
+    table.add_column("Train", style="green")
+    table.add_column("Validation", style="magenta")
+    table.add_column("Train %", style="yellow")
+    table.add_column("Val %", style="yellow")
+
+    for class_id in sorted(set(train_classes + val_classes)):
+        class_name = class_names[class_id] if class_id < len(class_names) else f"class_{class_id}"
+        train_count = train_class_counts.get(class_id, 0)
+        val_count = val_class_counts.get(class_id, 0)
+        total_count = train_count + val_count
+
+        train_pct = (train_count / total_count * 100) if total_count > 0 else 0
+        val_pct = (val_count / total_count * 100) if total_count > 0 else 0
+
+        table.add_row(
+            class_name,
+            str(train_count),
+            str(val_count),
+            f"{train_pct:.1f}%",
+            f"{val_pct:.1f}%"
+        )
+
+    console.print(table)
+
+    # Return split information
+    split_info = {
+        "source_dataset": str(source_dataset_path),
+        "output_dataset": str(output_dataset_path),
+        "total_images": len(image_label_pairs),
+        "train_images": len(train_pairs),
+        "val_images": len(val_pairs),
+        "val_size": val_size,
+        "random_state": random_state,
+        "class_names": class_names,
+        "train_class_distribution": dict(train_class_counts),
+        "val_class_distribution": dict(val_class_counts),
+        "data_yaml_path": str(output_data_yaml)
+    }
+
+    logger.info(f"Stratified split completed successfully!")
+    logger.info(f"Output dataset: {output_dataset_path}")
+    logger.info(f"Data config: {output_data_yaml}")
+
+    return split_info
 
 
 def train_yolo_model(model_config: ModelConfig, dataset_info: Dict[str, Any],
@@ -361,7 +593,7 @@ def evaluate_model(model_path: str, dataset_info: Dict[str, Any],
         # Run validation
         val_results = model.val(
             data=dataset_info["data_yaml_path"],
-            split="test",
+            split="val",
             save_json=True,
             save_hybrid=True,
             plots=True,
@@ -388,18 +620,18 @@ def evaluate_model(model_path: str, dataset_info: Dict[str, Any],
 
         # Measure inference speed
         logger.info("Measuring inference speed...")
-        test_images_dir = Path(dataset_info["dataset_path"]) / "test" / "images"
-        test_images = list(test_images_dir.glob("*.jpg"))[:100]  # Use first 100 images
+        val_images_dir = Path(dataset_info["dataset_path"]) / "val" / "images"
+        val_images = list(val_images_dir.glob("*.jpg"))[:100]  # Use first 100 images
 
-        if test_images:
+        if val_images:
             start_time = time.time()
-            for img_path in test_images:
+            for img_path in val_images:
                 _ = model(str(img_path), verbose=False)
             inference_time = time.time() - start_time
-            inference_fps = len(test_images) / inference_time
+            inference_fps = len(val_images) / inference_time
         else:
             inference_fps = 0.0
-            logger.warning("No test images found for FPS measurement")
+            logger.warning("No validation images found for FPS measurement")
 
         evaluation_results = EvaluationResults(
             model_name=model_name,
@@ -618,6 +850,7 @@ def generate_performance_plots(evaluation_results: List[EvaluationResults],
 def save_comprehensive_report(evaluation_results: List[EvaluationResults],
                             dataset_info: Dict[str, Any],
                             system_info: Dict[str, Any],
+                            split_info: Dict[str, Any],
                             output_dir: Path) -> None:
     """
     Save comprehensive experimental report.
@@ -626,6 +859,7 @@ def save_comprehensive_report(evaluation_results: List[EvaluationResults],
         evaluation_results: List of evaluation results
         dataset_info: Dataset information
         system_info: System information
+        split_info: Stratified split information
         output_dir: Output directory
     """
     logger.info("Generating comprehensive experimental report...")
@@ -635,6 +869,7 @@ def save_comprehensive_report(evaluation_results: List[EvaluationResults],
             "timestamp": datetime.now().isoformat(),
             "purpose": "Academic comparison of YOLO models for urban mobility detection",
             "dataset": dataset_info,
+            "stratified_split": split_info,
             "system": system_info
         },
         "model_results": []
@@ -739,7 +974,7 @@ def generate_markdown_report(evaluation_results: List[EvaluationResults],
 
 **Generated:** {timestamp}
 **Dataset:** {dataset_info.get('dataset_path', 'N/A')}
-**Total Images:** {dataset_info.get('total_images', 0)} ({dataset_info.get('train_images', 0)} train, {dataset_info.get('test_images', 0)} test)
+**Total Images:** {dataset_info.get('total_images', 0)} ({dataset_info.get('train_images', 0)} train, {dataset_info.get('val_images', 0)} validation)
 **Total Classes:** {dataset_info.get('num_classes', 0)}
 **System:** {system_info.get('gpu_name', 'Unknown GPU')} ({system_info.get('gpu_memory_gb', 0):.1f}GB)
 
@@ -855,7 +1090,7 @@ Comprehensive evaluation of **YOLOv5n**, **YOLOv8n**, **YOLOv10n**, and **YOLO11
 ### Dataset Statistics
 - **Total Images:** {dataset_info.get('total_images', 0):,}
 - **Training Images:** {dataset_info.get('train_images', 0):,}
-- **Validation Images:** {dataset_info.get('test_images', 0):,}
+- **Validation Images:** {dataset_info.get('val_images', 0):,}
 - **Classes:** {dataset_info.get('num_classes', 0)}
 - **Total Annotations:** {sum(total_instances.values()):,}
 
@@ -971,9 +1206,20 @@ def main():
         if system_info['cuda_available']:
             logger.info(f"GPU: {system_info['gpu_name']} ({system_info['gpu_memory_gb']} GB)")
 
-        # Validate dataset
-        dataset_path = Path("/home/tiago/repos/camina/data/dataset_v4i_yolov11")
-        dataset_info = validate_dataset(dataset_path)
+        # Create stratified dataset split
+        source_dataset_path = Path("/home/tiago/repos/camina/data/datasetV3")
+        stratified_dataset_path = Path("/home/tiago/repos/camina/data/datasetV3_stratified")
+
+        logger.info("Creating stratified 80/20 train-validation split...")
+        split_info = create_stratified_split(
+            source_dataset_path=source_dataset_path,
+            output_dataset_path=stratified_dataset_path,
+            val_size=0.2,  # 20% for validation, 80% for train
+            random_state=42  # For reproducibility
+        )
+
+        # Validate the stratified dataset
+        dataset_info = validate_dataset(stratified_dataset_path)
 
         # Define model configurations
         model_configs = [
@@ -1032,7 +1278,7 @@ def main():
 
         # Save comprehensive report
         save_comprehensive_report(
-            all_evaluation_results, dataset_info, system_info, directories["results"]
+            all_evaluation_results, dataset_info, system_info, split_info, directories["results"]
         )
 
         # Generate markdown report with completed academic tables
