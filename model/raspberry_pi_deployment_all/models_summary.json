@@ -1,0 +1,64 @@
+{
+  "generated": "2025-09-25 22:03:37",
+  "models": [
+    {
+      "model_name": "YOLOv5n",
+      "original_path": "/home/tiago/repos/camina/model/yolo_comparison/YOLOv5n/train/weights/best.pt",
+      "ncnn_path": "/home/tiago/repos/camina/model/raspberry_pi_deployment_all/yolov5n_ncnn",
+      "original_size_mb": 5.026613235473633,
+      "ncnn_size_mb": 9.733986854553223,
+      "compression_ratio": -93.64901174132282,
+      "performance": {
+        "map50": 0.55,
+        "precision": 0.606,
+        "recall": 0.502
+      },
+      "export_successful": true
+    },
+    {
+      "model_name": "YOLOv8n",
+      "original_path": "/home/tiago/repos/camina/model/yolo_comparison/YOLOv8n/train/weights/best.pt",
+      "ncnn_path": "/home/tiago/repos/camina/model/raspberry_pi_deployment_all/yolov8n_ncnn",
+      "original_size_mb": 5.959024429321289,
+      "ncnn_size_mb": 11.649925231933594,
+      "compression_ratio": -95.50054493165548,
+      "performance": {
+        "map50": 0.56,
+        "precision": 0.573,
+        "recall": 0.58
+      },
+      "export_successful": true
+    },
+    {
+      "model_name": "YOLOv10n",
+      "original_path": "/home/tiago/repos/camina/model/yolo_comparison/YOLOv10n/train/weights/best.pt",
+      "ncnn_path": "/home/tiago/repos/camina/model/raspberry_pi_deployment_all/yolov10n_ncnn",
+      "original_size_mb": 5.488763809204102,
+      "ncnn_size_mb": 8.830554008483887,
+      "compression_ratio": -60.884204812674604,
+      "performance": {
+        "map50": 0.543,
+        "precision": 0.616,
+        "recall": 0.514
+      },
+      "export_successful": true
+    },
+    {
+      "model_name": "YOLO11n",
+      "original_path": "/home/tiago/repos/camina/model/yolo_comparison/YOLO11n/train/weights/best.pt",
+      "ncnn_path": "/home/tiago/repos/camina/model/raspberry_pi_deployment_all/yolo11n_ncnn",
+      "original_size_mb": 5.218408584594727,
+      "ncnn_size_mb": 10.04031753540039,
+      "compression_ratio": -92.40190515247177,
+      "performance": {
+        "map50": 0.563,
+        "precision": 0.598,
+        "recall": 0.56
+      },
+      "export_successful": true
+    }
+  ],
+  "total_models": 4,
+  "successful_exports": 4,
+  "total_ncnn_size_mb": 40.254783630371094
+}

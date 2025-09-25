@@ -79,10 +79,44 @@ build/
 *.safetensors
 *.bin
 models/camina/
-models/yolo_base/*.pt
-models/yolo_world/*.pt
-models/yolo_world/*.pth
+models/yolo_base/
+models/yolo_world/
+models/yolo_comparison/*/train/weights/epoch*.pt
+models/yolo_comparison/*/train/weights/last.pt
+
+# Model directories with large files
+model/yolo_base/
+model/yolo_world/
+model/yolo_comparison/*/train/weights/epoch*.pt
+model/yolo_comparison/*/train/weights/last.pt
+
+# Training outputs and runs (large files)
+runs/
+**/runs/
+
+# Virtual environment (already covered above but being explicit)
+venv/
+.venv/
+
+# Backup directories with large files
+backup/
+
+# Experimental outputs
+experiments/*.png
+experiments/*.jpg
+experiments/*.json
 
 # Generated datasets and archives (keep local, don't upload to GitHub)
 archive/roboflow_datasets/
 archive/data_preparation/
+
+# Large image datasets
+data/raw/
+data/images/
+data/labels/
+data/datasetV3*/
+
+# Training logs and outputs
+outputs/
+temp/
+tmp/

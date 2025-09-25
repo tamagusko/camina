@@ -1,308 +1,189 @@
 # CAMINA - Urban Mobility Detection System
 
-**CAMINA** (Computer-Aided Mobility Investigation and Analysis) is an academic research system for urban mobility object detection. It combines YOLO-World with specialized algorithms for comprehensive 9-class detection including cyclists and e-scooter riders.
+**CAMINA** (Computer-Aided Mobility Investigation and Analysis) is an academic research system for urban mobility object detection optimized for edge deployment. It features 4 trained YOLO models (YOLOv5n, YOLOv8n, YOLOv10n, YOLO11n) with NCNN optimization for Raspberry Pi 5 deployment.
+
+## ✨ Key Features
+
+- **9-class urban mobility detection**: Person, Cyclist, Car, E-scooter, SUV, Motorcyclist, Bus, Delivery Van, Truck
+- **Edge deployment ready**: NCNN-optimized models for Raspberry Pi 5
+- **High performance**: YOLO11n achieves 0.563 mAP@0.5 with ~70+ FPS on edge devices
+- **Production ready**: Complete deployment package with benchmarking tools
 
 ## 🚀 Quick Start
 
+### Training Pipeline
 ```bash
 # Clone and setup
 git clone https://github.com/tamagusko/camina.git
 cd camina
 
 # Create virtual environment
-python -m venv venv_camina
-source venv_camina/bin/activate  # Linux/Mac
-# venv_camina\Scripts\activate   # Windows
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
 
 # Install dependencies
-pip install ultralytics rich pyyaml opencv-python pillow
+pip install -r requirements.txt
 
-# Run detection
-python main.py --images_dir data/images/ --output_dir outputs/
+# Run training pipeline
+python main.py
+```
+
+### Edge Deployment (Raspberry Pi 5)
+```bash
+# Copy deployment package to Pi
+scp -r model/raspberry_pi_deployment_all/ pi@raspberrypi:~/camina/
+
+# Run inference benchmark
+python src/benchmarks/raspberry_pi_inference_test.py --models-dir model/raspberry_pi_deployment_all
+
+# Use in applications
+from ultralytics import YOLO
+model = YOLO('yolo11n_ncnn', task='detect')
+results = model.predict('image.jpg')
 ```
 
 ## 📋 Detected Classes
 
-| ID | Class | Detection Method | Description |
-|----|-------|------------------|-------------|
-| 0 | person | YOLO-World | Individual persons |
-| 1 | cyclist | Spatial logic | Person + bicycle → cyclist |
-| 2 | car | YOLO-World | Standard passenger cars |
-| 3 | motorcycle | YOLO-World | Motorcycles and motorbikes |
-| 4 | bus | YOLO-World | Public transit buses |
-| 5 | truck | YOLO-World | Trucks and lorries |
-| 6 | e-scooter | YOLO-World | Electric scooters with riders |
-| 7 | SUV | YOLO-World | Sport utility vehicles |
-| 8 | delivery_van | YOLO-World | Commercial delivery vans |
+| ID | Class | Description |
+|----|-------|-------------|
+| 0 | Person | Individual persons |
+| 1 | Cyclist | People on bicycles |
+| 2 | Car | Standard passenger cars |
+| 3 | E-scooter | Electric scooters |
+| 4 | SUV | Sport utility vehicles |
+| 5 | Motorcyclist | People on motorcycles |
+| 6 | Bus | Public buses |
+| 7 | Delivery Van | Delivery vehicles |
+| 8 | Truck | Large trucks |
 
-## 🏗️ Architecture
+## 🏆 Model Performance
 
-### Hybrid Detection Pipeline
+| Model | mAP@0.5 | NCNN Size | Expected RPi5 FPS | Best Use |
+|-------|---------|-----------|-------------------|----------|
+| **YOLO11n** | 0.563 | 10.0 MB | ~74 | Best overall |
+| **YOLOv8n** | 0.560 | 11.6 MB | ~73 | Balanced |
+| **YOLOv5n** | 0.550 | 9.7 MB | ~67 | Stable |
+| **YOLOv10n** | 0.543 | 8.8 MB | ~66 | Fastest |
 
-1. **YOLO-World Detection**: Open-vocabulary detection using text prompts
-2. **Spatial Association**: Person + bicycle → cyclist logic
-3. **NMS Consolidation**: Priority-based conflict resolution
+## 📁 Project Structure
 
-### Key Features
+```
+├── main.py                           # Main training pipeline
+├── DIRECTORY_STRUCTURE.md            # Detailed structure documentation
+│
+├── src/                              # Source code organized by functionality
+│   ├── benchmarks/                   # Performance testing and analysis
+│   ├── export/                       # Model export and optimization
+│   ├── visualization/                # Detection visualization and analysis
+│   └── inference/                    # Runtime inference utilities
+│
+├── tools/                            # Analysis and training utilities
+│   ├── extract_real_ap50_only.py     # Clean metrics extraction
+│   ├── train_evaluate_yolo_models.py # Model training and evaluation
+│   └── training_logger.py            # Training logging utilities
+│
+├── model/                            # Trained models and deployment
+│   ├── yolo_comparison/              # Comparative model results
+│   └── raspberry_pi_deployment_all/  # NCNN edge deployment package
+│
+├── data/                             # Dataset and data management
+├── outputs/                          # Training and analysis outputs
+├── paper/                            # Academic paper materials
+├── experiments/                      # Experimental results
+└── docs/                             # Additional documentation
+```
 
-- **Academic Research Focus**: Designed for urban mobility studies
-- **Cyclist Detection Logic**: Geometric constraints and spatial validation
-- **E-scooter Specialization**: Dedicated detection for micro-mobility
-- **Priority System**: Intelligent conflict resolution between classes
-- **640x640 Compatible**: Works with Roboflow and standard datasets
+## 🔧 Key Commands
+
+### Model Training and Evaluation
+```bash
+# Train all 4 YOLO models
+python main.py
+
+# Extract real per-class metrics
+python tools/extract_real_ap50_only.py
+
+# Evaluate trained models
+python tools/train_evaluate_yolo_models.py
+```
+
+### Model Export and Optimization
+```bash
+# Export all models to NCNN
+python src/export/export_all_models_to_ncnn.py
+
+# Export single best model
+python src/export/export_best_model_to_ncnn.py
+```
+
+### Performance Benchmarking
+```bash
+# Simple inference benchmark
+python src/benchmarks/benchmark_inference_simple.py
+
+# Comprehensive Raspberry Pi benchmark
+python src/benchmarks/raspberry_pi_inference_test.py --models-dir model/raspberry_pi_deployment_all
+```
+
+### Visualization
+```bash
+# Create detection visualizations
+python src/visualization/create_detection_visualization.py
+```
+
+## 🎓 Academic Features
+
+- **Clean metrics extraction**: Real per-class AP@0.5 values without estimation
+- **Comprehensive model comparison**: 4 YOLO architectures with identical training
+- **Edge deployment focus**: NCNN optimization for ARM processors
+- **Publication-ready visualizations**: High-quality detection result mosaics
+
+## 📊 Dataset
+
+- **9 urban mobility classes** with specialized focus on cyclists and e-scooters
+- **Stratified 80/20 train/test split** ensuring class balance
+- **Semi-automated labeling** using YOLO-World for efficiency
+- **Quality validation** with manual verification
+
+## 🍓 Raspberry Pi 5 Deployment
+
+The complete deployment package includes:
+- **4 NCNN-optimized models** ready for edge inference
+- **Comprehensive benchmarking tools** for performance analysis
+- **Complete documentation** with setup instructions
+- **Expected performance**: 14ms inference time (~70+ FPS)
+
+## 📄 Requirements
+
+- Python 3.8+
+- PyTorch
+- Ultralytics YOLOv8
+- OpenCV
+- For Raspberry Pi: NCNN backend support
+
+See `requirements.txt` for complete dependency list.
 
 ## 📚 Documentation
 
-Complete documentation is available in the [`docs/`](docs/) folder:
-
-### Quick Navigation
-- **🚀 [Quick Start Guide](docs/quick_start.md)** - Get running in 5 minutes
-- **📖 [User Guide](docs/user_guide.md)** - Comprehensive usage instructions
-- **⚙️ [Configuration Guide](docs/configuration.md)** - Advanced settings
-- **🧠 [Training Guide](docs/training_guide.md)** - Model training for research
-- **🔧 [Installation Guide](docs/installation.md)** - Detailed setup instructions
-- **🐛 [Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
-
-### Academic Research
-- **📄 [Research Paper](paper/draft_v3.md)** - Latest academic paper draft
-- **📊 [Paper Evaluation](paper/evaluation_draft_v3.md)** - Comprehensive review
-- **🏋️ [Model Training](docs/training_guide.md)** - Academic training pipeline
-
-## ⚙️ Basic Configuration
-
-Main configuration file: `configs/config.yaml`
-
-```yaml
-# Detection stages
-detection_stages:
-  stage_a:
-    confidence_threshold: 0.25    # YOLO-World detection confidence
-  stage_b:
-    confidence_threshold: 0.35    # Specialized class confidence
-
-# Cyclist detection logic
-cyclist_detection:
-  enabled: true
-  iou_threshold: 0.20             # Person-bicycle overlap requirement
-  spatial_margin: 5               # Pixel margin for spatial checks
-
-# Priority-based NMS
-nms_consolidation:
-  enabled: true
-  iou_threshold: 0.35
-  class_priority: [6, 7, 8, 1, 0, 2, 3, 4, 5]  # E-scooter > SUV > ... > truck
-```
-
-## 🚀 Usage Examples
-
-### Basic Detection
-```bash
-# Batch processing
-python main.py --images_dir data/images/ --output_dir results/
-
-# Use custom configuration
-python main.py --config configs/config.yaml --images_dir data/images/
-
-# Quick run with shell script
-./scripts/run.sh
-```
-
-### Academic Model Training
-```bash
-# Activate training environment
-source venv/bin/activate
-
-# Train YOLO comparison models (YOLOv5n, YOLOv8n, YOLOv10n, YOLO11n)
-python train_evaluate_yolo_models.py
-# OR use the training script
-./scripts/run_yolo_comparison.sh
-
-# Results saved to outputs/model_comparison/
-```
-
-### Custom Configuration
-```bash
-# Use custom settings
-python main.py --config configs/config.yaml --images_dir data/images/
-
-# GPU processing with custom device
-python main.py --images_dir data/images/ --device cuda:0
-
-# Verbose output for debugging
-python main.py --images_dir data/images/ --verbose
-```
-
-## 📊 Output Formats
-
-### Directory Structure
-```
-outputs/
-├── detections/              # YOLO format labels (.txt files)
-├── dataset_viz/            # Visualized images with bounding boxes
-├── yolo/                   # Raw detection outputs
-└── performance_report.json # Processing statistics
-```
-
-### YOLO Format Labels (640x640 normalized)
-```
-class_id center_x center_y width height confidence
-0 0.5 0.3 0.2 0.4 0.85
-1 0.7 0.6 0.15 0.25 0.92
-```
-
-## 🎓 Academic Usage
-
-### Training Pipeline for Research
-
-The repository includes a comprehensive training pipeline for academic comparison:
-
-```bash
-# Setup training environment
-python -m venv venv_yolo
-source venv_yolo/bin/activate
-pip install ultralytics numpy pandas matplotlib seaborn rich pyyaml psutil
-
-# Run academic training pipeline
-python train_evaluate_yolo_models.py
-```
-
-This generates academic tables for paper submission:
-
-#### Table 2: Per-Class Detection Performance (mAP@0.5)
-| Class | Definition | mAP@0.5 | Instances |
-|-------|------------|---------|-----------|
-| Pedestrian | COCO | [Generated] | [Count] |
-| Cyclist | Rule-based | [Generated] | [Count] |
-| ... | ... | ... | ... |
-
-#### Table 3: Model Comparison
-| Model | mAP@0.5 | Size (MB) | FPS | Training Time |
-|-------|---------|-----------|-----|---------------|
-| YOLOv5n | [Generated] | [Generated] | [Generated] | [Generated] |
-| YOLOv8n | [Generated] | [Generated] | [Generated] | [Generated] |
-| ... | ... | ... | ... | ... |
-
-### Citation
-```bibtex
-@misc{camina_2024,
-  title={CAMINA: Computer-Aided Mobility Investigation and Analysis},
-  author={Your Name},
-  year={2024},
-  note={Urban mobility detection system for academic research}
-}
-```
-
-## 📂 Repository Structure
-
-```
-camina/
-├── README.md                    # This file
-├── camina.py                    # Main detection script
-├── train_evaluate_yolo_models.py # Academic training pipeline
-├── run_*.sh                     # Execution scripts
-├── configs/
-│   └── config.yaml             # Main configuration
-├── models/                     # Organized model storage
-│   ├── yolo_base/             # Base YOLO models
-│   ├── yolo_world/            # YOLO-World models
-│   ├── yolo_comparison/       # Training results
-│   └── camina/                # CAMINA-specific models
-├── docs/                      # Complete documentation
-│   ├── README.md              # Documentation index
-│   ├── quick_start.md         # Quick start guide
-│   ├── user_guide.md          # Complete usage guide
-│   ├── configuration.md       # Advanced configuration
-│   ├── training_guide.md      # Academic training
-│   └── ...                    # Technical references
-├── paper/                     # Academic paper
-│   ├── draft_v3.md           # Latest paper draft
-│   └── evaluation_draft_v3.md # Paper evaluation
-├── data/                      # Input datasets
-├── outputs/                   # Detection results
-├── archive/                   # Deprecated/historical files
-└── tests/                     # Test suite
-```
-
-## 📊 Performance Benchmarks
-
-### RTX 3060 (12GB) Performance
-- **Processing Speed**: 15-25 FPS (batch processing)
-- **Memory Usage**: 6-8GB VRAM (batch size 16)
-- **Training Time**: ~45-60 minutes per model
-- **Model Sizes**: 4-6MB (nano variants)
-
-### Expected Accuracy
-- **Urban mobility datasets**: mAP@0.5: 0.4-0.7
-- **Cyclist detection**: Precision > 0.90 (when person+bicycle present)
-- **E-scooter detection**: Good performance with proper prompts
-
-## 🔧 Common Issues & Solutions
-
-### CUDA Out of Memory
-```bash
-# Reduce batch size
-python camina.py --input data/ --batch_size 8
-
-# Use CPU
-python camina.py --input data/ --device cpu
-```
-
-### No Detections Found
-```yaml
-# Lower confidence thresholds in configs/config.yaml
-detection_stages:
-  stage_a:
-    confidence_threshold: 0.15  # Lower threshold
-```
-
-### Poor E-scooter Detection
-```yaml
-# Improve text prompts in config
-text_prompts:
-  e_scooter: "A person riding an electric scooter. E-scooter rider. Person on e-scooter."
-```
-
-## 🛠️ Development
-
-### Requirements
-- Python 3.8+
-- NVIDIA GPU (recommended, 6GB+ VRAM)
-- CUDA 11.0+ (for GPU acceleration)
-
-### Core Dependencies
-```bash
-pip install ultralytics rich pyyaml opencv-python pillow numpy pandas matplotlib
-```
-
-### Testing
-```bash
-# Run test detection
-python camina.py --input data/test_image.jpg --output test_results/
-
-# Validate configuration
-python camina.py --validate_only
-```
+- **DIRECTORY_STRUCTURE.md**: Complete repository organization
+- **model/raspberry_pi_deployment_all/README.md**: Edge deployment guide
+- **paper/**: Academic paper materials and figures
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m 'Add amazing feature'`
-4. Push to branch: `git push origin feature/amazing-feature`
-5. Open Pull Request
+This is an academic research project. For issues or contributions, please follow standard academic collaboration practices.
 
-See [Code Style Guide](docs/CODE_STYLE.md) for development standards.
+## 📜 License
 
-## 📄 License
+MIT License - see LICENSE file for details.
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## 📖 Citation
 
-## 🙏 Acknowledgments
-
-- Built on [Ultralytics YOLO](https://github.com/ultralytics/ultralytics)
-- YOLO-World for open-vocabulary detection
-- Research community for urban mobility datasets
+If you use CAMINA in your research, please cite:
+```
+[Citation information to be added upon publication]
+```
 
 ---
 
-**Note**: This is an academic research system. For production deployment, additional optimization and testing are recommended. See `docs/` folder for comprehensive documentation.
+**CAMINA** - Enabling privacy-preserving urban mobility analysis at the edge.

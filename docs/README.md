@@ -2,15 +2,30 @@
 
 Complete documentation for the CAMINA (Computer-Aided Mobility Investigation and Analysis) project.
 
+## 🎯 **NEW**: Clean Academic Repository
+
+CAMINA has been reorganized for academic rigor and professional development:
+
+- ✅ **Clean metrics extraction** - No estimated values, only real YOLO validation metrics
+- ✅ **Professional structure** - Organized codebase with proper separation
+- ✅ **Academic-ready outputs** - Publication-quality tables and results
+- ✅ **Mathematically sound** - All metrics are verifiable and accurate
+
 ## 🚀 Quick Start
 
 New to CAMINA? Start here:
 
 1. **[Quick Start Guide](quick_start.md)** - Get running in 5 minutes
-2. **[User Guide](user_guide.md)** - Comprehensive usage instructions
-3. **[Configuration Guide](configuration.md)** - Advanced settings and optimization
+2. **[Repository Structure](REPOSITORY_STRUCTURE.md)** - New organized structure
+3. **[Metrics Extraction](METRICS_EXTRACTION.md)** - Clean academic metrics
+4. **[User Guide](user_guide.md)** - Comprehensive usage instructions
 
 ## 📚 Core Documentation
+
+### **NEW**: Academic Research
+- **[Repository Structure](REPOSITORY_STRUCTURE.md)** - Professional organization guide
+- **[Metrics Extraction](METRICS_EXTRACTION.md)** - Clean academic metrics system
+- **[Model Comparison](run_comparison.md)** - YOLO model comparison guide
 
 ### User Guides
 - **[Quick Start](quick_start.md)** - Basic setup and first detection
@@ -19,14 +34,12 @@ New to CAMINA? Start here:
 - **[Training Guide](training_guide.md)** - Model training for research
 
 ### Technical References
-- **[Model Configuration](model_configuration.md)** - Model-specific settings
 - **[Cyclist Detection](CYCLIST_DETECTION_IMPLEMENTATION.md)** - Spatial association algorithm
 - **[Installation](installation.md)** - Detailed setup instructions
-- **[Code Style](CODE_STYLE.md)** - Development standards
+- **[Troubleshooting](TROUBLESHOOTING.md)** - Common issues and solutions
 
 ### Research & Analysis
 - **[Dataset Details](DATASET_DETAILS.md)** - Dataset composition and statistics
-- **[Optimization Analysis](OPTIMIZATION_ANALYSIS.md)** - Performance optimization
 - **[Optimization Summary](OPTIMIZATION_SUMMARY.md)** - Key optimization results
 - **[Model Download](MODEL_DOWNLOAD.md)** - Model files and setup
 

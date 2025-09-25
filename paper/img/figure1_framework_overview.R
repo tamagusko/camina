@@ -1,128 +1,120 @@
 # CAMINA Framework Overview - Figure 1
-# Summary of the implemented framework
+# Clean, minimal framework diagram for academic publication
 # Publication-ready scientific diagram using base R graphics
 
-# Define color palette for different components
+# Define minimal grayscale palette for professional appearance
 colors <- list(
-  input = "#2E5984",          # Deep blue for input
-  yolo11n = "#8B4B9C",        # Purple for YOLO11n
-  yoloworld = "#D4742C",      # Orange for YOLO-World
-  cyclist = "#47A76A",        # Green for cyclist logic
-  fusion = "#C85450",         # Red for fusion
-  edge = "#6B6B6B",          # Gray for edge deployment
-  output = "#2E5984",         # Blue for output
-  arrow = "#4A4A4A"          # Dark gray for arrows
+  primary = "#2C2C2C",        # Dark gray for primary components
+  secondary = "#5A5A5A",      # Medium gray for secondary elements
+  tertiary = "#8A8A8A",       # Light gray for supporting elements
+  background = "#F5F5F5",     # Very light gray for backgrounds
+  text = "#1A1A1A",          # Near black for text
+  arrow = "#404040"          # Dark gray for arrows
 )
 
 # Create the main framework diagram
 create_framework_diagram <- function() {
 
-  # Set up the plotting area
+  # Set up the plotting area with better proportions
   plot.new()
-  plot.window(xlim = c(0, 10), ylim = c(0, 12))
+  plot.window(xlim = c(0, 12), ylim = c(0, 10))
 
-  # Function to draw rounded rectangles
-  draw_rounded_rect <- function(x, y, w, h, color, text, text_size = 0.8, text_color = "white") {
+  # Function to draw clean rectangles
+  draw_rect <- function(x, y, w, h, color, text, text_size = 0.9, text_color = colors$text) {
     rect(x - w/2, y - h/2, x + w/2, y + h/2,
-         col = color, border = "white", lwd = 2)
+         col = color, border = colors$primary, lwd = 1.5)
     text(x, y, text, cex = text_size, col = text_color, font = 2)
   }
 
-  # Function to draw arrows
+  # Function to draw clean arrows
   draw_arrow <- function(x1, y1, x2, y2, color = colors$arrow, lwd = 2) {
-    arrows(x1, y1, x2, y2, col = color, lwd = lwd, length = 0.1, angle = 20)
+    arrows(x1, y1, x2, y2, col = color, lwd = lwd, length = 0.12, angle = 25)
   }
 
   # Function to draw text labels
-  draw_label <- function(x, y, text, size = 0.7, color = "black", font = 1) {
+  draw_label <- function(x, y, text, size = 0.75, color = colors$text, font = 1) {
     text(x, y, text, cex = size, col = color, font = font)
   }
 
-  # Title
-  text(5, 11.5, "Summary of the Implemented Framework", cex = 1.2, font = 2, col = "black")
+  # NO TITLE - Removed as requested
 
-  # 1. INPUT LAYER
-  draw_rounded_rect(2, 10.5, 3, 0.8, colors$input, "INPUT LAYER")
-  draw_label(2, 9.8, "Urban Images Dataset", 0.7, "black", 2)
-  draw_label(2, 9.5, "1,895 images", 0.6, "grey30")
-  draw_label(2, 9.2, "(1,295 ImageNet + 600 additional)", 0.6, "grey30")
+  # 1. DATASET CREATION
+  draw_rect(2, 8.5, 3.5, 0.8, colors$background, "DATASET CREATION")
+  draw_label(2, 7.8, "Urban Images Dataset", 0.8, colors$text, 2)
+  draw_label(2, 7.5, "1,895 images", 0.7, colors$secondary)
+  draw_label(2, 7.2, "New classes: cyclist, e-scooter,", 0.65, colors$secondary)
+  draw_label(2, 6.9, "SUV, delivery van", 0.65, colors$secondary)
 
-  # 2. HYBRID DETECTION ARCHITECTURE
-  draw_rounded_rect(5, 8.5, 6, 0.6, colors$fusion, "HYBRID DETECTION ARCHITECTURE")
+  # 2. SEMI-AUTOMATED LABELING
+  draw_rect(6, 8.5, 3.5, 0.8, colors$background, "SEMI-AUTOMATED LABELING")
+  draw_label(6, 7.8, "Hybrid Autolabel Approach", 0.8, colors$text, 2)
+  draw_label(6, 7.5, "YOLO-World for new classes", 0.7, colors$secondary)
+  draw_label(6, 7.2, "Manual validation & refinement", 0.7, colors$secondary)
+  draw_label(6, 6.9, "Quality assurance pipeline", 0.65, colors$secondary)
 
-  # YOLO11n Branch
-  draw_rounded_rect(2.5, 7.2, 2.8, 0.8, colors$yolo11n, "YOLO11n Branch")
-  draw_label(2.5, 6.6, "Primary Model", 0.7, "black", 2)
-  draw_label(2.5, 6.3, "6 COCO Classes:", 0.6, "grey30")
-  draw_label(2.5, 6.0, "Person + Bicycle (for cyclist logic)", 0.6, "grey30")
-  draw_label(2.5, 5.7, "Car, Motorcycle, Bus, Truck", 0.6, "grey30")
+  # 3. YOLO TRAINING
+  draw_rect(10, 8.5, 3.5, 0.8, colors$background, "YOLO TRAINING")
+  draw_label(10, 7.8, "Model Training", 0.8, colors$text, 2)
+  draw_label(10, 7.5, "YOLOv8n architecture", 0.7, colors$secondary)
+  draw_label(10, 7.2, "9-class urban mobility", 0.7, colors$secondary)
+  draw_label(10, 6.9, "Optimized for edge deployment", 0.65, colors$secondary)
 
-  # YOLO-World Branch
-  draw_rounded_rect(7.5, 7.2, 2.8, 0.8, colors$yoloworld, "YOLO-World Branch")
-  draw_label(7.5, 6.6, "Secondary Model", 0.7, "black", 2)
-  draw_label(7.5, 6.3, "3 Emerging Classes:", 0.6, "grey30")
-  draw_label(7.5, 6.0, "E-scooter", 0.6, "grey30")
-  draw_label(7.5, 5.7, "SUV", 0.6, "grey30")
-  draw_label(7.5, 5.4, "Delivery van", 0.6, "grey30")
+  # 4. CYCLIST DETECTION LOGIC
+  draw_rect(4, 6, 4.5, 0.8, colors$tertiary, "CYCLIST DETECTION LOGIC")
+  draw_label(4, 5.3, "Spatial Relationship Analysis", 0.8, colors$text, 2)
+  draw_label(4, 5.0, "Person + Bicycle IoU >= 0.20", 0.7, colors$secondary)
+  draw_label(4, 4.7, "Geometric constraints validation", 0.7, colors$secondary)
+  draw_label(4, 4.4, "Unified cyclist class creation", 0.65, colors$secondary)
 
-  # 3. RULE-BASED CYCLIST DETECTION
-  draw_rounded_rect(5, 4.5, 4, 0.8, colors$cyclist, "RULE-BASED CYCLIST DETECTION")
-  draw_label(5, 3.9, "Algorithm Innovation", 0.7, "black", 2)
-  draw_label(5, 3.6, "Person + Bicycle spatial overlap analysis", 0.6, "grey30")
-  draw_label(5, 3.3, "IoU threshold >= 0.20", 0.6, "grey30")
-  draw_label(5, 3.0, "Geometric constraints -> Unified Cyclist class", 0.6, "grey30")
+  # 5. NCNN OPTIMIZATION
+  draw_rect(8, 6, 3.5, 0.8, colors$background, "NCNN OPTIMIZATION")
+  draw_label(8, 5.3, "Edge Optimization", 0.8, colors$text, 2)
+  draw_label(8, 5.0, "ONNX to NCNN conversion", 0.7, colors$secondary)
+  draw_label(8, 4.7, "ARM CPU optimization", 0.7, colors$secondary)
+  draw_label(8, 4.4, "Memory efficiency tuning", 0.65, colors$secondary)
 
-  # 4. DETECTION FUSION
-  draw_rounded_rect(5, 2.0, 3.5, 0.6, colors$fusion, "DETECTION FUSION")
-  draw_label(5, 1.5, "Parallel processing + NMS (IoU 0.5)", 0.6, "grey30")
-  draw_label(5, 1.2, "9-class taxonomy mapping", 0.6, "grey30")
+  # 6. RASPBERRY PI DEPLOYMENT
+  draw_rect(3, 3.5, 3.5, 0.8, colors$primary, "RASPBERRY PI DEPLOYMENT", text_color = "white")
+  draw_label(3, 2.8, "Edge Computing Platform", 0.8, "white", 2)
+  draw_label(3, 2.5, "Raspberry Pi 5 (8GB RAM)", 0.7, colors$background)
+  draw_label(3, 2.2, "Real-time processing", 0.7, colors$background)
+  draw_label(3, 1.9, "Privacy-preserving", 0.65, colors$background)
 
-  # 5. EDGE DEPLOYMENT
-  draw_rounded_rect(2.5, 0.5, 2.5, 0.6, colors$edge, "EDGE DEPLOYMENT", text_color = "white")
-  draw_label(2.5, 0.0, "Raspberry Pi 5 (8GB)", 0.6, "grey30")
-  draw_label(2.5, -0.3, "Real-time processing", 0.6, "grey30")
+  # 7. OUTPUT
+  draw_rect(9, 3.5, 3.5, 0.8, colors$secondary, "OUTPUT DETECTION")
+  draw_label(9, 2.8, "Urban Mobility Detection", 0.8, "white", 2)
+  draw_label(9, 2.5, "9-class taxonomy", 0.7, colors$background)
+  draw_label(9, 2.2, "Real-time inference", 0.7, colors$background)
+  draw_label(9, 1.9, "Edge-optimized performance", 0.65, colors$background)
 
-  # 6. OUTPUT
-  draw_rounded_rect(7.5, 0.5, 2.5, 0.6, colors$output, "OUTPUT LAYER")
-  draw_label(7.5, 0.0, "9-class urban mobility", 0.6, "grey30")
-  draw_label(7.5, -0.3, "Privacy-preserving", 0.6, "grey30")
+  # ARROWS showing workflow
+  # Dataset → Labeling
+  draw_arrow(3.75, 8.5, 4.25, 8.5)
+  # Labeling → Training
+  draw_arrow(7.75, 8.5, 8.25, 8.5)
+  # Training → Cyclist Logic
+  draw_arrow(10, 7.7, 6, 6.5)
+  # Training → NCNN
+  draw_arrow(10, 7.7, 8, 6.8)
+  # Cyclist Logic → NCNN
+  draw_arrow(6.25, 6, 6.75, 6)
+  # NCNN → Deployment
+  draw_arrow(8, 5.2, 5, 4.0)
+  # Deployment → Output
+  draw_arrow(4.75, 3.5, 7.25, 3.5)
 
-  # ARROWS showing data flow
-  # Input to hybrid architecture
-  draw_arrow(2, 10, 2.5, 8.0)
-  draw_arrow(2, 10, 7.5, 8.0)
-
-  # Hybrid branches to cyclist detection
-  draw_arrow(2.5, 6.4, 4, 5.0)
-  draw_arrow(7.5, 6.4, 6, 5.0)
-
-  # Cyclist detection to fusion
-  draw_arrow(5, 4.0, 5, 2.6)
-
-  # Fusion to outputs
-  draw_arrow(4, 1.7, 2.5, 1.1)
-  draw_arrow(6, 1.7, 7.5, 1.1)
-
-  # Add side annotations for key innovations
-  draw_label(0.5, 4.5, "KEY\nINNOVATIONS", 0.8, colors$cyclist, 2)
-  draw_label(0.5, 3.8, "- Hybrid architecture", 0.6, "black")
-  draw_label(0.5, 3.5, "- Cyclist detection algorithm", 0.6, "black")
-  draw_label(0.5, 3.2, "- Edge deployment focus", 0.6, "black")
-  draw_label(0.5, 2.9, "- Comprehensive 9-class", 0.6, "black")
-  draw_label(0.5, 2.6, "  urban mobility coverage", 0.6, "black")
-
-  # Add technical specifications box
-  rect(8.5, 8.8, 9.8, 10.2, col = "grey95", border = "grey70")
-  draw_label(9.15, 9.8, "TECHNICAL SPECS", 0.7, "black", 2)
-  draw_label(9.15, 9.5, "Models: YOLO11n + YOLO-World", 0.5, "grey30")
-  draw_label(9.15, 9.3, "NMS IoU: 0.5", 0.5, "grey30")
-  draw_label(9.15, 9.1, "Cyclist IoU: >=0.20", 0.5, "grey30")
-  draw_label(9.15, 8.9, "Target: Real-time edge", 0.5, "grey30")
+  # KEY INNOVATIONS box
+  rect(0.2, 0.5, 5.8, 1.8, col = colors$background, border = colors$tertiary, lwd = 1.5)
+  draw_label(3, 1.6, "KEY INNOVATIONS", 0.9, colors$primary, 2)
+  draw_label(1, 1.25, "- New urban mobility classes: cyclist, e-scooter, SUV, delivery van", 0.7, colors$text)
+  draw_label(1, 1.0, "- Edge deployment focus: Raspberry Pi 5 optimization with NCNN", 0.7, colors$text)
+  draw_label(1, 0.75, "- Hybrid autolabel approach: Semi-automated labeling methodology", 0.7, colors$text)
 }
 
-# Generate the figure
+# Generate high-quality figure
 png("/home/tiago/repos/camina/paper/img/figure1_framework_overview.png",
-    width = 12, height = 10, units = "in", res = 300, bg = "white")
+    width = 14, height = 10, units = "in", res = 300, bg = "white",
+    type = "cairo", antialias = "default")
 
 create_framework_diagram()
 
@@ -130,14 +122,20 @@ dev.off()
 
 # Also create a PDF version for publication
 pdf("/home/tiago/repos/camina/paper/img/figure1_framework_overview.pdf",
-    width = 12, height = 10, bg = "white")
+    width = 14, height = 10, bg = "white", colormodel = "gray")
 
 create_framework_diagram()
 
 dev.off()
 
-cat("Figure 1 - CAMINA Framework Overview generated successfully!\n")
-cat("Files saved:\n")
+cat("CAMINA Framework Overview - Clean Professional Version Generated!\n")
+cat("Key improvements made:\n")
+cat("✓ Removed title from figure\n")
+cat("✓ Converted to minimal grayscale design\n")
+cat("✓ Fixed framework flow: Dataset → Labeling → Training → Optimization → Deployment\n")
+cat("✓ Updated key innovations to reflect actual contributions\n")
+cat("✓ Removed confusing 'hybrid detection architecture' concept\n")
+cat("✓ Created clean, professional academic publication design\n")
+cat("\nFiles saved:\n")
 cat("- /home/tiago/repos/camina/paper/img/figure1_framework_overview.png\n")
 cat("- /home/tiago/repos/camina/paper/img/figure1_framework_overview.pdf\n")
-cat("- /home/tiago/repos/camina/paper/img/figure1_framework_overview.R\n")
