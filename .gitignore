@@ -77,7 +77,9 @@ build/
 *.pth
 *.pt
 *.safetensors
+# Large model files (but allow NCNN deployment models)
 *.bin
+!model/raspberry_pi_deployment_all/**/*.bin
 models/camina/
 models/yolo_base/
 models/yolo_world/
