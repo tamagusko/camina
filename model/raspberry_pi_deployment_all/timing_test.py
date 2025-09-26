@@ -8,6 +8,8 @@ import time
 import glob
 import json
 import platform
+import subprocess
+import sys
 
 def test_ncnn_timing(model_dir, test_image_path, num_runs=20):
     """Test NCNN model inference time - basic timing only"""
@@ -35,10 +37,14 @@ def test_ncnn_timing(model_dir, test_image_path, num_runs=20):
     print(f"📂 Param: {os.path.basename(param_file)}")
     print(f"📂 Model: {os.path.basename(bin_file)}")
 
-    # Load model
-    net = ncnn.Net()
-    net.load_param(param_file)
-    net.load_model(bin_file)
+    # Load model with error handling
+    try:
+        net = ncnn.Net()
+        net.load_param(param_file)
+        net.load_model(bin_file)
+    except Exception as e:
+        print(f"❌ Failed to load model: {e}")
+        return None
 
     # Load image
     img = cv2.imread(test_image_path)
@@ -55,35 +61,47 @@ def test_ncnn_timing(model_dir, test_image_path, num_runs=20):
 
     # Warmup (ignore errors)
     print("🔥 Warming up...")
-    for _ in range(3):
-        try:
-            ex = net.create_extractor()
-            ex.input("in0", mat)
-            _, _ = ex.extract("out0")
-        except:
-            pass
+    try:
+        for _ in range(3):
+            try:
+                ex = net.create_extractor()
+                ex.input("in0", mat)
+                _, _ = ex.extract("out0")
+            except:
+                pass
+    except Exception as e:
+        print(f"❌ Warmup failed: {e}")
+        return None
 
     # Benchmark runs - only measure time
     print(f"⏱️ Running {num_runs} timing tests...")
     times = []
 
-    for i in range(num_runs):
-        start_time = time.perf_counter()
+    try:
+        for i in range(num_runs):
+            start_time = time.perf_counter()
 
-        try:
-            ex = net.create_extractor()
-            ex.input("in0", mat)
-            _, _ = ex.extract("out0")  # Don't care about output, just timing
-        except:
-            # Even if extraction fails, we still measured the time
-            pass
+            try:
+                ex = net.create_extractor()
+                ex.input("in0", mat)
+                _, _ = ex.extract("out0")  # Don't care about output, just timing
+            except:
+                # Even if extraction fails, we still measured the time
+                pass
 
-        end_time = time.perf_counter()
-        inference_time_ms = (end_time - start_time) * 1000
-        times.append(inference_time_ms)
+            end_time = time.perf_counter()
+            inference_time_ms = (end_time - start_time) * 1000
+            times.append(inference_time_ms)
 
-        if (i + 1) % 5 == 0:
-            print(f"   Completed {i+1}/{num_runs} runs...")
+            if (i + 1) % 5 == 0:
+                print(f"   Completed {i+1}/{num_runs} runs...")
+
+    except Exception as e:
+        print(f"❌ Benchmark failed: {e}")
+        if times:  # Return partial results if we got some
+            print(f"⚠️ Returning partial results from {len(times)} runs")
+        else:
+            return None
 
     if not times:
         return None
