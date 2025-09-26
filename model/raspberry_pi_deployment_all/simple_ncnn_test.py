@@ -146,8 +146,11 @@ def main():
         'yolo11n_ncnn'
     ]
 
-    # Find test images
-    test_images_dir = 'test_images'
+    # Find test images (check both current dir and script dir)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    test_images_dir = os.path.join(script_dir, 'test_images')
+    if not os.path.exists(test_images_dir):
+        test_images_dir = 'test_images'
     if not os.path.exists(test_images_dir):
         print(f"❌ Test images directory not found: {test_images_dir}")
         print("Please add some test images to the test_images/ folder")
@@ -165,9 +168,12 @@ def main():
     results = {}
 
     for model_dir in model_dirs:
-        if not os.path.exists(model_dir):
+        # Check both current dir and script dir for models
+        full_model_path = os.path.join(script_dir, model_dir) if not os.path.exists(model_dir) else model_dir
+        if not os.path.exists(full_model_path):
             print(f"⚠️ Model directory not found: {model_dir}")
             continue
+        model_dir = full_model_path
 
         print(f"🤖 Testing {model_dir}...")
 
