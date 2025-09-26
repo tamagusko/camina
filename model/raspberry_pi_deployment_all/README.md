@@ -52,11 +52,20 @@ This package contains all 4 CAMINA-trained YOLO models optimized for Raspberry P
 
 ### Installation
 ```bash
-# Copy all model directories to Raspberry Pi
-scp -r *_ncnn/ pi@raspberrypi:~/camina_models/
+# Copy entire deployment package to Raspberry Pi
+scp -r raspberry_pi_deployment_all/ pi@raspberrypi:~/camina/model/
 
 # Install dependencies on RPi
-pip install ultralytics opencv-python numpy
+pip install ncnn opencv-python numpy
+```
+
+### Quick Test
+```bash
+# Run the timing benchmark (recommended)
+python timing_test.py
+
+# Or try the full inference test
+python raspberry_pi_inference_test.py
 ```
 
 ### Performance Estimates (Per Model)
@@ -69,21 +78,31 @@ Based on benchmarking, expected performance on Raspberry Pi 5:
 | **YOLOv5n** | ~15 ms | ~67 FPS | Stable performance |
 | **YOLOv10n** | ~15 ms | ~66 FPS | Lower accuracy but fast |
 
-### Usage Example
+### Usage Example (NCNN)
 ```python
-from ultralytics import YOLO
+import ncnn
+import cv2
 
-# Load the best performing model
-model = YOLO('yolo11n_ncnn')  # or any other model
+# Load NCNN model
+net = ncnn.Net()
+net.load_param("yolo11n_ncnn/model.ncnn.param")
+net.load_model("yolo11n_ncnn/model.ncnn.bin")
+
+# Preprocess image
+img = cv2.imread('test_image.jpg')
+img_resized = cv2.resize(img, (640, 640))
+mat = ncnn.Mat.from_pixels(img_resized, ncnn.Mat.PixelType.PIXEL_BGR, 640, 640)
+mat.substract_mean_normalize([0, 0, 0], [1/255.0, 1/255.0, 1/255.0])
 
 # Run inference
-results = model.predict('image.jpg', imgsz=640)
-
-# Process results
-for result in results:
-    result.show()  # Display
-    result.save(filename='output.jpg')  # Save
+ex = net.create_extractor()
+ex.input("in0", mat)
+_, result = ex.extract("out0")
 ```
+
+### Scripts Available
+- **`timing_test.py`**: Simple timing benchmark - **recommended**
+- **`raspberry_pi_inference_test.py`**: Full inference with detection output
 
 ### Urban Mobility Classes
 All models detect these 9 classes:
