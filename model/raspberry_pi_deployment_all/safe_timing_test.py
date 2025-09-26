@@ -249,6 +249,10 @@ def main():
                 print("❌ Test failed - no valid results")
                 if result and result.stderr:
                     print(f"🔍 Error details: {result.stderr[:200]}...")
+                # Special handling for YOLOv10n
+                if "yolov10n" in model_name.lower():
+                    print("💡 YOLOv10n has known NCNN compatibility issues (torch.topk)")
+                    print("   See yolov10n_ncnn/COMPATIBILITY_ISSUE.md for alternatives")
         else:
             print("❌ Test failed - subprocess error")
 
