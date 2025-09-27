@@ -28,7 +28,7 @@
         <mxCell id="4MzoJNzjmRNkiu8TFa2U-16" style="edgeStyle=orthogonalEdgeStyle;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=default;strokeWidth=2;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" parent="1" source="4MzoJNzjmRNkiu8TFa2U-4" target="4MzoJNzjmRNkiu8TFa2U-7" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="4MzoJNzjmRNkiu8TFa2U-4" value="YOLO8m WORLD v2" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fontStyle=1" parent="1" vertex="1">
+        <mxCell id="4MzoJNzjmRNkiu8TFa2U-4" value="YOLOv8m WORLD v2" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fontStyle=1" parent="1" vertex="1">
           <mxGeometry x="320" y="160" width="160" height="40" as="geometry" />
         </mxCell>
         <mxCell id="4MzoJNzjmRNkiu8TFa2U-5" value="Person, bicycle, car, motorcycle, bus, truck" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
@@ -67,7 +67,7 @@
         <mxCell id="4MzoJNzjmRNkiu8TFa2U-25" value="MODEL TRAINING" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fontStyle=1" parent="1" vertex="1">
           <mxGeometry x="320" y="280" width="160" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="4MzoJNzjmRNkiu8TFa2U-26" value="&lt;div&gt;1,834 images&lt;/div&gt;YOLO5n, YOLO8n, YOLO10n, YOLO11n" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+        <mxCell id="4MzoJNzjmRNkiu8TFa2U-26" value="&lt;div&gt;1,834 images&lt;/div&gt;YOLO5n, YOLO8n, YOLO10n, &lt;b&gt;YOLO11n&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
           <mxGeometry x="295" y="320" width="230" height="40" as="geometry" />
         </mxCell>
         <mxCell id="4MzoJNzjmRNkiu8TFa2U-28" value="EDGE MODEL OPTIMIZATION" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fontStyle=1" parent="1" vertex="1">
