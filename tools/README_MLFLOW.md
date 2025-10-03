@@ -2,6 +2,8 @@
 
 Experiment tracking and dataset monitoring tools with MLflow integration.
 
+Pure functional implementation without classes - simple, clear, and maintainable.
+
 ## 📦 Installation
 
 ```bash
@@ -11,14 +13,17 @@ pip install mlflow
 ## 🛠️ Tools Overview
 
 ### 1. `mlflow_tracker.py` - Core MLflow Integration
-Core library for MLflow tracking in CAMINA pipeline.
+Core library providing pure functions for MLflow tracking in CAMINA pipeline.
 
 **Features:**
-- Experiment tracking
+- Experiment initialization and run management
 - Metrics logging (overall and per-class)
 - Artifact management
 - Dataset instance count validation
 - Edge deployment metrics
+
+**Architecture:** Pure functional - no classes, no state management
+**Functions:** 20+ specialized functions, each doing ONE thing clearly
 
 ### 2. `monitor_dataset_balance.py` - Dataset Balance Monitor
 Track instance counts and ensure dataset balance meets requirements.
@@ -43,6 +48,8 @@ python tools/monitor_dataset_balance.py \
 - JSON report with complete statistics
 - MLflow tracking (optional)
 
+**Architecture:** Pure functional - composed of small, focused functions
+
 ### 3. `train_with_mlflow.py` - Training with MLflow
 Wrapper for YOLO training with automatic MLflow tracking.
 
@@ -64,6 +71,8 @@ python tools/train_with_mlflow.py \
 - Model artifacts (weights, plots, configs)
 - Dataset instance counts
 
+**Architecture:** Pure functional - clear data flow without classes
+
 ## 🚀 Quick Start
 
 ### Step 1: Monitor Your Dataset
@@ -77,14 +86,14 @@ python tools/monitor_dataset_balance.py \
 ```
 
 **Check output for:**
-- ⚠️ Classes below minimum (300): HIGH PRIORITY
-- ⚡ Classes below target (500): Add more when possible
-- ✅ Classes meeting target: Good to go!
+- [X] Classes below minimum (300): HIGH PRIORITY
+- [!] Classes below target (500): Add more when possible
+- [OK] Classes meeting target: Good to go!
 
 ### Step 2: Add More Images (if needed)
 
 If classes are below thresholds:
-1. Focus on classes marked ⚠️ (below minimum) first
+1. Focus on classes marked [X] (below minimum) first
 2. Use autolabeling or manual annotation
 3. Re-run monitoring to verify progress
 
@@ -124,8 +133,8 @@ python tools/monitor_dataset_balance.py \
     --mlflow
 
 # Output shows:
-# ⚠️ delivery_van: 112 instances (need 188 more for minimum)
-# ⚡ truck: 132 instances (need 368 more for target)
+# [X] delivery_van: 112 instances (need 188 more for minimum)
+# [!] truck: 132 instances (need 368 more for target)
 
 # 2. Add more images with underrepresented classes
 # (collect and label images...)
@@ -136,8 +145,8 @@ python tools/monitor_dataset_balance.py \
     --mlflow
 
 # Output shows:
-# ✅ delivery_van: 315 instances (63% of target)
-# ✅ truck: 510 instances (102% of target)
+# [OK] delivery_van: 315 instances (63% of target)
+# [OK] truck: 510 instances (102% of target)
 
 # 4. Train when all classes meet minimum
 python tools/train_with_mlflow.py \
@@ -207,8 +216,8 @@ python tools/monitor_dataset_balance.py --dataset <path> --mlflow
 Use `--mlflow` flag to maintain history of all experiments
 
 ### 3. Prioritize Data Collection
-- Focus on ⚠️ classes (below minimum) first
-- Aim for ⚡ classes (below target) next
+- Focus on [X] classes (below minimum) first
+- Aim for [!] classes (below target) next
 - Maintain balance (keep imbalance ratio < 10x)
 
 ### 4. Use Consistent Naming
@@ -221,6 +230,42 @@ Use MLflow run notes to explain:
 - Why certain hyperparameters were chosen
 - Data collection decisions
 - Model selection reasoning
+
+## 🏗️ Code Architecture
+
+All MLflow tools follow **pure functional programming** principles:
+
+### Design Principles
+- **No classes** - Only pure functions
+- **No state** - All data passed as parameters
+- **Single responsibility** - Each function does ONE thing
+- **Self-explanatory names** - `instance_counts_per_class` not `counts`
+- **Clear data flow** - Function → Process → Return
+
+### Example Function Signature
+```python
+def count_instances_from_label_files(
+    labels_directory: Path,
+    class_names: List[str]
+) -> Dict[str, int]:
+    """
+    Count instances per class from YOLO label files.
+
+    Args:
+        labels_directory: Directory containing .txt label files
+        class_names: Ordered list of class names
+
+    Returns:
+        Dictionary mapping class name to instance count
+    """
+```
+
+### Benefits
+- Easy to understand and modify
+- Easy to test (pure functions)
+- No hidden state or side effects
+- Clear separation of concerns
+- Minimal cognitive load
 
 ## 🐛 Troubleshooting
 
@@ -243,11 +288,69 @@ export MLFLOW_TRACKING_URI=file:///path/to/mlruns
 ### Can't see recent runs
 Refresh your browser (F5) in MLflow UI
 
-## 📚 More Information
+## 📚 Code Organization
 
-- Full guide: `docs/MLFLOW_GUIDE.md`
-- MLflow docs: https://mlflow.org/docs/latest/
-- CAMINA repo: https://github.com/tamagusko/camina
+### mlflow_tracker.py Structure
+```
+├── EXPERIMENT INITIALIZATION
+│   └── initialize_mlflow_experiment()
+├── RUN MANAGEMENT
+│   ├── start_dataset_creation_run()
+│   ├── start_model_training_run()
+│   └── end_mlflow_run()
+├── INSTANCE COUNTING
+│   └── count_instances_from_label_files()
+├── THRESHOLD CHECKING
+│   └── categorize_classes_by_threshold()
+├── STATISTICS CALCULATION
+│   └── calculate_dataset_statistics()
+├── MLFLOW LOGGING
+│   ├── log_instance_counts_to_mlflow()
+│   ├── log_training_parameters()
+│   ├── log_training_metrics()
+│   ├── log_per_class_performance()
+│   ├── log_model_artifacts()
+│   └── log_edge_deployment_performance()
+└── UTILITY FUNCTIONS
+    └── print_mlflow_ui_instructions()
+```
+
+### monitor_dataset_balance.py Structure
+```
+├── INSTANCE COUNTING
+│   ├── count_dataset_instances()
+│   └── count_dataset_images()
+├── STATISTICS CALCULATION
+│   └── calculate_instance_statistics()
+├── THRESHOLD CATEGORIZATION
+│   └── categorize_classes_by_thresholds()
+├── PROGRESS CALCULATION
+│   └── calculate_collection_progress()
+├── ANALYSIS
+│   └── analyze_dataset_balance()
+├── REPORTING
+│   ├── print_dataset_balance_report()
+│   └── save_analysis_report()
+└── MLFLOW INTEGRATION
+    └── track_dataset_balance_with_mlflow()
+```
+
+### train_with_mlflow.py Structure
+```
+├── DATASET LOADING
+│   ├── load_dataset_configuration()
+│   └── extract_dataset_info()
+├── TRAINING EXECUTION
+│   └── train_yolo_model()
+├── MODEL VALIDATION
+│   └── validate_trained_model()
+├── ARTIFACT COLLECTION
+│   └── collect_training_artifacts()
+├── TRAINING WITH MLFLOW
+│   └── train_yolo_model_with_mlflow()
+└── BATCH TRAINING
+    └── train_multiple_yolo_models()
+```
 
 ## 🎯 Current Dataset Status (Example)
 
@@ -255,22 +358,24 @@ Based on your current dataset:
 
 | Class | Instances | Status | Action Needed |
 |-------|-----------|--------|---------------|
-| person | 6,975 | ✅ | None |
-| cyclist | 2,012 | ✅ | None |
-| car | 2,105 | ✅ | None |
-| e-scooter | 728 | ✅ | None |
-| SUV | 456 | ⚡ | +44 for target |
-| motorcyclist | 307 | ✅ | None |
-| bus | 321 | ⚡ | +179 for target |
-| truck | 132 | ⚠️ | +168 to minimum |
-| delivery_van | 112 | ⚠️ | +188 to minimum |
+| person | 6,975 | [OK] | None |
+| cyclist | 2,012 | [OK] | None |
+| car | 2,105 | [OK] | None |
+| e-scooter | 728 | [OK] | None |
+| SUV | 456 | [!] | +44 for target |
+| motorcyclist | 307 | [OK] | None |
+| bus | 321 | [!] | +179 for target |
+| truck | 132 | [X] | +168 to minimum |
+| delivery_van | 112 | [X] | +188 to minimum |
 
 **Priority actions:**
-1. 🔴 HIGH: Add 188+ images with delivery_van
-2. 🔴 HIGH: Add 168+ images with truck
-3. 🟡 MEDIUM: Add 179+ images with bus
-4. 🟡 MEDIUM: Add 44+ images with SUV
+1. HIGH: Add 188+ images with delivery_van
+2. HIGH: Add 168+ images with truck
+3. MEDIUM: Add 179+ images with bus
+4. MEDIUM: Add 44+ images with SUV
 
 ---
 
-**Need help?** Check the full guide in `docs/MLFLOW_GUIDE.md`
+**Code Style:** Pure functional programming - no classes, simple and clear
+
+**Need help?** Check the inline documentation in each Python file
