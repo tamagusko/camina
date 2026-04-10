@@ -1,15 +1,13 @@
-path: /Users/tamagusko/repos/camina/custom_model_train/all_camina_classes
-train: images/train
-val: images/val
-test: images/test
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
 nc: 9
-names:
-  0: pedestrian
-  1: cyclist
-  2: car
-  3: motorcycle
-  4: bus
-  5: truck
-  6: e-scooter
-  7: SUV
-  8: delivery_van
+names: ['bus', 'car', 'cyclist', 'delivery_van', 'e-scooter', 'motorcycle', 'person', 'suv', 'truck']
+
+roboflow:
+  workspace: tiago-tamagusko
+  project: tiago-tamagusko
+  version: dataset
+  license: Private
+  url: https://app.roboflow.com/tiago-tamagusko/tiago-tamagusko/dataset
