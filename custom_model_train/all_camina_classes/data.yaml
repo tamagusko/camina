@@ -1,4 +1,4 @@
-path: /Users/tamagusko/repos/camina/custom_model_train/all_camina_classes
+path: .
 train: images/train
 val: images/val
 test: images/test
