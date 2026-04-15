@@ -36,16 +36,21 @@ testing:
   # Quick test settings (for development/debugging)
   quick_test_epochs: 3
   test_batch_size: 4
-  
+
   # Test options
   create_test_video: true
   run_memory_profiling: true
   validate_outputs: true
   run_benchmarks: true
-  
+
   # Timeout settings (seconds)
   command_timeout: 3600
   training_timeout: 7200
+
+  # Data splitting options
+  stratified_split: true  # Use stratified sampling for train/val split
+  val_ratio: 0.2          # Validation split ratio (20%)
+  split_seed: 42          # Random seed for reproducibility
 
 output:
   # Output directories

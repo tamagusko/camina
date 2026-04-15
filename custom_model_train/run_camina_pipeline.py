@@ -285,10 +285,10 @@ class CAMINAPipelineRunner:
     def run_training_test(self, quick_test: bool = True) -> bool:
         """Run YOLO11n training test"""
         start_time = time.time()
-        
+
         epochs = self.config['testing']['quick_test_epochs'] if quick_test else self.config['pipeline']['epochs']
         batch_size = self.config['testing']['test_batch_size'] if quick_test else self.config['pipeline']['batch_size']
-        
+
         cmd = [
             sys.executable, 'scripts/train_yolo11n.py',
             '--data', f"{self.config['pipeline']['output_dataset_path']}/data.yaml",
@@ -297,17 +297,25 @@ class CAMINAPipelineRunner:
             '--device', self.config['pipeline']['device'],
             '--project', f"test_training_{self.pipeline_id}"
         ]
-        
+
+        # Add stratified split option if configured
+        if self.config.get('training', {}).get('stratified_split', False):
+            cmd.extend(['--stratified-split'])
+            val_ratio = self.config.get('training', {}).get('val_ratio', 0.2)
+            seed = self.config.get('training', {}).get('split_seed', 42)
+            cmd.extend(['--val-ratio', str(val_ratio)])
+            cmd.extend(['--split-seed', str(seed)])
+
         test_name = "Quick Training Test" if quick_test else "Full Training"
         success, stdout, stderr = self.run_command(cmd, test_name, timeout=1800 if quick_test else 7200)
         duration = time.time() - start_time
-        
+
         # Find model outputs
         outputs = []
         if success:
             runs_dir = Path('runs/train')
             if runs_dir.exists():
-                latest_run = max(runs_dir.glob(f"test_training_{self.pipeline_id}*"), 
+                latest_run = max(runs_dir.glob(f"test_training_{self.pipeline_id}*"),
                                key=os.path.getctime, default=None)
                 if latest_run:
                     weights_dir = latest_run / 'weights'
@@ -316,7 +324,7 @@ class CAMINAPipelineRunner:
                             weight_path = weights_dir / weight_file
                             if weight_path.exists():
                                 outputs.append(str(weight_path))
-        
+
         self.record_pipeline_step(test_name, success, duration, outputs)
         return success
     

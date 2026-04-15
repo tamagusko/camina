@@ -384,16 +384,56 @@ def main():
                        help='Export model for Raspberry Pi after training')
     parser.add_argument('--project', default='camina_expansion',
                        help='Project name for experiment tracking')
-    
+    parser.add_argument('--stratified-split', action='store_true',
+                       help='Use stratified train/val split (maintains class distribution)')
+    parser.add_argument('--val-ratio', type=float, default=0.2,
+                       help='Validation split ratio (default: 0.2)')
+    parser.add_argument('--split-seed', type=int, default=42,
+                       help='Random seed for data splitting (default: 42)')
+
     args = parser.parse_args()
-    
+
+    # Create stratified split if requested
+    if args.stratified_split:
+        logger.info("Creating stratified train/val split...")
+        try:
+            from pathlib import Path
+            import sys
+            
+            # Add scripts directory to path
+            scripts_dir = Path(__file__).parent
+            sys.path.insert(0, str(scripts_dir))
+            
+            from create_val_split import create_val_split
+            
+            # Determine dataset path from data.yaml
+            import yaml
+            with open(args.data, 'r') as f:
+                data_config = yaml.safe_load(f)
+            
+            dataset_path = Path(data_config['path'])
+            
+            # Create stratified split
+            create_val_split(
+                dataset_path=str(dataset_path),
+                val_ratio=args.val_ratio,
+                seed=args.split_seed,
+                stratified=True
+            )
+            
+            logger.info("Stratified split created successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to create stratified split: {e}")
+            logger.warning("Continuing with existing split")
+
     # Initialize trainer
     trainer = YOLO11nTrainer(
         data_yaml=args.data,
         model_path=args.model,
         project_name=args.project
     )
-    
+
     # Override parameters from command line
     trainer.training_params.update({
         'epochs': args.epochs,
@@ -401,14 +441,14 @@ def main():
         'imgsz': args.imgsz,
         'device': args.device if args.device != 'auto' else 'auto'
     })
-    
+
     # Start training
     results = trainer.train(resume=args.resume)
-    
+
     if results and args.export:
         # Export for Raspberry Pi
         trainer.export_for_raspberry_pi()
-    
+
     logger.info("Training pipeline completed!")
 
 if __name__ == '__main__':
