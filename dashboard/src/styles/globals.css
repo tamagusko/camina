@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --app-background: #ffffff;
+    --app-foreground: #000000;
+  }
+
+  html, body {
+    height: 100%;
+    min-height: 100vh;
+    /* dvh is the source of truth on browsers that support it; vh is fallback. */
+    min-height: 100dvh;
+    margin: 0;
+    background: var(--app-background);
+    color: var(--app-foreground);
+    font-family: theme("fontFamily.body");
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  #__next, body > div {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  /* MapLibre canvas fills its container flush — no inherited margins.
+     Size is enforced via inline styles on the container element, so no
+     height override is needed here (see StreetMap.tsx). */
+  .maplibregl-map {
+    font-family: inherit !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Uber-style primary pill button (DESIGN.md §4). */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-pill bg-black text-white
+           px-3 py-2.5 text-body font-medium;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2
+           focus-visible:ring-offset-black;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-pill bg-white text-black
+           px-3 py-2.5 text-body font-medium hover:bg-hover-gray;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-black;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-2 rounded-pill bg-chip-gray text-black
+           px-4 py-3.5 text-caption font-medium;
+  }
+
+  .chip-active {
+    @apply bg-black text-white;
+  }
+
+  .card {
+    @apply rounded-card bg-white shadow-subtle;
+  }
+}

@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+.env
+.env.*.local
+.vercel
+.turbo
+*.tsbuildinfo
+next-env.d.ts
+coverage/
+playwright-report/
+test-results/
+.DS_Store
+
+# Pre-downloaded basemap tiles (regenerate with
+# `pnpm exec node scripts/download-dublin-tiles.mjs`).
+public/tiles/

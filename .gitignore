@@ -28,6 +28,16 @@ bkp/
 .vscode/
 .idea/
 
+# Claude Code / Playwright MCP runtime state (per-dev, not shared)
+.claude/
+.playwright-mcp/
+
+# Dashboard build artefacts and local env
+dashboard/node_modules/
+dashboard/.next/
+dashboard/public/tiles/
+dashboard/.env.local
+
 # Virtual environments
 venv/
 env/
