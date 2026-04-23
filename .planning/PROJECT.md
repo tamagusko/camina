@@ -41,6 +41,7 @@ CAMINA is a privacy-first traffic-sensor network: a fine-tuned 9-class YOLO11 de
 - [ ] `LoRaPublisher` in `src/camina/io/` parallel to `HttpsPublisher`, plugged into `SensorDaemon` via a transport flag
 - [ ] LoRaWAN → TTN webhook → `/api/ingest/lora/*` decoder endpoint on the dashboard
 - [ ] Transport selection via `configs/sensor.yaml` (`https` | `lora` | `both`)
+- [ ] **Simulated 5-sensor Dublin fleet** — deterministic time-series generator + CLI driver + k-anonymity edge case so the dashboard can be iterated/demoed end-to-end without any Pi, camera, or network
 
 **Milestone 2 — Cloud + real-street deployment (target: by 2026-05-31)**
 

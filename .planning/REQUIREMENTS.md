@@ -32,6 +32,16 @@ Committed scope for the TRL-6 milestone by **2026-05-31**. Each requirement maps
 - [ ] **LORA-07**: TTN Community v3 application + device registered; HMAC webhook signature verified on every POST.
 - [ ] **LORA-08**: Round-trip test with a real TTN dev device (not the deployment Pi) wires end-to-end on a Vercel preview before the deployment Pi is touched.
 
+### Simulated sensor fleet (SIM)
+
+- [ ] **SIM-01**: Fleet fixture with 5 simulated sensors placed on real Dublin streets (IDs `D01`–`D05`, each with a real street polygon pulled from OSM). Stored as `data/mock/dublin/simulated-fleet.json` for traceability.
+- [ ] **SIM-02**: Time-series generator produces realistic per-class 15-minute windowed counts per sensor with morning (07:00–10:00) + evening (16:00–19:00) rush peaks, a lunch pedestrian bump, weekend-vs-weekday profiles, and class-specific hourly patterns (pedestrians lunch-heavy, trucks rush-lite, etc.).
+- [ ] **SIM-03**: Class-appropriate speed distributions: pedestrians ~3–6 km/h, cyclists ~12–25 km/h, cars ~20–50 km/h, buses ~15–35 km/h, trucks ~15–40 km/h. Deterministic per seed; variance wide enough to stress the colour ramp.
+- [ ] **SIM-04**: `dashboard/scripts/simulate-fleet.mjs` CLI with two modes: `--backfill <hours>` seeds N hours of historical windows; `--live` streams one new window every 15 min (or `--tick <sec>` for demo speed-up). Deterministic with `--seed N`.
+- [ ] **SIM-05**: Simulator works in both data-source modes: `CAMINA_DATA_SOURCE=mock` writes to the in-memory mock repo (zero infrastructure); `CAMINA_DATA_SOURCE=live` writes to the Neon `sensor_readings` table and re-uses the real aggregation cron.
+- [ ] **SIM-06**: Fixture deliberately includes one sensor whose street crosses the `k_min = 5` k-anonymity floor during quiet hours, so the dashboard visibly shows the `< 5` / null collapse path (regression-proofs the privacy floor).
+- [ ] **SIM-07**: Documented in `docs/SIMULATION.md` with commands, determinism notes, and screenshots of the expected dashboard look (replaces the need for a Pi when demoing the UI).
+
 ### Data layer (DATA)
 
 - [ ] **DATA-01**: Neon Postgres + PostGIS project provisioned via Vercel Marketplace; pooled and unpooled URLs set in `.env.local` and later via `vercel env add`.
@@ -211,6 +221,7 @@ Populated during `ROADMAP.md` creation. Each v1 requirement maps to exactly one 
 | Requirement | Phase | Status |
 |---|---|---|
 | EDGE-01..09 | (TBD) | Pending |
+| SIM-01..07 | (TBD) | Pending |
 | LORA-01..08 | (TBD) | Pending |
 | DATA-01..09 | (TBD) | Pending |
 | AUTH-01..06 | (TBD) | Pending |
@@ -223,9 +234,9 @@ Populated during `ROADMAP.md` creation. Each v1 requirement maps to exactly one 
 | DEMO-01..06 | (TBD) | Pending |
 
 **Coverage:**
-- v1 requirements: **63 total**
+- v1 requirements: **70 total** (63 initial + 7 SIM added post-research)
 - Mapped to phases: 0 (pending ROADMAP.md)
-- Unmapped: 63 ⚠️ (expected at this stage; ROADMAP.md will assign)
+- Unmapped: 70 ⚠️ (expected at this stage; ROADMAP.md will assign)
 
 ---
 *Requirements defined: 2026-04-23*
