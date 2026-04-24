@@ -40,7 +40,7 @@ Two milestones inside a single 5-week sprint to TRL-6 demo on a real Dublin stre
   3. systemd unit survives `kill -9` on the daemon via `WatchdogSec=300` + `sd_notify`; RSS flat over a 48-hour bench soak.
   4. Daemon refuses to start until NTP synced; server rejects payloads with `abs(produced_at - server_now) > 60 s`.
   5. `state.db` on a USB SSD; boot-time `PRAGMA integrity_check` green.
-**Plans:** TBD (3–4 plans expected)
+**Plans:** 4 plans
 
 Plans:
 - [ ] 01-01: `run_sensor.py` + NCNN export pipeline + picamera2 camera loop
