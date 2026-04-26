@@ -74,7 +74,6 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Pro
         el = el.parentElement;
       }
       parts.push(`window:${window.innerHeight}`);
-      console.info("[CAMINA] ancestor heights:", parts.join(" > "));
     }
     // Minimal OSM basemap (Carto Positron): pure grey/white, no coloured
     // POIs, matches the DESIGN.md monochrome aesthetic. Subdomains a/b/c/d
