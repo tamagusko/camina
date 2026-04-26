@@ -23,8 +23,8 @@ Authoritative project roadmap: [`.planning/ROADMAP.md`](./.planning/ROADMAP.md).
 **Task:** Add a "First-run" section covering `pnpm install` → tile download → `.env.local` → `pnpm dev`. Include a troubleshooting row for missing tiles.
 **Acceptance:** A fresh contributor can go from clone to `/dublin` following only the README.
 
-### [ ] ★ Python docstring pass on `src/camina/core/`
-**Claimed by:** _(available)_
+### [X] ★ Python docstring pass on `src/camina/core/`
+**Claimed by:** Guillaume
 **Files:** `src/camina/core/counter.py`, `daily_accumulator.py`, `offline_buffer.py`, `tracker.py`
 **Task:** Every public class + method gets a Google-style docstring (Args, Returns, Raises).
 **Acceptance:** `uv run pydocstyle src/camina/core/` returns no missing-docstring warnings.
