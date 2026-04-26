@@ -21,6 +21,7 @@ Semantics:
       cut), the unpublished row is kept in SQLite and emitted on next boot
       with ``late=True``.
 """
+
 from __future__ import annotations
 
 import json
@@ -83,6 +84,12 @@ class WindowedCounter:
     _started_at: datetime = field(init=False)
 
     def __post_init__(self) -> None:
+        """
+        Initialize internal state and validate inputs.
+
+        Raises:
+            ValueError: If window_seconds is not positive or anchor is not timezone-aware.
+        """
         if self.window_seconds <= 0:
             raise ValueError("window_seconds must be positive")
         if self.anchor.tzinfo is None:
@@ -99,14 +106,32 @@ class WindowedCounter:
 
     @property
     def window_start(self) -> datetime:
+        """
+        Start time of the current window.
+
+        Returns:
+            datetime: Window start timestamp.
+        """
         return self._window_start
 
     @property
     def window_end(self) -> datetime:
+        """
+        End time of the current window.
+
+        Returns:
+            datetime: Window end timestamp.
+        """
         return self._window_end
 
     @property
     def is_first_window(self) -> bool:
+        """
+        Whether the current window is the first one since startup.
+
+        Returns:
+            bool: True if first window, else False.
+        """
         return self._is_first_window
 
     def add(self, track_id: int, class_name: str, now: datetime) -> None:
@@ -183,10 +208,16 @@ class DailySnapshot:
     late: bool
 
     def total(self) -> int:
+        """
+        Compute the total count across all classes.
+
+        Returns:
+            int: Sum of all class counts.
+        """
         return sum(self.totals.values())
 
 
-class DailyAccumulator:
+class DailyAccumulator:  
     """Running per-day totals with SQLite persistence.
 
     Rows are written synchronously after every ``add_window`` call. On reboot,
@@ -209,6 +240,13 @@ class DailyAccumulator:
     """
 
     def __init__(self, db_path: Path, classes: list[str]) -> None:
+        """
+        Initialize the daily accumulator with SQLite persistence.
+
+        Args:
+            db_path (Path): Path to the SQLite database file.
+            classes (list[str]): List of class names to track.
+        """
         self._db_path = Path(db_path)
         self._classes = list(classes)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -235,9 +273,14 @@ class DailyAccumulator:
         self._save(day, totals, window_count, published=False)
 
     def maybe_rollover(self, now: datetime) -> Optional[DailySnapshot]:
-        """If `now` is past the day boundary and yesterday is unpublished,
-        return it. Caller is responsible for publishing and then calling
-        ``mark_published``.
+        """
+        Return yesterday's totals if the day has rolled over.
+
+        Args:
+            now (datetime): Current timestamp.
+
+        Returns:
+            Optional[DailySnapshot]: Snapshot if rollover occurred, else None.
         """
         now = _as_utc(now)
         today = now.date()
@@ -280,6 +323,12 @@ class DailyAccumulator:
         )
 
     def close(self) -> None:
+        """
+        Close the database connection.
+
+        Returns:
+            None
+        """
         self._conn.close()
 
     # ---------- Internal ----------
