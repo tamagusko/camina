@@ -11,8 +11,8 @@ Authoritative project roadmap: [`.planning/ROADMAP.md`](./.planning/ROADMAP.md).
 
 ## 📚 Documentation
 
-### [ ] ★ Clean up debug log in `StreetMap.tsx`
-**Claimed by:** _(available)_
+### [X] ★ Clean up debug log in `StreetMap.tsx`
+**Claimed by:** Guillaume
 **File:** `dashboard/src/components/StreetMap.tsx`
 **Task:** Remove the `[CAMINA] ancestor heights` diagnostic `console.log` near the ResizeObserver setup.
 **Acceptance:** `grep -rn "ancestor heights" dashboard/src` returns nothing; `pnpm dev` still renders the map.
