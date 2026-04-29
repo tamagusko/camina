@@ -11,20 +11,20 @@ Authoritative project roadmap: [`.planning/ROADMAP.md`](./.planning/ROADMAP.md).
 
 ## 📚 Documentation
 
-### [ ] ★ Clean up debug log in `StreetMap.tsx`
-**Claimed by:** _(available)_
+### [X] ★ Clean up debug log in `StreetMap.tsx`
+**Claimed by:** Guillaume
 **File:** `dashboard/src/components/StreetMap.tsx`
 **Task:** Remove the `[CAMINA] ancestor heights` diagnostic `console.log` near the ResizeObserver setup.
 **Acceptance:** `grep -rn "ancestor heights" dashboard/src` returns nothing; `pnpm dev` still renders the map.
 
-### [ ] ★ Dashboard README first-run polish
-**Claimed by:** _(available)_
+### [X] ★ Dashboard README first-run polish
+**Claimed by:** Guillaume
 **File:** `dashboard/README.md`
 **Task:** Add a "First-run" section covering `pnpm install` → tile download → `.env.local` → `pnpm dev`. Include a troubleshooting row for missing tiles.
 **Acceptance:** A fresh contributor can go from clone to `/dublin` following only the README.
 
-### [ ] ★ Python docstring pass on `src/camina/core/`
-**Claimed by:** _(available)_
+### [X] ★ Python docstring pass on `src/camina/core/`
+**Claimed by:** Guillaume
 **Files:** `src/camina/core/counter.py`, `daily_accumulator.py`, `offline_buffer.py`, `tracker.py`
 **Task:** Every public class + method gets a Google-style docstring (Args, Returns, Raises).
 **Acceptance:** `uv run pydocstyle src/camina/core/` returns no missing-docstring warnings.
