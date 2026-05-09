@@ -267,6 +267,14 @@ def _read_cpu_temp() -> Optional[float]:
 
 
 def main() -> None:
+    """Module-level entry point preserved for the existing systemd unit.
+
+    ``deploy/systemd/camina-sensor.service`` invokes
+    ``python -m src.camina.service.sensor_daemon --config /etc/camina/sensor.yaml``.
+    For a more flexible CLI (``--dry-run``, etc.) prefer
+    ``scripts/run_sensor.py`` — both delegate to ``compose()`` so behaviour
+    stays identical.
+    """
     parser = argparse.ArgumentParser(description="CAMINA edge sensor daemon")
     parser.add_argument("--config", type=Path, required=True)
     args = parser.parse_args()
@@ -274,14 +282,18 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    config = DaemonConfig.from_yaml(args.config)
-    # Production wiring of frame_source + detect_and_track lives in a
-    # separate module that imports YOLO / OpenCV. Keeping them out of this
-    # file makes it trivial to exercise in CI and on import.
-    raise SystemExit(
-        "Instantiate SensorDaemon from the production entry point — see "
-        "docs/sensor_deployment.md for the detector/tracker wiring."
+    # Local import to keep the stdlib-only ``DaemonConfig`` API loadable
+    # without picamera2/Ultralytics on import.
+    from src.camina.service.compose import compose
+
+    cfg = DaemonConfig.from_yaml(args.config)
+    daemon = compose(
+        cfg,
+        ncnn_model_path=cfg.ncnn_model_path,
+        imgsz=cfg.imgsz,
+        conf=cfg.conf_threshold,
     )
+    daemon.start()
 
 
 __all__ = ["DaemonConfig", "SensorDaemon"]

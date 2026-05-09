@@ -85,7 +85,46 @@ Copy the exported directory to the Pi at the path referenced by
 `configs/sensor.yaml::ncnn_model_path` (default
 `/opt/camina/models/20250629_warmup_best_ncnn_model`).
 
-## 7. Troubleshooting
+## 7. Running the daemon
+
+The production entry point is `scripts/run_sensor.py`. It composes the
+picamera2 RGB888 frame source, the fine-tuned 9-class CAMINAv1 NCNN
+detector, and the existing custom Kalman+Hungarian tracker into the
+`SensorDaemon` and starts the main loop.
+
+```bash
+# Manual smoke (no systemd) — composes the daemon, verifies wiring, exits 0.
+uv run python scripts/run_sensor.py --config configs/sensor.yaml --dry-run
+
+# Full run
+uv run python scripts/run_sensor.py --config configs/sensor.yaml
+```
+
+The systemd unit in `deploy/systemd/camina-sensor.service` continues to
+invoke `python -m src.camina.service.sensor_daemon --config /etc/camina/sensor.yaml`
+for backwards compatibility; both entry points now delegate to the same
+`compose()` factory in `src/camina/service/compose.py`, so they cannot
+diverge.
+
+### macOS / non-Pi development
+
+`picamera2` is Pi-only (it depends on `libcamera`). On a Mac dev host the
+daemon's main loop will fail at `picam2 = Picamera2()` with a
+`RuntimeError`. For local development:
+
+- Use `--dry-run` to verify the wiring graph, NCNN model loading, and
+  YAML parsing without ever capturing a frame.
+- For full inference smoke runs with a video file, swap in a custom
+  camera factory via `src.camina.service.compose.compose(...,
+  camera_factory=...)`. Plan 01-02 lands a `bench_sensor.py` driver
+  that demonstrates this pattern with `cv2.VideoCapture` against a
+  test clip.
+
+## Troubleshooting (appendix)
+
+This appendix sits outside the numbered sequence so future plans (01-02
+benchmark §8/§9/§9b, 01-03 USB SSD §10, 01-04 48-h soak §11) can append
+without renumbering.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -94,3 +133,5 @@ Copy the exported directory to the Pi at the path referenced by
 | Outbox growing unbounded | Backend unreachable > 10 days | Check network; inspect `state.db.outbox.db` |
 | Clock warnings in logs | NTP not syncing | `sudo timedatectl set-ntp true` |
 | Daemon restart loop | Unrecoverable auth error | Rotate token; redeploy config |
+| `--dry-run` works on Mac, full run does not | picamera2 unavailable on macOS | Expected; see §7 dev notes — use `--dry-run` or inject a video-file camera factory |
+| Class mismatch on startup | Wrong `.pt` weights exported | Re-run `src.utils.export_ncnn` against the fine-tuned `models/20250629_warmup_best.pt` |
