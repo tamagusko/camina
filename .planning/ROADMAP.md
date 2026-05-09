@@ -38,7 +38,7 @@ Two milestones inside a single 5-week sprint to TRL-6 demo on a real Dublin stre
   1. `python scripts/run_sensor.py --config configs/sensor.yaml` on a Pi 5 8GB detects and counts all 9 classes and POSTs a well-formed `/counts` payload to a Vercel preview mock endpoint every 15 minutes.
   2. 30-minute in-enclosure benchmark documented in `docs/sensor_deployment.md` with FPS, thermal envelope, RSS, and `vcgencmd get_throttled` transcript; FPS ≥ 5 at `imgsz=480`.
   3. systemd unit survives `kill -9` on the daemon via `WatchdogSec=300` + `sd_notify`; RSS flat over a 48-hour bench soak.
-  4. Daemon refuses to start until NTP synced; server rejects payloads with `abs(produced_at - server_now) > 60 s`.
+  4. Daemon refuses to start until NTP synced (server-side rejection moved to Phase 2).
   5. `state.db` on a USB SSD; boot-time `PRAGMA integrity_check` green.
 **Plans:** 4 plans
 
@@ -52,14 +52,15 @@ Plans:
 
 ### Phase 2: Publisher interface refactor + dashboard W1 fixes
 **Target week:** W1 (2026-04-24 → 2026-05-01)
-**Goal:** Three low-risk refactors done in parallel with Phase 1. Extract a transport-agnostic `Publisher` interface (unblocks LoRa and the simulator). Install `@vercel/functions` + call `attachDatabasePool(client)` in `dashboard/src/lib/db.ts` (prevents Neon pool exhaustion). Wrap every uncached read on `/[city]` and `/[city]/street/[slug]` in `<Suspense>` and re-enable `cacheComponents: true`.
+**Goal:** Three low-risk refactors done in parallel with Phase 1. Extract a transport-agnostic `Publisher` interface (unblocks LoRa and the simulator). Install `@vercel/functions` + call `attachDatabasePool(client)` in `dashboard/src/lib/db.ts` (prevents Neon pool exhaustion). Wrap every uncached read on `/[city]` and `/[city]/street/[slug]` in `<Suspense>` and re-enable `cacheComponents: true`. Also lands the server-side 60-second skew rejection on `/api/ingest/sensors/[id]/counts` (split out of Phase 1 SC#4).
 **Depends on:** Nothing — runs in parallel with Phase 1.
-**Requirements:** EDGE-09, DATA-08, (partial) TECH-02 from v2
+**Requirements:** EDGE-09, DATA-08, EDGE-07 (server half), (partial) TECH-02 from v2
 **Success Criteria** (what must be TRUE):
   1. `HttpsPublisher` implements a `Publisher` Protocol with `publish(endpoint, payload) -> PublishResult`; `SensorDaemon` and `OfflineBuffer` call through the interface only; existing 60-test suite remains green (zero behavioural change).
   2. `dashboard/src/lib/db.ts` wires `attachDatabasePool(client)` immediately after constructing the `postgres()` client; verified on a Vercel preview.
   3. `cacheComponents: true` re-enabled in `dashboard/next.config.mjs`; `/[city]/page.tsx` and `/[city]/street/[slug]/page.tsx` wrap all dynamic reads in `<Suspense>`; preview deploy passes build with the flag on.
   4. No new user-facing behaviour; all dashboard E2E tests (Playwright smoke) still pass.
+  5. Server rejects payloads with `abs(produced_at - server_now) > 60s` in `dashboard/src/app/api/ingest/sensors/[id]/counts/route.ts`; regression test covers both reject (>60s skew) and accept (≤60s skew) paths. (Migrated from Phase 1 SC#4 — edge half stays in Phase 1.)
 **Plans:** TBD (3 plans expected)
 
 Plans:
@@ -281,4 +282,4 @@ Phases execute in numeric order with parallelism opportunities noted in Depends-
 
 ---
 *Roadmap created: 2026-04-23*
-*Last updated: 2026-04-23 after adding Phase 3 (Simulated sensor fleet) per user request*
+*Last updated: 2026-04-28 — Phase 1 SC#4 split: edge half (NTP gate) stays in Phase 1; server half (60s skew rejection) moved to Phase 2 SC#5 per PLAN-CHECK Blocker 1.*
