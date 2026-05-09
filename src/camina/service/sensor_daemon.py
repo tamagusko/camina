@@ -63,6 +63,10 @@ class DaemonConfig:
     publish_interval_seconds: int = 900
     heartbeat_interval_seconds: int = 300
     outbox_max_rows: int = 10_000
+    # NCNN inference (added in Plan 01-01).
+    ncnn_model_path: Path = Path("models/20250629_warmup_best_ncnn_model")
+    imgsz: int = 480
+    conf_threshold: float = 0.3
 
     @classmethod
     def from_yaml(cls, path: Path) -> "DaemonConfig":
@@ -78,6 +82,13 @@ class DaemonConfig:
             publish_interval_seconds=int(data.get("publish_interval_seconds", 900)),
             heartbeat_interval_seconds=int(data.get("heartbeat_interval_seconds", 300)),
             outbox_max_rows=int(data.get("outbox_max_rows", 10_000)),
+            ncnn_model_path=Path(
+                data.get(
+                    "ncnn_model_path", "models/20250629_warmup_best_ncnn_model"
+                )
+            ),
+            imgsz=int(data.get("imgsz", 480)),
+            conf_threshold=float(data.get("conf_threshold", 0.3)),
         )
 
 

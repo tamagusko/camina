@@ -25,3 +25,8 @@ classes:
 publish_interval_seconds: 900      # 15 min
 heartbeat_interval_seconds: 300    # 5 min
 outbox_max_rows: 10000             # ~10 days of 15-min windows + heartbeats
+
+# NCNN inference (added in Plan 01-01).
+ncnn_model_path: /opt/camina/models/20250629_warmup_best_ncnn_model
+imgsz: 480
+conf_threshold: 0.3
