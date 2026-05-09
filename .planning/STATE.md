@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 ## Current Position
 
 Phase: 1 of 11 (Edge baseline on Pi)
-Plan: 0 of ~4 in current phase
-Status: Ready to plan
-Last activity: 2026-04-23 — Project initialised via /gsd-new-project. Codebase mapped, PROJECT.md / REQUIREMENTS.md / ROADMAP.md drafted and committed; simulated 5-sensor Dublin fleet added as Phase 3.
+Plan: 0 of 4 executed (4 of 4 planned + checked)
+Status: Ready to execute
+Last activity: 2026-05-09 — Phase 1 plans 01-02/01-03/01-04 revised after PLAN-CHECK pass-1 flagged 3 blockers + 11 issues. ROADMAP amended (SC#4 split: edge-only NTP gate in Phase 1; server-side 60s rejection moved to Phase 2 SC#5 alongside Publisher refactor + attachDatabasePool). Pass-2 PLAN-CHECK = PASS (0 blockers, 2 future-debt warnings).
 
-Progress: [░░░░░░░░░░] 0% (0 of ~31 plans)
+Progress: [░░░░░░░░░░] 0% (0 of ~31 plans executed)
 
 ## Performance Metrics
 
@@ -49,7 +49,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Most load-bearing for cu
 
 ### Pending Todos
 
-None yet. Capture with `/gsd-add-todo`.
+- **Future-debt (post-Phase-1):** Add import-linter rule preventing `src/camina/utils/` from importing `core/` or `io/` (currently no enforcement; new `utils/sqlite_integrity.py` is stdlib-only, so risk theoretical until Phase 2+).
+- **Phase-3 coupling watch:** `dashboard/src/lib/schemas.ts::heartbeatPayloadSchema.strict()` will reject unknown keys. Phase 3 simulator must NOT ride heartbeat schema for debug fields. Flag for Phase-3 plan-checker.
+- **CONTRIBUTING.md "Getting help" placeholders** still need stand-up time + async chat URL before interns start.
 
 ### Blockers / Concerns
 
@@ -80,9 +82,9 @@ From `.planning/codebase/CONCERNS.md` — carry into the phases that touch them:
 
 ## Session Continuity
 
-Last session: 2026-04-23 — `/gsd-new-project` completed initialisation.
-Stopped at: ROADMAP.md + REQUIREMENTS.md + PROJECT.md committed; STATE.md written; ready to run `/gsd-plan-phase 1`.
-Resume file: None.
+Last session: 2026-05-09 — Phase 1 plans drafted, plan-checked (pass-1 REVISE-BLOCKERS), revised, plan-checked (pass-2 PASS). ROADMAP scope-split confirmed by user.
+Stopped at: Ready to commit revision artifacts (ROADMAP.md + 01-02/01-03/01-04 revised + PLAN-CHECK.md + REVISION-NOTES.md + this STATE.md sync) then `/gsd-execute-phase 1`.
+Resume file: `.planning/phases/01-edge-baseline-on-pi/PLAN-CHECK.md`.
 
 ---
-*STATE.md initialised 2026-04-23.*
+*STATE.md initialised 2026-04-23. Synced 2026-05-09.*
