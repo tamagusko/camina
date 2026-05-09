@@ -61,58 +61,29 @@ Within a minute of starting the service, the sensor should:
 - Accept an interval change from the admin form and reflect the new
   `config_version` in its next heartbeat within one publish interval.
 
-## 6. Production detector/tracker wiring
+## 6. NCNN model export
 
-`src/camina/service/sensor_daemon.py` intentionally accepts the detector
-and tracker as callables so it can be exercised in CI without importing
-OpenCV / Ultralytics. The production entry point wires them in. Example:
+The edge daemon runs the fine-tuned 9-class CAMINAv1 model via NCNN (the
+ARM64-friendly inference backend). Export once on any host that has the
+`.pt` weights and Ultralytics installed; the resulting directory is what
+the daemon loads at startup.
 
-```python
-from src.camina.core.tracker import Sort
-from src.camina.service.sensor_daemon import DaemonConfig, SensorDaemon
-from ultralytics import YOLO
-import cv2
-
-def frame_source():
-    cap = cv2.VideoCapture(0)
-    while cap.isOpened():
-        ok, frame = cap.read()
-        if not ok:
-            break
-        yield frame
-    cap.release()
-
-def make_detect_and_track(model_path, classes):
-    model = YOLO(model_path)
-    tracker = Sort()
-    class_names = {i: c for i, c in enumerate(classes)}
-
-    def detect_and_track(frame):
-        results = model.predict(frame, imgsz=640, conf=0.4, verbose=False)[0]
-        dets = []
-        for box in results.boxes:
-            cls_id = int(box.cls.item())
-            if cls_id not in class_names:
-                continue
-            x1, y1, x2, y2 = box.xyxy[0].tolist()
-            dets.append([x1, y1, x2, y2, float(box.conf.item())])
-        for tx1, ty1, tx2, ty2, tid in tracker.update(np.array(dets)) if dets else []:
-            yield int(tid), class_names[cls_id]
-
-    return detect_and_track
+```bash
+uv run python -m src.utils.export_ncnn \
+    --source models/20250629_warmup_best.pt \
+    --imgsz 480 --half
 ```
 
-Compose and run:
+Produces `models/20250629_warmup_best_ncnn_model/`. Re-run only after
+retraining CAMINAv1 (the script is idempotent — it skips re-exporting an
+existing target directory unless you pass `--force`). The export verifies
+that the model's class taxonomy matches the canonical 9-class list and
+exits non-zero on mismatch, so a base `yolo11n.pt` slipped in by mistake
+will fail loudly instead of shipping wrong-taxonomy counts.
 
-```python
-config = DaemonConfig.from_yaml(Path("/etc/camina/sensor.yaml"))
-daemon = SensorDaemon(
-    config=config,
-    frame_source=frame_source(),
-    detect_and_track=make_detect_and_track("yolo11n_ncnn", config.classes),
-)
-daemon.start()
-```
+Copy the exported directory to the Pi at the path referenced by
+`configs/sensor.yaml::ncnn_model_path` (default
+`/opt/camina/models/20250629_warmup_best_ncnn_model`).
 
 ## 7. Troubleshooting
 
