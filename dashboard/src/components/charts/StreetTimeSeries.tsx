@@ -70,6 +70,10 @@ export function StreetTimeSeries({ readings }: Props) {
           ))}
         </AreaChart>
       </ResponsiveContainer>
+      <p className="mt-3 text-micro text-muted-gray">
+        Gaps indicate no data (sensor offline) or a count suppressed below the
+        privacy floor (fewer than 5).
+      </p>
     </div>
   );
 }

@@ -43,6 +43,34 @@ function nullBreakdown(): Record<RoadUserClass, number | null> {
   >;
 }
 
+// k-anonymity floor: a published count identifies K_MIN or more individuals.
+// Counts of 1..(K_MIN-1) are re-identifiable, so they are suppressed to null.
+// 0 is safe to publish — there is no counted individual to re-identify.
+export const K_MIN = 5;
+
+export function suppressCount(n: number | null): number | null {
+  if (n === null) return null;
+  return n > 0 && n < K_MIN ? null : n;
+}
+
+function suppressBreakdown(
+  b: Record<RoadUserClass, number>
+): Record<RoadUserClass, number | null> {
+  return Object.fromEntries(
+    ROAD_USER_CLASSES.map((c) => [c, suppressCount(b[c])])
+  ) as Record<RoadUserClass, number | null>;
+}
+
+// Staleness: a silent sensor (no reading for more than two 15-min windows,
+// i.e. > 30 min) must not paint as a quiet street. Exported so the rule is
+// unit-testable independently of the fixtures.
+export const STALE_AFTER_MS = 2 * 15 * 60_000;
+
+export function isStale(lastSeen: string | null, now: Date): boolean {
+  if (lastSeen === null) return true;
+  return now.getTime() - new Date(lastSeen).getTime() > STALE_AFTER_MS;
+}
+
 // Internal accumulator for windows that have data; counts are non-null while
 // aggregating and only widened to `number | null` on the emitted StreetReading.
 interface PresentBucket {
@@ -127,7 +155,8 @@ export const mockStreetsRepo: StreetsRepo = {
           ? {
               bucket: new Date(t).toISOString(),
               missing: false,
-              counts: row.counts,
+              // k-anonymity: null-out per-class counts below the k-floor.
+              counts: suppressBreakdown(row.counts),
               avgSpeedKmh: row.avgSpeedKmh,
             }
           : {
@@ -153,17 +182,6 @@ export const mockStreetsRepo: StreetsRepo = {
     const now = deriveNow(readings);
     const cutoff = windowCutoff(window, now).getTime();
 
-    const byStreet = new Map<string, MetricValue>();
-    for (const id of citySet) {
-      byStreet.set(id, {
-        streetId: id,
-        value: 0,
-        classBreakdown: emptyBreakdown(),
-        speedBreakdown: {},
-        avgSpeedKmh: null,
-      });
-    }
-
     // sensor_id → street_id (multi-coverage supported: one sensor can cover many streets).
     const sensorToStreets = new Map<string, string[]>();
     for (const c of coverage) {
@@ -172,22 +190,35 @@ export const mockStreetsRepo: StreetsRepo = {
       sensorToStreets.set(c.sensor_id, list);
     }
 
-    // Count-weighted running aggregates: street-level and per-class speeds.
+    // Numeric accumulators kept non-null while aggregating; k-anonymity
+    // suppression is applied only on emit so partial sums stay correct.
+    const rawBreakdown = new Map<string, Record<RoadUserClass, number>>();
+    const rawTotal = new Map<string, number>();
     const speedNumTotal = new Map<string, number>();
     const speedDenTotal = new Map<string, number>();
     const speedNumCls = new Map<string, Record<string, number>>();
     const speedDenCls = new Map<string, Record<string, number>>();
+    for (const id of citySet) rawBreakdown.set(id, emptyBreakdown());
+
+    // Most recent window_end per street across ALL readings (not just the
+    // selected window): a silent sensor must be detectable even when a short
+    // window contains no data at all.
+    const lastSeenMs = new Map<string, number>();
 
     for (const r of readings) {
+      const streetsForSensor = sensorToStreets.get(r.sensor_id) ?? [];
+      const end = new Date(r.window_end).getTime();
+      for (const streetId of streetsForSensor) {
+        if (!citySet.has(streetId)) continue;
+        if (end > (lastSeenMs.get(streetId) ?? 0)) lastSeenMs.set(streetId, end);
+      }
       if (!requested.includes(r.class_name as RoadUserClass)) continue;
       if (new Date(r.window_start).getTime() < cutoff) continue;
-      for (const streetId of sensorToStreets.get(r.sensor_id) ?? []) {
-        const row = byStreet.get(streetId);
-        if (!row) continue;
-        row.classBreakdown[r.class_name as RoadUserClass] += r.count;
-        if (metric === "counts") {
-          row.value = (row.value ?? 0) + r.count;
-        }
+      for (const streetId of streetsForSensor) {
+        const rb = rawBreakdown.get(streetId);
+        if (!rb) continue;
+        rb[r.class_name as RoadUserClass] += r.count;
+        rawTotal.set(streetId, (rawTotal.get(streetId) ?? 0) + r.count);
         if (r.avg_speed_kmh !== null) {
           speedNumTotal.set(streetId, (speedNumTotal.get(streetId) ?? 0) + r.avg_speed_kmh * r.count);
           speedDenTotal.set(streetId, (speedDenTotal.get(streetId) ?? 0) + r.count);
@@ -201,19 +232,35 @@ export const mockStreetsRepo: StreetsRepo = {
       }
     }
 
-    for (const row of byStreet.values()) {
-      const denT = speedDenTotal.get(row.streetId) ?? 0;
-      row.avgSpeedKmh = denT > 0 ? (speedNumTotal.get(row.streetId) ?? 0) / denT : null;
-      if (metric === "speed") row.value = row.avgSpeedKmh;
-      const nc = speedNumCls.get(row.streetId) ?? {};
-      const dc = speedDenCls.get(row.streetId) ?? {};
+    const out: MetricValue[] = [];
+    for (const streetId of citySet) {
+      const denT = speedDenTotal.get(streetId) ?? 0;
+      const avgSpeedKmh = denT > 0 ? (speedNumTotal.get(streetId) ?? 0) / denT : null;
+      const nc = speedNumCls.get(streetId) ?? {};
+      const dc = speedDenCls.get(streetId) ?? {};
+      const speedBreakdown: Partial<Record<RoadUserClass, number | null>> = {};
       for (const cls of ROAD_USER_CLASSES) {
         const d = dc[cls] ?? 0;
-        row.speedBreakdown[cls] = d > 0 ? (nc[cls] ?? 0) / d : null;
+        speedBreakdown[cls] = d > 0 ? (nc[cls] ?? 0) / d : null;
       }
+      const seen = lastSeenMs.get(streetId);
+      const lastSeen = seen !== undefined ? new Date(seen).toISOString() : null;
+      out.push({
+        streetId,
+        // k-anonymity: suppress the street total only when metric === counts.
+        value:
+          metric === "counts"
+            ? suppressCount(rawTotal.get(streetId) ?? 0)
+            : avgSpeedKmh,
+        classBreakdown: suppressBreakdown(rawBreakdown.get(streetId) ?? emptyBreakdown()),
+        speedBreakdown,
+        avgSpeedKmh,
+        stale: isStale(lastSeen, now),
+        lastSeen,
+      });
     }
 
-    return [...byStreet.values()];
+    return out;
   },
 
   async adminInfo(streetId: string): Promise<StreetAdminInfo | null> {

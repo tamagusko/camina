@@ -9,7 +9,7 @@ import { ClassFilter } from "./ClassFilter";
 import { ColourLegend } from "./ColourLegend";
 import { MetricToggle } from "./MetricToggle";
 import { TimeWindowPicker } from "./TimeWindowPicker";
-import { useMapQuery } from "./useMapQuery";
+import { useMapQuery, type Viewport } from "./useMapQuery";
 
 interface Props {
   city: string;
@@ -33,7 +33,7 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet, onMet
   const [metrics, setMetrics] = useState<MetricValue[]>(initialMetrics);
   const [mapReady, setMapReady] = useState(false);
 
-  const fallback = useMemo(
+  const fallback = useMemo<Viewport>(
     () => CITY_VIEWS[city] ?? { center: [-6.26, 53.35], zoom: 13 },
     [city]
   );
@@ -302,18 +302,27 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet, onMet
   );
 }
 
+// Silent-sensor streets paint in muted grey (DESIGN.md monochrome), not the
+// metric ramp — a stale sensor must never read as low-but-live traffic.
+const STALE_COLOUR = "#afafaf";
+
 function applyMetricPaint(map: MaplibreMap, metric: Metric, metrics: MetricValue[]) {
   for (const m of metrics) {
     map.setFeatureState(
       { source: "streets", id: m.streetId },
-      { metric: m.value ?? 0 }
+      { metric: m.value ?? 0, stale: m.stale }
     );
   }
   const { min, max } = rampRangeFor(metrics);
   map.setPaintProperty(
     "streets-visible",
     "line-color",
-    rampExpression(RAMPS[metric], min, max) as unknown as maplibregl.ExpressionSpecification
+    [
+      "case",
+      ["boolean", ["feature-state", "stale"], false],
+      STALE_COLOUR,
+      rampExpression(RAMPS[metric], min, max),
+    ] as unknown as maplibregl.ExpressionSpecification
   );
   map.setPaintProperty("streets-visible", "line-width", [
     "interpolate",

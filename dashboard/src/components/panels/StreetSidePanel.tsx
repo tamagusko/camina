@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { formatDublinDateTime } from "@/lib/format-time";
+import { formatDublinDateTime, formatDublinTime } from "@/lib/format-time";
 import type { MetricValue, RoadUserClass, StreetAdminInfo, StreetSummary } from "@/lib/types";
 
 interface Props {
@@ -23,7 +23,9 @@ function fmtNumber(n: number | null | undefined, opts?: Intl.NumberFormatOptions
 
 function totalCount(m: MetricValue | null): number {
   if (!m) return 0;
-  return Object.values(m.classBreakdown).reduce((a, b) => a + b, 0);
+  // Suppressed classes (null) contribute their k-floor-bounded minimum of 0 —
+  // the published total is therefore a privacy-safe lower bound.
+  return Object.values(m.classBreakdown).reduce<number>((a, b) => a + (b ?? 0), 0);
 }
 
 export function StreetSidePanel({ street, metric, onClose }: Props) {
@@ -53,10 +55,12 @@ export function StreetSidePanel({ street, metric, onClose }: Props) {
   if (!street) return null;
 
   const total = totalCount(metric);
+  // null = suppressed (had 1..4, shown as "<5"); 0 = genuinely no traffic
+  // (hidden). Sort suppressed rows just below the smallest published count.
   const perClass = metric
-    ? (Object.entries(metric.classBreakdown) as [RoadUserClass, number][])
-        .filter(([, n]) => n > 0)
-        .sort((a, b) => b[1] - a[1])
+    ? (Object.entries(metric.classBreakdown) as [RoadUserClass, number | null][])
+        .filter(([, n]) => n === null || n > 0)
+        .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
     : [];
 
   return (
@@ -83,6 +87,17 @@ export function StreetSidePanel({ street, metric, onClose }: Props) {
           <X className="h-5 w-5" />
         </button>
       </div>
+
+      {/* Silent-sensor notice — a stale sensor must not read as a quiet street. */}
+      {metric?.stale && (
+        <div className="mx-6 mb-3 rounded-card border border-chip-gray bg-chip-gray px-4 py-3">
+          <p className="text-micro uppercase tracking-wide text-body-gray">Sensor status</p>
+          <p className="mt-1 text-caption text-black">
+            No recent data
+            {metric.lastSeen ? ` · last seen ${formatDublinTime(metric.lastSeen)}` : ""}
+          </p>
+        </div>
+      )}
 
       {/* Headline stats */}
       <div className="grid grid-cols-2 gap-3 px-6 pb-4">
@@ -117,7 +132,15 @@ export function StreetSidePanel({ street, metric, onClose }: Props) {
               return (
                 <div key={cls} className="grid grid-cols-3 py-2 text-caption">
                   <dt className="capitalize text-black">{cls.replace("_", " ")}</dt>
-                  <dd className="text-right tabular-nums font-medium">{fmtNumber(n)}</dd>
+                  <dd className="text-right tabular-nums font-medium">
+                    {n === null ? (
+                      <span className="text-muted-gray" title="Suppressed below the k-anonymity floor (fewer than 5)">
+                        &lt;5
+                      </span>
+                    ) : (
+                      fmtNumber(n)
+                    )}
+                  </dd>
                   <dd className="text-right tabular-nums text-body-gray">
                     {speed !== null && speed !== undefined
                       ? fmtNumber(speed, { maximumFractionDigits: 1 })

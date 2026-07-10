@@ -36,10 +36,17 @@ export interface StreetReading {
 
 export interface MetricValue {
   streetId: string;
+  // null when the aggregate count falls below the k-anonymity floor (1..4).
   value: number | null;
-  classBreakdown: Record<RoadUserClass, number>;
+  // Per-class counts; null marks a value suppressed below the k-floor (1..4).
+  // 0 is retained (no counted individual to re-identify).
+  classBreakdown: Record<RoadUserClass, number | null>;
   speedBreakdown: Partial<Record<RoadUserClass, number | null>>;
   avgSpeedKmh: number | null;
+  // true when the covering sensor has gone silent (no reading for > 2 windows).
+  stale: boolean;
+  // ISO timestamp of the most recent reading, or null if never seen.
+  lastSeen: string | null;
 }
 
 /** Admin-only view of a street (includes sensor identifiers and GPS).

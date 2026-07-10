@@ -38,13 +38,16 @@ describe("readings() gap-fill", () => {
       expect(curr - prev).toBe(BUCKET_MS);
     }
 
-    // Present buckets (before the data end) keep numeric counts.
+    // Present buckets (before the data end) carry numeric counts for classes
+    // above the k-anonymity floor. `person` at this street is always well
+    // above the floor in this window, so it stays numeric — proving the bucket
+    // is genuinely present, not merely a missing window with null counts.
+    // (Low counts of 1..4 are legitimately suppressed to null; see the privacy
+    // regression test.)
     const present = rows.filter((r) => !r.missing);
     expect(present.length).toBeGreaterThan(0);
     for (const r of present) {
-      for (const cls of ROAD_USER_CLASSES) {
-        expect(r.counts[cls]).not.toBeNull();
-      }
+      expect(r.counts.person).not.toBeNull();
     }
 
     // Missing buckets (after the data end) carry an explicit marker + null counts.
