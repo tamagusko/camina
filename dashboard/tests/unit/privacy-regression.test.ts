@@ -5,7 +5,16 @@
 import { describe, expect, it } from "vitest";
 import { mockStreetsRepo } from "@/lib/repo/streets-mock";
 
-const FORBIDDEN_KEYS = ["sensor_id", "sensorId", "latitude", "longitude"];
+const FORBIDDEN_KEYS = [
+  "sensor_id",
+  "sensorId",
+  "latitude",
+  "longitude",
+  "lat",
+  "lng",
+  "lon",
+  "gps",
+];
 
 function assertClean(value: unknown, path = "$") {
   if (value === null || typeof value !== "object") return;
@@ -22,6 +31,16 @@ function assertClean(value: unknown, path = "$") {
 }
 
 describe("privacy regression — public repo outputs", () => {
+  // Derive a real street from the fixtures so these tests can never pass
+  // vacuously against a renamed/removed slug.
+  async function firstStreetId(): Promise<string> {
+    const rows = await mockStreetsRepo.list("dublin");
+    expect(rows.length).toBeGreaterThan(0);
+    const id = rows[0]?.id;
+    if (!id) throw new Error("fixture has no streets — privacy test cannot run");
+    return id;
+  }
+
   it("list(city) hides sensor fields", async () => {
     const rows = await mockStreetsRepo.list("dublin");
     assertClean(rows);
@@ -29,17 +48,20 @@ describe("privacy regression — public repo outputs", () => {
   });
 
   it("get(streetId) hides sensor fields", async () => {
-    const row = await mockStreetsRepo.get("dame-st");
+    const row = await mockStreetsRepo.get(await firstStreetId());
+    expect(row).not.toBeNull();
     assertClean(row);
   });
 
   it("readings() hides sensor fields", async () => {
     const rows = await mockStreetsRepo.readings({
-      streetId: "dame-st",
-      from: new Date("2026-04-14T00:00:00Z"),
-      to: new Date("2026-04-22T00:00:00Z"),
+      streetId: await firstStreetId(),
+      from: new Date("2026-04-07T00:00:00Z"),
+      to: new Date("2026-04-21T00:00:00Z"),
       bucketMinutes: 15,
     });
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.some((r) => !r.missing)).toBe(true);
     assertClean(rows);
   });
 

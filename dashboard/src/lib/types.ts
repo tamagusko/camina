@@ -29,7 +29,8 @@ export interface StreetSummary {
 
 export interface StreetReading {
   bucket: string;             // ISO timestamp of window start
-  counts: Record<RoadUserClass, number>;
+  missing: boolean;           // true when no data covered this window (sensor down)
+  counts: Record<RoadUserClass, number | null>;  // null per class when missing
   avgSpeedKmh: Partial<Record<RoadUserClass, number | null>>;
 }
 

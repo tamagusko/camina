@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { formatDublinDateTime } from "@/lib/format-time";
 import type { MetricValue, RoadUserClass, StreetAdminInfo, StreetSummary } from "@/lib/types";
 
 interface Props {
@@ -199,7 +200,7 @@ function AdminSection({
             <dd className="text-white text-right font-mono">{s.configVersion}</dd>
             <dt>Last heartbeat</dt>
             <dd className="text-white text-right tabular-nums">
-              {s.lastHeartbeat ? new Date(s.lastHeartbeat).toLocaleString() : "—"}
+              {s.lastHeartbeat ? formatDublinDateTime(s.lastHeartbeat) : "—"}
             </dd>
           </dl>
         </div>

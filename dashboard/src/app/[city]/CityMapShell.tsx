@@ -30,6 +30,9 @@ interface Props {
 
 export function CityMapShell({ city, streets, initialMetrics }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
+  // Freshest metrics, lifted from StreetMap so the side panel reflects the
+  // latest auto-refreshed data instead of the server-rendered first paint.
+  const [metrics, setMetrics] = useState<MetricValue[]>(initialMetrics);
 
   const streetById = useMemo(() => {
     const m = new Map<string, StreetSummary>();
@@ -39,7 +42,7 @@ export function CityMapShell({ city, streets, initialMetrics }: Props) {
 
   const selectedStreet = selected ? streetById.get(selected) ?? null : null;
   const selectedMetric = selected
-    ? initialMetrics.find((m) => m.streetId === selected) ?? null
+    ? metrics.find((m) => m.streetId === selected) ?? null
     : null;
 
   return (
@@ -49,6 +52,7 @@ export function CityMapShell({ city, streets, initialMetrics }: Props) {
         streets={streets}
         initialMetrics={initialMetrics}
         onSelectStreet={setSelected}
+        onMetricsChange={setMetrics}
       />
       <StreetSidePanel
         street={selectedStreet}

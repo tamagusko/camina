@@ -36,6 +36,20 @@ function emptyBreakdown(): Record<RoadUserClass, number> {
   >;
 }
 
+function nullBreakdown(): Record<RoadUserClass, number | null> {
+  return Object.fromEntries(ROAD_USER_CLASSES.map((c) => [c, null])) as Record<
+    RoadUserClass,
+    number | null
+  >;
+}
+
+// Internal accumulator for windows that have data; counts are non-null while
+// aggregating and only widened to `number | null` on the emitted StreetReading.
+interface PresentBucket {
+  counts: Record<RoadUserClass, number>;
+  avgSpeedKmh: Partial<Record<RoadUserClass, number | null>>;
+}
+
 function windowCutoff(window: TimeWindow, now: Date): Date {
   const map: Record<TimeWindow, number> = {
     now: 15 * 60_000,
@@ -72,36 +86,59 @@ export const mockStreetsRepo: StreetsRepo = {
     const toMs = to.getTime();
     const bucketMs = bucketMinutes * 60_000;
 
-    const buckets = new Map<number, StreetReading>();
+    // Accumulate only the windows that actually have data. Counts stay
+    // non-null here so the running aggregation type-checks; nullability is
+    // applied when the gap-filled grid is emitted below.
+    const present = new Map<number, PresentBucket>();
     for (const r of readings) {
       if (!sensorIds.includes(r.sensor_id)) continue;
       if (!requested.includes(r.class_name as RoadUserClass)) continue;
       const t = new Date(r.window_start).getTime();
       if (t < fromMs || t >= toMs) continue;
       const bucketStart = Math.floor(t / bucketMs) * bucketMs;
-      let row = buckets.get(bucketStart);
+      let row = present.get(bucketStart);
       if (!row) {
-        row = {
-          bucket: new Date(bucketStart).toISOString(),
-          counts: emptyBreakdown(),
-          avgSpeedKmh: {},
-        };
-        buckets.set(bucketStart, row);
+        row = { counts: emptyBreakdown(), avgSpeedKmh: {} };
+        present.set(bucketStart, row);
       }
-      row.counts[r.class_name as RoadUserClass] += r.count;
+      const cls = r.class_name as RoadUserClass;
+      row.counts[cls] += r.count;
       if (r.avg_speed_kmh !== null) {
         // Count-weighted running mean.
-        const prev = row.avgSpeedKmh[r.class_name as RoadUserClass] ?? null;
-        const prevCount = prev === null ? 0 : row.counts[r.class_name as RoadUserClass] - r.count;
+        const prev = row.avgSpeedKmh[cls] ?? null;
+        const prevCount = prev === null ? 0 : row.counts[cls] - r.count;
         const total = prevCount + r.count;
-        row.avgSpeedKmh[r.class_name as RoadUserClass] =
+        row.avgSpeedKmh[cls] =
           total > 0
             ? ((prev ?? 0) * prevCount + r.avg_speed_kmh * r.count) / total
             : r.avg_speed_kmh;
       }
     }
 
-    return [...buckets.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));
+    // Gap-fill the full [from, to) grid at the bucket interval. Absent windows
+    // are emitted with missing:true and null counts so a downed sensor renders
+    // as a visible gap instead of interpolated (fake) traffic.
+    const gridStart = Math.floor(fromMs / bucketMs) * bucketMs;
+    const out: StreetReading[] = [];
+    for (let t = gridStart; t < toMs; t += bucketMs) {
+      const row = present.get(t);
+      out.push(
+        row
+          ? {
+              bucket: new Date(t).toISOString(),
+              missing: false,
+              counts: row.counts,
+              avgSpeedKmh: row.avgSpeedKmh,
+            }
+          : {
+              bucket: new Date(t).toISOString(),
+              missing: true,
+              counts: nullBreakdown(),
+              avgSpeedKmh: {},
+            }
+      );
+    }
+    return out;
   },
 
   async latestMetrics({ city, metric, classes, window }): Promise<MetricValue[]> {

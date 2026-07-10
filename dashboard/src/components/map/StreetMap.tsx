@@ -17,12 +17,13 @@ interface Props {
   initialMetrics: MetricValue[];
   pmtilesUrl?: string;
   onSelectStreet?: (streetId: string) => void;
+  onMetricsChange?: (metrics: MetricValue[]) => void;
 }
 
 const RAMPS = { counts: VIRIDIS_5, speed: CIVIDIS_5 } as const;
 const UNITS = { counts: "/ 15 min", speed: "km/h" } as const;
 
-export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Props) {
+export function StreetMap({ city, streets, initialMetrics, onSelectStreet, onMetricsChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MaplibreMap | null>(null);
 
@@ -38,7 +39,10 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Pro
   );
   const { viewport, attachTo } = useMapQuery(fallback);
 
-  // Re-fetch metrics when the user changes filters.
+  // Re-fetch metrics when the user changes filters, and keep an idle open map
+  // current by polling every 5 minutes. The first poll aligns to shortly after
+  // the next 15-min window boundary (when new counts land); after that it runs
+  // on a plain 5-min cadence. All timers are cleared on unmount / filter change.
   useEffect(() => {
     const url = new URL("/api/metrics", window.location.origin);
     url.searchParams.set("city", city);
@@ -48,16 +52,33 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Pro
       for (const c of classes) url.searchParams.append("class", c);
     }
     let cancelled = false;
-    fetch(url.toString(), { cache: "no-store" })
-      .then((r) => r.json())
-      .then((data: MetricValue[]) => {
-        if (!cancelled) setMetrics(data);
-      })
-      .catch(() => {});
+    const run = () =>
+      fetch(url.toString(), { cache: "no-store" })
+        .then((r) => r.json())
+        .then((data: MetricValue[]) => {
+          if (cancelled) return;
+          setMetrics(data);
+          onMetricsChange?.(data);
+        })
+        .catch(() => {});
+
+    run(); // immediate fetch on mount / filter change
+
+    const REFRESH_MS = 5 * 60_000;
+    const BOUNDARY_MS = 15 * 60_000;
+    const msToBoundary = BOUNDARY_MS - (Date.now() % BOUNDARY_MS) + 5_000;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+    const timeoutId = setTimeout(() => {
+      run();
+      intervalId = setInterval(run, REFRESH_MS);
+    }, msToBoundary);
+
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
     };
-  }, [city, metric, classes, timeWindow]);
+  }, [city, metric, classes, timeWindow, onMetricsChange]);
 
   // Initialise the map on mount.
   useEffect(() => {

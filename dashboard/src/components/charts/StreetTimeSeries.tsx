@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { ROAD_USER_CLASSES, type RoadUserClass, type StreetReading } from "@/lib/types";
+import { formatDublinTime } from "@/lib/format-time";
 
 interface Props {
   readings: StreetReading[];
@@ -39,7 +40,7 @@ export function StreetTimeSeries({ readings }: Props) {
     );
   }
   const data = readings.map((r) => ({
-    t: new Date(r.bucket).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    t: formatDublinTime(r.bucket),
     ...r.counts,
   }));
 
@@ -64,6 +65,7 @@ export function StreetTimeSeries({ readings }: Props) {
               stroke={SERIES_COLOURS[i]}
               fill={SERIES_COLOURS[i]}
               fillOpacity={0.9}
+              connectNulls={false}
             />
           ))}
         </AreaChart>

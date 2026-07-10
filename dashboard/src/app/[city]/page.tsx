@@ -4,6 +4,11 @@ import { streetsRepo } from "@/lib/repo";
 import { CITY_VIEWS } from "@/lib/geo";
 import { CityMapShell } from "./CityMapShell";
 
+// Revalidate the server-rendered map (streets + initial metrics) every 5 min
+// so a fresh page load isn't stuck on stale ISR output. Client-side polling in
+// StreetMap keeps an already-open map current between reloads.
+export const revalidate = 300;
+
 interface Props {
   params: Promise<{ city: string }>;
 }
