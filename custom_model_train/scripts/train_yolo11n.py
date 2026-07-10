@@ -15,6 +15,8 @@ from datetime import datetime
 import torch
 import yaml
 
+from class_taxonomy import load_canonical_classes, resolve_to_canonical
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -107,13 +109,23 @@ class YOLO11nTrainer:
         if data_config['nc'] != 9:
             logger.warning(f"Expected 9 classes, found {data_config['nc']}")
         
-        # Validate class names
-        expected_classes = ['pedestrian', 'cyclist', 'car', 'motorcycle', 'bus', 'truck', 'e-scooter', 'SUV', 'delivery_van']
+        # Validate class names against the canonical taxonomy (single source of
+        # truth: configs/classes.yaml). Dataset label names are resolved through
+        # custom_model_train/class_mapping.yaml, so an alias-named data.yaml
+        # (e.g. "pedestrian") still validates; an unmapped name raises loudly.
+        expected_classes = load_canonical_classes()
         actual_classes = list(data_config['names'].values()) if isinstance(data_config['names'], dict) else data_config['names']
-        
+
         if len(actual_classes) != len(expected_classes):
             logger.warning(f"Class count mismatch. Expected: {len(expected_classes)}, Got: {len(actual_classes)}")
-        
+        else:
+            resolved_classes = resolve_to_canonical(actual_classes)
+            if resolved_classes != expected_classes:
+                logger.warning(
+                    "Class taxonomy mismatch after alias mapping. "
+                    f"Expected {expected_classes}, got {resolved_classes}"
+                )
+
         logger.info("Dataset validation completed successfully")
         return data_config
     

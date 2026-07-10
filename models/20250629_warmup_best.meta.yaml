@@ -1,0 +1,56 @@
+# Provenance sidecar for the legacy CAMINAv1 warm-up weights.
+# Read by src/utils/export_ncnn.py to enforce the imgsz contract and to record
+# what taxonomy a weights file actually carries. Sidecar name must match the
+# .pt stem: models/20250629_warmup_best.pt -> models/20250629_warmup_best.meta.yaml.
+#
+# All values below are VERIFIED from
+# models/20250629_warmup_best_ncnn_model/metadata.yaml (imgsz: [640, 640]; the
+# 6-class `names` map). Generated 2026-07-10.
+
+name: 20250629_warmup_best
+
+# Legacy 6-class model, NOT the canonical 9-class taxonomy. The export guard
+# treats canonical:false as "legacy": the imgsz check WARNS instead of failing.
+canonical: false
+taxonomy: legacy-6class
+
+# Verified from the deployed NCNN metadata (imgsz: [640, 640]).
+train_imgsz: 640
+imgsz: 640          # size the deployed NCNN was actually exported at
+
+# What this model actually provides (SDL 6-class order, as in the NCNN metadata).
+classes:
+  0: bus
+  1: car
+  2: cyclist
+  3: motorcycle
+  4: person
+  5: truck
+
+# Canonical classes this model can express (after alias mapping via
+# custom_model_train/class_mapping.yaml: person, cyclist, car, motorcyclist,
+# bus, truck).
+provides_canonical:
+  - person
+  - cyclist
+  - car
+  - motorcyclist
+  - bus
+  - truck
+
+# Canonical classes this model CANNOT express (never trained). The daemon must
+# treat these three as always-absent until a canonical 9-class model ships.
+missing_canonical:
+  - e-scooter
+  - SUV
+  - delivery_van
+
+notes: >
+  This artefact predates the taxonomy lock and the export guard. It is 6-class
+  at imgsz 640, while the runtime contract (configs/sensor.yaml) is 9-class at
+  imgsz 480, and src/camina/service/detect_track.py requires model.names to
+  equal the canonical 9-class list in order (it raises ValueError otherwise).
+  Re-exporting this file through src/utils/export_ncnn.py is EXPECTED to fail the
+  canonical taxonomy guard (only 6 of 9 classes). A canonical 9-class CAMINAv1
+  model must be trained and promoted before the daemon can load at all; see
+  docs/training_plan.md and docs/evaluation_plan.md.

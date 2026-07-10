@@ -9,37 +9,82 @@ of scripts that already exist; genuine gaps are flagged in §7.
 
 ---
 
-## 0. Blocking issue before any retraining: taxonomy is not defined once
+## 0. Taxonomy reconciliation — DONE (2026-07-10)
 
-Four different class taxonomies exist in the repo. They do **not** agree. This must be
-resolved before a retrain, because the export guard will reject a mismatched model.
+The four conflicting class taxonomies have been reconciled onto **one canonical
+9-class taxonomy** with an explicit, enforced mapping layer. A retrain is no longer
+blocked on taxonomy; what remains is dataset relabel/verification (§0.3).
 
-| Source | # | Order / names |
+### 0.1 Canonical taxonomy (single source of truth)
+
+`configs/classes.yaml` is now the SSOT. It carries the exact set and order the whole
+system publishes — the same nine the dashboard ships (`dashboard/src/lib/types.ts`
+`ROAD_USER_CLASSES`), the daemon enforces (`configs/sensor.yaml` `classes`,
+`src/camina/service/detect_track.py`), the LoRa 9-count codec uses, and the export guard
+(`src/utils/export_ncnn.py`) checks:
+
+```
+0 person   1 cyclist   2 car   3 e-scooter   4 SUV
+5 motorcyclist   6 bus   7 delivery_van   8 truck
+```
+
+`configs/classes.yaml` stays a flat `int: name` map (consumed unchanged by
+`src/camina/utils/config.py:load_classes`). **Do not reorder or rename** — the index is a
+wire contract.
+
+### 0.2 What each of the four legs was, and how it is now reconciled
+
+| Leg (was) | Verified location | Reconciliation |
 |---|---|---|
-| **Edge runtime contract** — `configs/sensor.yaml` (`classes:`) + `src/utils/export_ncnn.py:42-52` (`CAMINAV1_CLASSES`) | 9 | `person, cyclist, car, e-scooter, SUV, motorcyclist, bus, delivery_van, truck` |
-| **Deployed weights** — `models/20250629_warmup_best_ncnn_model/metadata.yaml` + `configs/classes.yaml` | 6 | `bus, car, cyclist, motorcycle, person, truck` (indices 0-5) |
-| **Training toolchain** — `custom_model_train/scripts/convert_sdl_to_yolo11.py:36-46`, `train_yolo11n.py:111`, `evaluation_logging_system.py:49-57` | 9 | `pedestrian, cyclist, car, motorcycle, bus, truck, e-scooter, SUV, delivery_van` |
+| Runtime 9-class @ 480 | `configs/sensor.yaml:13-22,31`; `detect_track.py:49-50,74-77` | Adopted as canonical. Unchanged. |
+| Toolchain 9-class, different names/order (`pedestrian`, `motorcycle`, order ped,cyc,car,moto,bus,truck,escooter,suv,van) | `convert_sdl_to_yolo11.py`, `train_yolo11n.py:111`, `model_comparison_framework.py`, `evaluation_logging_system.py:49-57` | Now consume the SSOT + an **alias table** (`custom_model_train/class_mapping.yaml`) via `custom_model_train/scripts/class_taxonomy.py`. `pedestrian`→`person`, `motorcycle`→`motorcyclist`; converter emits canonical order; the comparison per-class mAP is now indexed by canonical order. |
+| Deployed weights 6-class @ 640 | `models/20250629_warmup_best_ncnn_model/metadata.yaml`; old `configs/classes.yaml` | Documented as **legacy** in a provenance sidecar `models/20250629_warmup_best.meta.yaml` (6 classes; can express only `person, cyclist, car, motorcyclist, bus, truck`; **missing** `e-scooter, SUV, delivery_van`). It fails the new export guard by design. |
+| `scripts/train/*.yaml` @ 640, 6-class cyclist datasets | `scripts/train/train_param_warmup.yaml`, `train_param_finetune.yaml` | Left as the two-stage warm-up→fine-tune *pattern*; their `data:` paths still point at old cyclist datasets and must be repointed at the canonical `data.yaml` before use (§0.3). The fuller trainer is `custom_model_train/scripts/train_yolo11n.py`. |
 
-Consequences:
-- The shipped model is **6-class**, not 9. e-scooter / SUV / delivery_van were never
-  trained — `docs/MODELS.md:99-105` lists them as "CAMINAv2 roadmap".
-- The deployed NCNN was exported at **imgsz 640** (`metadata.yaml`), but the runtime
-  declares `imgsz: 480` (`configs/sensor.yaml`) and `export_ncnn.py:128-133` defaults to 480.
-- `export_ncnn.py:102-105` asserts the exported model's `names` equal `CAMINAV1_CLASSES`
-  **in order**. A model produced by `custom_model_train/` uses different names
-  (`pedestrian`≠`person`, `motorcycle`≠`motorcyclist`) and a different order, so the guard
-  would exit non-zero. It would also reject today's 6-class model.
+### 0.3 Mapping mechanism (how toolchain names reach canonical)
 
-**Action (must precede retrain):** pick one canonical 9-class taxonomy — recommend the
-runtime contract (`sensor.yaml` / `CAMINAV1_CLASSES`) since the daemon, LoRa codec, and
-dashboard already key off it — then:
-1. rewrite `configs/classes.yaml` to the canonical 9-class list;
-2. align `convert_sdl_to_yolo11.py` `new_classes` and its `class_mapping` to it
-   (note `person`→`person` not `pedestrian`; `motorcycle`→`motorcyclist`);
-3. align the per-class field order in `evaluation_logging_system.py` /
-   `model_comparison_framework.py`.
+- **`custom_model_train/class_mapping.yaml`** — a checked-in `label-name -> canonical-name`
+  table. It lists the two real aliases (`pedestrian`, `motorcycle`) plus an identity entry
+  for every canonical name, so an unknown/typo'd label is **rejected**, never silently
+  passed through.
+- **`custom_model_train/scripts/class_taxonomy.py`** — the loader. `load_canonical_classes()`,
+  `load_class_aliases()`, `resolve_to_canonical()` (raises `TaxonomyError` on any unmapped
+  name), and `assert_canonical_taxonomy()` (raises with a missing/extra/misordered diff).
+  Consumed by the converter, the trainer's dataset validation, and the comparison framework.
+- **`src/utils/export_ncnn.py`** reads the same two YAML files independently (kept decoupled
+  from the training-only package) and, after export, resolves the model's `names` through the
+  alias table and refuses export unless they equal the canonical list — with a clear diff.
 
-Effort to reconcile: **M**. Everything below assumes the canonical list is fixed first.
+### 0.4 imgsz contract
+
+**Deployment/export imgsz = 480** is the one value carried through: training config → export
+→ runtime. Training may run at a larger `imgsz` (640) for accuracy, but **promotion eval and
+the exported NCNN must use 480** (deployment size; `configs/sensor.yaml:31`,
+`detect_track.py` default, `export_ncnn.py --imgsz` default). Never benchmark accuracy at 640
+and deploy at 480 without a validation pass at 480 (§4, §5; gap G10).
+
+Enforcement: each weights file gets a provenance sidecar `models/<stem>.meta.yaml` recording
+`train_imgsz`, the deployment `imgsz`, `canonical` (bool), and the classes it provides.
+`export_ncnn.py` validates `--imgsz` against the sidecar's `imgsz`: for a **canonical** model a
+mismatch **fails**; for a **legacy** model or a missing/`unknown` size it **warns** (the true
+size can't be verified). The legacy sidecar records the verified 640 from the NCNN metadata.
+
+### 0.5 What still remains before a retrain can start
+
+Taxonomy is no longer the blocker. Remaining prerequisites:
+1. **Repoint dataset configs** — run `convert_sdl_to_yolo11.py` to emit a canonical 9-class
+   `data.yaml`; repoint `scripts/train/*.yaml` `data:` at it (or use `train_yolo11n.py`).
+2. **Relabel the three v2 classes** — `e-scooter`, `SUV`, `delivery_van` are unlabelled in the
+   SDL source (only classes 0-5 are populated). This is the bulk of the work (§2, gap G7):
+   manual seed labelling → assisted SAM2+CLIP proposal → **mandatory human QA gate** →
+   per-class accept/reject counts logged against the dataset version.
+3. **Verify labels** — every label's class-id ∈ [0, 8] and `data.yaml:names` resolves onto the
+   canonical set (data-time guard, gap G2; the export guard only covers export time).
+4. **Frozen held-out set** — build/stratify/hash it (`docs/evaluation_plan.md §1`).
+
+Until a canonical 9-class model is trained and promoted, **the daemon cannot run**:
+`detect_track.py:74-77` raises `ValueError` unless the loaded model's `names` equal the
+canonical 9 in order, and the deployed 6-class NCNN does not.
 
 ---
 
@@ -185,7 +230,7 @@ candidate best.pt
    │  (1) eval gate — docs/evaluation_plan.md §4 regression gates
    ▼
    │  (2) NCNN export  ── src/utils/export_ncnn.py --imgsz 480 --half
-   ▼   (taxonomy guard :102-105 must PASS → confirms canonical 9-class order)
+   ▼   (taxonomy guard + imgsz contract must PASS → confirms canonical 9-class + 480)
    │  (3) Pi smoke benchmark  ── 30-min in-enclosure, ambient ≥25 °C
    ▼
    │  (4) NCNN-vs-PyTorch parity check (eval plan §5)
@@ -199,12 +244,15 @@ versioned model dir under models/<date>_caminav1_best_ncnn_model/
    ```bash
    uv run python -m src.utils.export_ncnn --source models/<date>_caminav1_best.pt --imgsz 480 --half
    ```
-   - `imgsz` **must be 480** to match `configs/sensor.yaml`. (`train_yolo11n.py:342-358`
+   - `imgsz` **must be 480** to match `configs/sensor.yaml`. The export CLI enforces this
+     against the candidate's `models/<stem>.meta.yaml` sidecar (`imgsz: 480`, `canonical:
+     true`) — a mismatch fails for a canonical model (§0.4). (`train_yolo11n.py:342-358`
      also exports but defaults to 640 and to onnx/tflite/ncnn — **do not use it for the
      production NCNN artefact**; use `export_ncnn.py`.)
-   - The class-taxonomy assertion (`:102-105`) is the promotion guard — a pass proves the
-     candidate carries the canonical 9-class names in order.
-   - Idempotent: re-export needs `--force` (`:75-80`).
+   - The canonical-taxonomy guard (`_verify_canonical_taxonomy`) is the promotion gate — it
+     resolves the exported model's `names` through `custom_model_train/class_mapping.yaml`
+     and passes only if they equal the canonical 9-class list in order (§0.3).
+   - Idempotent: re-export needs `--force`.
 3. **Pi smoke benchmark (blocker).** `.planning/STATE.md:61` and `REQUIREMENTS.md`
    EDGE-03 require a **30-minute sustained, in-enclosure** benchmark on Pi 5 8GB at
    **ambient ≥25 °C**, capturing FPS, CPU load, RSS, core temp, and

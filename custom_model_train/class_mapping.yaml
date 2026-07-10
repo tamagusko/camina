@@ -1,0 +1,26 @@
+# Dataset / toolchain label name  ->  canonical CAMINAv1 name.
+#
+# The canonical names and their index order live in configs/classes.yaml
+# (the single source of truth). This file is the ONLY place where a label name
+# that differs from canonical (a dataset export, a legacy toolchain config) is
+# translated. Every label name that a dataset or toolchain emits MUST appear as
+# a key here, or the taxonomy loader (custom_model_train/scripts/class_taxonomy.py
+# and src/utils/export_ncnn.py) fails loudly — no label is ever silently dropped
+# or passed through unrecognised.
+#
+# --- Aliases (names that differ from canonical) ---
+pedestrian: person
+motorcycle: motorcyclist
+#
+# --- Identity entries (canonical names map to themselves) ---
+# Listed explicitly so an unknown or mistyped name is rejected rather than
+# silently assumed to be already-canonical.
+person: person
+cyclist: cyclist
+car: car
+e-scooter: e-scooter
+SUV: SUV
+motorcyclist: motorcyclist
+bus: bus
+delivery_van: delivery_van
+truck: truck

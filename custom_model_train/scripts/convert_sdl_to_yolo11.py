@@ -12,6 +12,12 @@ from pathlib import Path
 from collections import defaultdict
 import logging
 
+from class_taxonomy import (
+    load_canonical_classes,
+    load_class_aliases,
+    resolve_to_canonical,
+)
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -21,29 +27,24 @@ class SDLToYOLO11Converter:
         self.sdl_path = Path(sdl_dataset_path)
         self.output_path = Path(output_path)
         
-        # Original SDL classes: ['bus', 'car', 'cyclist', 'motorcycle', 'person', 'truck']
-        # Class mapping from SDL to YOLO11 9-class schema
+        # Original SDL class order (indices 0-5 as exported by the SDL tool).
+        sdl_original_classes = ['bus', 'car', 'cyclist', 'motorcycle', 'person', 'truck']
+
+        # The canonical 9-class taxonomy is the single source of truth
+        # (configs/classes.yaml); dataset/toolchain aliases (e.g. person for the
+        # SDL "person", motorcyclist for "motorcycle") are translated by
+        # custom_model_train/class_mapping.yaml. Deriving both the target class
+        # list and the SDL->canonical id remap from those files guarantees this
+        # converter can never drift from the taxonomy the rest of the system
+        # uses, and fails loudly if an SDL class name is unmapped.
+        self.new_classes = load_canonical_classes()
+        aliases = load_class_aliases()
+        canonical_index = {name: i for i, name in enumerate(self.new_classes)}
+        sdl_canonical_names = resolve_to_canonical(sdl_original_classes, aliases=aliases)
         self.class_mapping = {
-            0: 4,  # bus -> bus (4)
-            1: 2,  # car -> car (2)  
-            2: 1,  # cyclist -> cyclist (1)
-            3: 3,  # motorcycle -> motorcycle (3)
-            4: 0,  # person -> pedestrian (0)
-            5: 5   # truck -> truck (5)
+            sdl_id: canonical_index[canonical_name]
+            for sdl_id, canonical_name in enumerate(sdl_canonical_names)
         }
-        
-        # New 9-class schema
-        self.new_classes = [
-            'pedestrian',    # 0
-            'cyclist',       # 1 
-            'car',          # 2
-            'motorcycle',    # 3
-            'bus',          # 4
-            'truck',        # 5
-            'e-scooter',    # 6 (new)
-            'SUV',          # 7 (new)
-            'delivery_van'  # 8 (new)
-        ]
         
         self.stats = defaultdict(int)
         
@@ -186,7 +187,12 @@ class SDLToYOLO11Converter:
         # Calculate class distribution
         logger.info("\n=== Class Distribution ===")
         total_objects = sum(v for k, v in self.stats.items() if k.startswith('converted_'))
-        for class_name in self.new_classes[:6]:  # Only existing classes
+        # Only the canonical classes the SDL source actually populates (derived
+        # from the id remap; canonical order no longer puts them first six).
+        populated_classes = [
+            self.new_classes[idx] for idx in sorted(set(self.class_mapping.values()))
+        ]
+        for class_name in populated_classes:
             count = self.stats.get(f"converted_{class_name}", 0)
             percentage = (count / total_objects * 100) if total_objects > 0 else 0
             logger.info(f"{class_name}: {count} objects ({percentage:.1f}%)")

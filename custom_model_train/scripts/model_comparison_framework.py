@@ -21,6 +21,8 @@ import threading
 from dataclasses import dataclass, asdict
 from concurrent.futures import ThreadPoolExecutor
 
+from class_taxonomy import load_canonical_classes
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -99,11 +101,9 @@ class ModelComparison:
             }
         }
         
-        # Class names for CAMINA dataset
-        self.class_names = [
-            'pedestrian', 'cyclist', 'car', 'motorcycle', 
-            'bus', 'truck', 'e-scooter', 'SUV', 'delivery_van'
-        ]
+        # Canonical CAMINA class names (single source of truth:
+        # configs/classes.yaml), in index order.
+        self.class_names = load_canonical_classes()
         
         # Results storage
         self.results = {}
@@ -145,55 +145,14 @@ class ModelComparison:
             
         except Exception as e:
             logger.error(f"Failed to load {model_name}: {e}")
-            
-            # Fallback: Create dummy model for testing
-            logger.warning(f"Using dummy model for {model_name}")
-            return self._create_dummy_model(model_name)
-    
-    def _create_dummy_model(self, model_name: str):
-        """Create dummy model for testing when real models aren't available"""
-        class DummyModel:
-            def __init__(self, name):
-                self.name = name
-                
-            def val(self, **kwargs):
-                # Return dummy validation results
-                return type('Results', (), {
-                    'box': type('Box', (), {
-                        'map': np.random.uniform(0.4, 0.8),
-                        'map50': np.random.uniform(0.5, 0.9),
-                        'maps': np.random.uniform(0.3, 0.8, 9).tolist()  # Per-class mAP
-                    })(),
-                    'speed': {
-                        'preprocess': np.random.uniform(1, 3),
-                        'inference': np.random.uniform(5, 15),
-                        'postprocess': np.random.uniform(1, 3)
-                    }
-                })()
-            
-            def predict(self, source, **kwargs):
-                # Return dummy predictions
-                return [type('Result', (), {
-                    'speed': {
-                        'preprocess': np.random.uniform(1, 3),
-                        'inference': np.random.uniform(5, 15),
-                        'postprocess': np.random.uniform(1, 3)
-                    }
-                })()]
-            
-            def train(self, **kwargs):
-                # Simulate training
-                time.sleep(2)  # Quick simulation
-                return type('Results', (), {
-                    'results_dir': Path('runs/train/exp'),
-                    'best_fitness': np.random.uniform(0.5, 0.9)
-                })()
-            
-            def export(self, **kwargs):
-                return f"dummy_exported_{self.name}.pt"
-        
-        return DummyModel(model_name)
-    
+            # Never fabricate a model. A missing model yields no metrics; the
+            # caller must skip it rather than compare against invented numbers.
+            logger.error(
+                "No usable model for %s; skipping (no dummy/fabricated metrics).",
+                model_name,
+            )
+            return None
+
     def train_model(self, model_name: str, epochs: int = 100) -> ModelMetrics:
         """
         Train a specific model and collect metrics
@@ -258,17 +217,28 @@ class ModelComparison:
                 training_time_hrs=training_time
             )
             
-            # Per-class mAP
+            # Per-class mAP, indexed by the canonical taxonomy order
+            # (configs/classes.yaml via self.class_names). The dataclass field
+            # names are legacy aliases (pedestrian==person, motorcycle==
+            # motorcyclist); the map below keeps each field pointing at the
+            # correct canonical index so a canonical-ordered model is scored
+            # correctly (previously this assumed the old toolchain order).
             if hasattr(val_results.box, 'maps') and len(val_results.box.maps) >= 9:
-                metrics.pedestrian_map = float(val_results.box.maps[0])
-                metrics.cyclist_map = float(val_results.box.maps[1])
-                metrics.car_map = float(val_results.box.maps[2])
-                metrics.motorcycle_map = float(val_results.box.maps[3])
-                metrics.bus_map = float(val_results.box.maps[4])
-                metrics.truck_map = float(val_results.box.maps[5])
-                metrics.escooter_map = float(val_results.box.maps[6])
-                metrics.suv_map = float(val_results.box.maps[7])
-                metrics.delivery_van_map = float(val_results.box.maps[8])
+                canonical_field = {
+                    'person': 'pedestrian_map',
+                    'cyclist': 'cyclist_map',
+                    'car': 'car_map',
+                    'e-scooter': 'escooter_map',
+                    'SUV': 'suv_map',
+                    'motorcyclist': 'motorcycle_map',
+                    'bus': 'bus_map',
+                    'delivery_van': 'delivery_van_map',
+                    'truck': 'truck_map',
+                }
+                for idx, class_name in enumerate(self.class_names):
+                    field = canonical_field.get(class_name)
+                    if field is not None:
+                        setattr(metrics, field, float(val_results.box.maps[idx]))
             
             logger.info(f"Training completed for {model_name}: mAP@0.5 = {metrics.map_05:.3f}")
             
@@ -278,7 +248,7 @@ class ModelComparison:
         
         return metrics
     
-    def benchmark_video_inference(self, model_name: str, model_path: str = None) -> Tuple[float, float]:
+    def benchmark_video_inference(self, model_name: str, model_path: str = None) -> Tuple[Optional[float], Optional[float]]:
         """
         Benchmark model on video inference
         
@@ -290,11 +260,14 @@ class ModelComparison:
             Tuple of (fps, average_inference_time_ms)
         """
         if not self.test_video_path or not self.test_video_path.exists():
-            logger.warning("Test video not available, using dummy FPS values")
-            return np.random.uniform(15, 30), np.random.uniform(20, 50)
-        
+            logger.warning(
+                "Test video not available at %s; skipping video benchmark "
+                "(no fabricated FPS).", self.test_video_path,
+            )
+            return None, None
+
         logger.info(f"Benchmarking {model_name} on video inference...")
-        
+
         # Load model
         model = self.setup_model(model_name)
         if model_path and Path(model_path).exists():
@@ -302,9 +275,14 @@ class ModelComparison:
                 # Load trained weights if available
                 from ultralytics import YOLO
                 model = YOLO(model_path)
-            except:
-                pass
-        
+            except Exception as e:
+                logger.warning("Could not load weights %s: %s", model_path, e)
+        if model is None:
+            logger.warning(
+                "No usable model for %s; skipping video benchmark.", model_name,
+            )
+            return None, None
+
         # Open video
         cap = cv2.VideoCapture(str(self.test_video_path))
         if not cap.isOpened():
@@ -372,9 +350,21 @@ class ModelComparison:
             try:
                 from ultralytics import YOLO
                 model = YOLO(model_path)
-            except:
-                pass
-        
+            except Exception as e:
+                logger.warning("Could not load weights %s: %s", model_path, e)
+        if model is None:
+            torch.set_num_threads(original_threads)
+            logger.warning(
+                "No usable model for %s; skipping real-world benchmark "
+                "(no fabricated metrics).", model_name,
+            )
+            return {
+                'real_world_fps': None,
+                'memory_usage_percent': None,
+                'cpu_usage_percent': None,
+                'avg_inference_time_ms': None,
+            }
+
         # Create test images (simulating real conditions)
         test_images = []
         for i in range(50):
@@ -489,17 +479,19 @@ class ModelComparison:
                 # Find trained model path
                 model_path = self.results_dir / 'training' / model_name / 'weights' / 'best.pt'
                 
-                # Benchmark video inference
+                # Benchmark video inference (skip cleanly if no real video/model)
                 if self.test_video_path:
                     video_fps, inference_time = self.benchmark_video_inference(model_name, str(model_path))
-                    metrics.video_fps = video_fps
-                    metrics.inference_time_ms = inference_time
+                    if video_fps is not None and inference_time is not None:
+                        metrics.video_fps = video_fps
+                        metrics.inference_time_ms = inference_time
                 
-                # Benchmark real-world performance
+                # Benchmark real-world performance (skip cleanly if unavailable)
                 real_world_metrics = self.benchmark_real_world_performance(model_name, str(model_path))
-                metrics.real_world_fps = real_world_metrics['real_world_fps']
-                metrics.memory_usage_mb = real_world_metrics['memory_usage_percent']
-                metrics.cpu_usage_percent = real_world_metrics['cpu_usage_percent']
+                if real_world_metrics['real_world_fps'] is not None:
+                    metrics.real_world_fps = real_world_metrics['real_world_fps']
+                    metrics.memory_usage_mb = real_world_metrics['memory_usage_percent']
+                    metrics.cpu_usage_percent = real_world_metrics['cpu_usage_percent']
                 
                 # Export for Raspberry Pi
                 if export_models and model_path.exists():

@@ -1,6 +1,26 @@
-0: bus
-1: car
-2: cyclist
-3: motorcycle
-4: person
-5: truck
+# CAMINAv1 canonical class taxonomy — SINGLE SOURCE OF TRUTH.
+#
+# These nine classes, in THIS order, are the taxonomy the whole system
+# publishes. The class index is a wire contract shared by:
+#   - the edge daemon             (configs/sensor.yaml `classes`, detect_track.py)
+#   - the NCNN export guard        (src/utils/export_ncnn.py)
+#   - the LoRa 9-count binary codec
+#   - the dashboard                (dashboard/src/lib/types.ts ROAD_USER_CLASSES)
+#
+# Do NOT reorder or rename — doing so silently breaks every consumer above.
+# Dataset / toolchain label aliases that differ from these names (e.g.
+# `pedestrian` -> `person`, `motorcycle` -> `motorcyclist`) are translated back
+# to canonical names by custom_model_train/class_mapping.yaml. Add new aliases
+# there, never here.
+#
+# Format: `<index>: <name>` — a flat int->str map. Consumed as-is by
+# src/camina/utils/config.py:load_classes(), which expects integer keys.
+0: person
+1: cyclist
+2: car
+3: e-scooter
+4: SUV
+5: motorcyclist
+6: bus
+7: delivery_van
+8: truck

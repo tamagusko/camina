@@ -4,14 +4,20 @@ Working doc for evaluating fine-tuned 9-class YOLO11 ("CAMINAv1") candidates so 
 are **comparable across model versions** and gate promotion to the Pi 5 NCNN slot. Pairs
 with `docs/training_plan.md` (promotion path §5).
 
-Canonical 9-class taxonomy (from the edge runtime contract — `configs/sensor.yaml`,
-`src/utils/export_ncnn.py:42-52`; see training plan §0 for the taxonomy conflict that
-must be resolved first):
+Canonical 9-class taxonomy — now locked in `configs/classes.yaml` (single source of
+truth), consumed by the edge runtime (`configs/sensor.yaml`, `detect_track.py`), the
+export guard (`src/utils/export_ncnn.py`), the training toolchain (via the alias table
+`custom_model_train/class_mapping.yaml`), and the dashboard
+(`dashboard/src/lib/types.ts`). The 4-way conflict is **resolved** — see training plan §0:
 
 ```
 0 person   1 cyclist   2 car       3 e-scooter   4 SUV
 5 motorcyclist   6 bus   7 delivery_van   8 truck
 ```
+
+Toolchain metrics use legacy field names (`pedestrian_map`==person, `motorcycle_map`==
+motorcyclist) but are now indexed by this canonical order in
+`model_comparison_framework.py`.
 
 Minority classes for CAMINA's mobility question: **cyclist, e-scooter, motorcyclist**
 (and to a lesser degree bus / delivery_van). These are the classes that matter for the
@@ -99,12 +105,13 @@ motorcyclist↔e-scooter).
 ### The catch
 
 - **Nothing writes real results in.** `ExperimentLog` rows must be populated by hand; no
-  code path runs `model.val()` and inserts the row (gap G1). `model_comparison_framework.py`
-  has **dummy fallbacks that fabricate metrics** — `_create_dummy_model:153-195` returns
-  `np.random.uniform` mAPs, and `benchmark_video_inference:292-294` returns random FPS when
-  no real video is present. **Never let these silently populate a comparison** — a
-  fabricated row is worse than none. Gate: fail loudly if a real model/dataset/video is
-  absent (gap G2).
+  code path runs `model.val()` and inserts the row (gap G1).
+- **Dummy-metric fallbacks removed (2026-07-10).** `model_comparison_framework.py` used to
+  fabricate metrics — a `_create_dummy_model` returning `np.random.uniform` mAPs, and
+  `benchmark_video_inference` returning random FPS when no real video was present. Both are
+  gone: `setup_model` now returns `None` on failure (logged), the benchmarks return `None`
+  and the caller **skips** that model rather than storing invented numbers. A comparison can
+  no longer be silently synthetic (gap G2 done).
 - `dataset_version` is a free-text string, not a hash → two runs labelled "v2" may differ.
   Replace with the §1 dataset hash (gap G3).
 
@@ -187,7 +194,7 @@ Two checks after export, before/at field deployment:
 |---|---|---|
 | G0 | **Frozen, stratified, hashed held-out test set** (§1) — today's test split is empty; val is reused SDL. Prerequisite for everything. | M |
 | G1 | Real `model.val()` → results-JSON + SQLite writer (nothing populates `ExperimentLog` automatically today). | M |
-| G2 | Remove / hard-fail the fabricating dummy paths in `model_comparison_framework.py` (`:153-195`, `:292-294`) so a comparison can never be silently synthetic. | S |
+| G2 | ~~Remove / hard-fail the fabricating dummy paths in `model_comparison_framework.py`~~ **DONE (2026-07-10)** — dummy model + random-FPS paths removed; failures return `None` and are skipped, never fabricated. | S |
 | G3 | Extend per-class record to P/R/F1/AP50/AP50-95 + confusion matrix + real `dataset_hash` (currently per-class mAP only + free-text version). | M |
 | G4 | Per-class **count-error** metric over annotated clips through detect→track→count (the deliverable-relevant metric; box mAP alone is insufficient). | L |
 | G5 | Automated candidate-vs-prod regression-gate diff (§4) returning pass/fail. | M |
