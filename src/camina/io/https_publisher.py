@@ -7,17 +7,17 @@ advertised config version so the caller can refresh configuration.
 """
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from dataclasses import dataclass
 from typing import Optional
 
+import httpx
 from pydantic import BaseModel
 
 from src.camina.core.counter import DailySnapshot, WindowSnapshot
 from src.camina.io.http_client import HttpClient
-from src.camina.io.offline_buffer import OfflineBuffer, OutboxItem
+from src.camina.io.offline_buffer import OfflineBuffer, OutboxItem, SendOutcome
 from src.camina.io.schemas import (
     CountsPayload,
     DailyPayload,
@@ -36,6 +36,7 @@ class PublisherResult:
     delivered: bool          # True → backend accepted (in real time OR via drain)
     enqueued: bool           # True → request failed and was buffered for later
     latest_config_version: Optional[str]
+    buffered: bool = False   # True → payload was persisted to the outbox on failure
 
 
 class HttpsPublisher:
@@ -74,7 +75,7 @@ class HttpsPublisher:
             config_version=config_version,
             fw_version=fw_version,
         )
-        return self._send("counts", f"/v1/sensors/{self._sensor_id}/counts", payload)
+        return self._send("counts", f"/sensors/{self._sensor_id}/counts", payload)
 
     def post_daily(
         self,
@@ -91,13 +92,16 @@ class HttpsPublisher:
             config_version=config_version,
             fw_version=fw_version,
         )
-        return self._send("daily", f"/v1/sensors/{self._sensor_id}/daily", payload)
+        return self._send("daily", f"/sensors/{self._sensor_id}/daily", payload)
 
     def post_heartbeat(self, heartbeat: HeartbeatPayload) -> PublisherResult:
+        # Heartbeats are never buffered: a stale heartbeat has zero replay
+        # value and would evict counts under the outbox cap (F4).
         return self._send(
             "heartbeat",
-            f"/v1/sensors/{self._sensor_id}/heartbeat",
+            f"/sensors/{self._sensor_id}/heartbeat",
             heartbeat,
+            buffer_on_failure=False,
         )
 
     def drain_outbox(self, max_items: int = 50) -> int:
@@ -111,6 +115,8 @@ class HttpsPublisher:
         endpoint_label: str,
         path: str,
         payload: BaseModel,
+        *,
+        buffer_on_failure: bool = True,
     ) -> PublisherResult:
         body = payload.model_dump_json(by_alias=True).encode()
         # Try to drain whatever we buffered earlier first (no-op if empty).
@@ -127,21 +133,35 @@ class HttpsPublisher:
                 idempotency_key=str(uuid.uuid4()),
             )
         except Exception:
-            logger.warning(
-                "Publish %s failed; enqueuing to offline buffer", endpoint_label
+            if buffer_on_failure:
+                logger.warning(
+                    "Publish %s failed; enqueuing to offline buffer", endpoint_label
+                )
+                self._outbox.enqueue(endpoint_label, body)
+                return PublisherResult(
+                    delivered=False,
+                    enqueued=True,
+                    latest_config_version=None,
+                    buffered=True,
+                )
+            logger.warning("Publish %s failed; not buffered", endpoint_label)
+            return PublisherResult(
+                delivered=False,
+                enqueued=False,
+                latest_config_version=None,
+                buffered=False,
             )
-            self._outbox.enqueue(endpoint_label, body)
-            return PublisherResult(delivered=False, enqueued=True, latest_config_version=None)
 
         parsed = self._parse_response(response.content)
         return PublisherResult(
             delivered=True,
             enqueued=False,
             latest_config_version=parsed.latest_config_version if parsed else None,
+            buffered=False,
         )
 
-    def _send_outbox_item(self, item: OutboxItem) -> bool:
-        path = f"/v1/sensors/{self._sensor_id}/{item.endpoint}"
+    def _send_outbox_item(self, item: OutboxItem) -> SendOutcome:
+        path = f"/sensors/{self._sensor_id}/{item.endpoint}"
         try:
             self._http.request(
                 "POST",
@@ -149,12 +169,28 @@ class HttpsPublisher:
                 content=item.payload,
                 idempotency_key=f"outbox-{item.id}",
             )
-            return True
+            return SendOutcome.SENT
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            # Permanent client errors (4xx, except transient 408/425/429) will
+            # never succeed on replay — drop them so they can't wedge the FIFO.
+            if 400 <= status < 500 and status not in (408, 425, 429):
+                logger.warning(
+                    "Outbox item %d (%s) permanently rejected (HTTP %d); dropping",
+                    item.id, item.endpoint, status,
+                )
+                return SendOutcome.DROP
+            logger.warning(
+                "Outbox item %d (%s) failed (HTTP %d); will retry",
+                item.id, item.endpoint, status,
+            )
+            return SendOutcome.RETRY
         except Exception:
             logger.warning(
-                "Outbox item %d (%s) failed to send", item.id, item.endpoint
+                "Outbox item %d (%s) failed to send; will retry",
+                item.id, item.endpoint,
             )
-            return False
+            return SendOutcome.RETRY
 
     @staticmethod
     def _parse_response(content: bytes) -> Optional[IngestResponse]:

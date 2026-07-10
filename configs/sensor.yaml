@@ -1,7 +1,7 @@
 # CAMINA sensor daemon configuration — edit per device.
 # Only start-up values live here; runtime parameters (intervals, detection
 # zone, etc.) are owned by the backend and applied on the fly via
-# GET /v1/sensors/{id}/config (see plan/01-windowed-counter-and-ingest.md §3.8).
+# GET /sensors/{id}/config (see plan/01-windowed-counter-and-ingest.md §3.8).
 
 sensor_id: cam-dub-01
 api_base_url: https://camina.ucd.ie/api/ingest

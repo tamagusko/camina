@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import logging
 import signal
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,13 +37,22 @@ from src.camina.core.counter import (
     WindowedCounter,
 )
 from src.camina.io.config_poller import ConfigPoller
-from src.camina.io.http_client import HttpClient
+from src.camina.io.http_client import HttpClient, RetryPolicy
 from src.camina.io.https_publisher import HttpsPublisher
 from src.camina.io.offline_buffer import OfflineBuffer
 from src.camina.io.schemas import HeartbeatPayload, SensorConfig
 
 
 logger = logging.getLogger(__name__)
+
+
+# In-loop publisher sends must fail fast: the OfflineBuffer now fully owns
+# durable retry + persistence (a failed send is buffered and replayed later),
+# so a long inline retry ladder would only stall the detection loop during an
+# outage — and a multi-minute stall kills tracks, causing double counting.
+# Hence 2 attempts with a short backoff cap. RetryPolicy defaults are left
+# untouched for other callers/tests.
+_INLINE_RETRY = RetryPolicy(max_attempts=2, base_delay_s=0.5, max_delay_s=2.0)
 
 
 @dataclass
@@ -127,6 +135,7 @@ class SensorDaemon:
         self._http = HttpClient(
             base_url=config.api_base_url,
             token=config.api_token,
+            retry=_INLINE_RETRY,
         )
         self._publisher = HttpsPublisher(
             sensor_id=config.sensor_id,
@@ -143,6 +152,7 @@ class SensorDaemon:
 
         self._shutdown = Event()
         self._heartbeat_thread: Optional[Thread] = None
+        self._stopped = False
 
     # ---------- Public API ----------
 
@@ -159,11 +169,20 @@ class SensorDaemon:
             self.stop()
 
     def stop(self) -> None:
-        if self._shutdown.is_set():
+        # ``_stopped`` (not ``_shutdown``) guards the run-once path: a SIGTERM
+        # sets ``_shutdown`` *before* stop() runs, so gating on it would skip
+        # the flush and resource cleanup entirely.
+        if self._stopped:
             return
+        self._stopped = True
         self._shutdown.set()
         if self._heartbeat_thread is not None:
             self._heartbeat_thread.join(timeout=5.0)
+        # Flush the open (incomplete) window before closing state so a deploy
+        # doesn't silently drop up to one window of counts; the heartbeat
+        # thread is already joined, so the counter is no longer touched
+        # concurrently.
+        self._flush_open_window()
         self._outbox.close()
         self._daily.close()
         self._http.close()
@@ -203,10 +222,29 @@ class SensorDaemon:
             config_version=self._poller.current_version,
             fw_version=self._config.fw_version,
         )
-        if result.delivered:
+        # Mark published once the outbox owns delivery (delivered in real time
+        # OR buffered for later replay). Otherwise ``maybe_rollover`` re-emits
+        # the same daily row every frame, flooding the outbox on an outage.
+        if result.delivered or result.buffered:
             self._daily.mark_published(snapshot.day)
         if result.latest_config_version:
             self._poller.check(result.latest_config_version)
+
+    def _flush_open_window(self) -> None:
+        """Force-close the open window on shutdown so its counts aren't lost.
+
+        Skips publishing an empty window (no counts across all classes). The
+        snapshot is marked ``partial=True`` since the window is cut short, and
+        goes through the normal path so the DailyAccumulator sees it too.
+        """
+        now = datetime.now(tz=timezone.utc)
+        snapshot = self._counter.force_snapshot(now, partial=True)
+        if snapshot.total() == 0:
+            return
+        logger.info(
+            "Flushing open window on shutdown (%d counts)", snapshot.total()
+        )
+        self._on_window_snapshot(snapshot, now)
 
     def _catch_up_daily(self) -> None:
         for snap in self._daily.pending_unpublished():

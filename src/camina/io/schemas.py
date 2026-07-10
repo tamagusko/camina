@@ -20,7 +20,7 @@ SCHEMA_VERSION = "1.0"
 
 
 class CountsPayload(BaseModel):
-    """Windowed counts POSTed to `/v1/sensors/{id}/counts`."""
+    """Windowed counts POSTed to `/sensors/{id}/counts`."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -44,7 +44,7 @@ class CountsPayload(BaseModel):
 
 
 class DailyPayload(BaseModel):
-    """Per-day cumulative totals POSTed to `/v1/sensors/{id}/daily`."""
+    """Per-day cumulative totals POSTed to `/sensors/{id}/daily`."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -67,7 +67,7 @@ class DailyPayload(BaseModel):
 
 
 class HeartbeatPayload(BaseModel):
-    """Status + telemetry POSTed to `/v1/sensors/{id}/heartbeat`."""
+    """Status + telemetry POSTed to `/sensors/{id}/heartbeat`."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -95,7 +95,7 @@ class HeartbeatPayload(BaseModel):
 
 
 class SensorConfig(BaseModel):
-    """Remote configuration payload returned by `GET /v1/sensors/{id}/config`."""
+    """Remote configuration payload returned by `GET /sensors/{id}/config`."""
 
     model_config = ConfigDict(extra="forbid")
 

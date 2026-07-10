@@ -13,6 +13,7 @@ from src.camina.core.counter import DailySnapshot, WindowSnapshot
 from src.camina.io.http_client import HttpClient, RetryPolicy
 from src.camina.io.https_publisher import HttpsPublisher
 from src.camina.io.offline_buffer import OfflineBuffer
+from src.camina.io.schemas import HeartbeatPayload
 
 
 UTC = timezone.utc
@@ -256,6 +257,87 @@ def test_publisher_posts_daily(outbox: OfflineBuffer) -> None:
     assert payloads[-1]["day"] == "2026-04-21"
     assert payloads[-1]["late"] is True
     assert payloads[-1]["totals"]["person"] == 100
+    client.close()
+
+
+def test_publisher_counts_path_has_no_v1_prefix(outbox: OfflineBuffer) -> None:
+    """F1: request path is `/sensors/{id}/counts` (base_url already carries
+    `/api/ingest`); the stale `/v1` segment is gone."""
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"ok": True, "latest_config_version": "v1"})
+
+    transport = httpx.MockTransport(handler)
+    client = HttpClient("https://api.test", token="t", retry=_fast_retry(), transport=transport)
+    publisher = HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
+
+    publisher.post_counts(
+        snapshot=_window({"person": 1, "cyclist": 0, "car": 0}),
+        config_version="v1",
+        fw_version="0.2.0",
+    )
+    assert seen["path"] == "/sensors/cam-01/counts"
+    assert "/v1/" not in seen["path"]
+    client.close()
+
+
+def test_failed_heartbeat_is_not_enqueued(outbox: OfflineBuffer) -> None:
+    """F4: a heartbeat that fails to send is never buffered (zero replay value)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    transport = httpx.MockTransport(handler)
+    client = HttpClient("https://api.test", token="t", retry=_fast_retry(), transport=transport)
+    publisher = HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
+
+    hb = HeartbeatPayload(
+        sensor_id="cam-01", uptime_s=10, config_version="v1", fw_version="0.2.0"
+    )
+    result = publisher.post_heartbeat(hb)
+
+    assert result.delivered is False
+    assert result.buffered is False
+    assert result.enqueued is False
+    assert outbox.stats().pending == 0
+    client.close()
+
+
+def test_outbox_item_4xx_is_dropped_as_poison(outbox: OfflineBuffer) -> None:
+    """F3: a permanently-rejected (4xx) buffered item is dropped, not retried."""
+    outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, text="bad payload")
+
+    transport = httpx.MockTransport(handler)
+    client = HttpClient("https://api.test", token="t", retry=_fast_retry(), transport=transport)
+    publisher = HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
+
+    drained = publisher.drain_outbox()
+    assert drained == 0
+    assert outbox.stats().pending == 0     # poison row removed, no longer wedges FIFO
+    assert outbox.stats().poisoned == 1
+    client.close()
+
+
+def test_outbox_item_5xx_is_retried_not_dropped(outbox: OfflineBuffer) -> None:
+    """F3: a transient (5xx) failure keeps the buffered item for later retry."""
+    outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    transport = httpx.MockTransport(handler)
+    client = HttpClient("https://api.test", token="t", retry=_fast_retry(), transport=transport)
+    publisher = HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
+
+    drained = publisher.drain_outbox()
+    assert drained == 0
+    assert outbox.stats().pending == 1     # kept for retry
+    assert outbox.stats().poisoned == 0
     client.close()
 
 

@@ -13,11 +13,42 @@ from src.camina.io.http_client import HttpClient, RetryPolicy
 from src.camina.io.https_publisher import HttpsPublisher
 from src.camina.io.offline_buffer import OfflineBuffer
 from src.camina.io.config_poller import ConfigPoller
-from src.camina.core.counter import WindowedCounter
+from src.camina.core.counter import WindowedCounter, WindowSnapshot
+from src.camina.service import sensor_daemon as sd
+from src.camina.service.sensor_daemon import DaemonConfig, SensorDaemon
 
 
 CLASSES = ["person", "cyclist", "car"]
 UTC = timezone.utc
+
+
+def _make_daemon(tmp_path: Path, transport: httpx.MockTransport) -> SensorDaemon:
+    """Build a SensorDaemon with an empty frame source and a mock-backed
+    publisher that shares the daemon's real outbox + daily accumulator."""
+    cfg = DaemonConfig(
+        sensor_id="cam-01",
+        api_base_url="https://api.test",
+        api_token="t",
+        state_db_path=tmp_path / "state.db",
+        classes=list(CLASSES),
+        fw_version="0.2.0",
+        publish_interval_seconds=900,
+        heartbeat_interval_seconds=300,
+    )
+    daemon = SensorDaemon(
+        config=cfg, frame_source=iter([]), detect_and_track=lambda _f: []
+    )
+    client = HttpClient(
+        "https://api.test",
+        token="t",
+        retry=RetryPolicy(max_attempts=2, base_delay_s=0.0, max_delay_s=0.0, jitter=0.0),
+        transport=transport,
+    )
+    daemon._publisher = HttpsPublisher(
+        sensor_id="cam-01", http_client=client, outbox=daemon._outbox
+    )
+    daemon._test_client = client  # type: ignore[attr-defined]
+    return daemon
 
 
 def test_windowed_counter_feeds_publisher_end_to_end(tmp_path: Path) -> None:
@@ -96,3 +127,100 @@ def test_config_poller_reconfigures_counter(tmp_path: Path) -> None:
     assert poller.current_version == "v2"
     assert applied[0].config_version == "v2"
     client.close()
+
+
+def test_daily_publish_buffered_marks_published_no_retry_storm(tmp_path: Path) -> None:
+    """F2: on a network failure the daily payload is buffered exactly once and
+    then marked published, so ``maybe_rollover`` stops re-emitting it."""
+    transport = httpx.MockTransport(lambda _r: httpx.Response(503))
+    daemon = _make_daemon(tmp_path, transport)
+    try:
+        # Seed an unpublished daily row for "yesterday".
+        yesterday_window = WindowSnapshot(
+            window_start=datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC),
+            window_end=datetime(2026, 4, 21, 10, 15, 0, tzinfo=UTC),
+            counts={"person": 3, "cyclist": 0, "car": 0},
+            partial=False,
+        )
+        daemon._daily.add_window(yesterday_window)
+
+        now = datetime(2026, 4, 22, 0, 5, 0, tzinfo=UTC)
+        snap = daemon._daily.maybe_rollover(now)
+        assert snap is not None
+
+        daemon._publish_daily(snap)
+        # Backend down → buffered exactly once.
+        assert daemon._outbox.stats().pending == 1
+        # Marked published despite delivered=False → not re-emitted next frame.
+        assert daemon._daily.maybe_rollover(now) is None
+        # Next loop iteration: still None, no duplicate enqueue.
+        assert daemon._daily.maybe_rollover(now) is None
+        assert daemon._outbox.stats().pending == 1
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
+
+
+def test_stop_flushes_open_window(tmp_path: Path) -> None:
+    """F5: graceful stop snapshots the open window (marked partial) and feeds
+    both the publisher and the daily accumulator before closing state."""
+    received: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        received.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True, "latest_config_version": ""})
+
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(handler))
+
+    recorded: list[WindowSnapshot] = []
+    orig_add = daemon._daily.add_window
+
+    def _spy(snap: WindowSnapshot) -> None:
+        recorded.append(snap)
+        orig_add(snap)
+
+    daemon._daily.add_window = _spy  # type: ignore[method-assign]
+
+    now = datetime.now(tz=UTC)
+    daemon._counter.add(track_id=1, class_name="person", now=now)
+    daemon._counter.add(track_id=2, class_name="cyclist", now=now)
+
+    daemon.stop()  # flush happens before state is closed
+
+    assert len(received) == 1
+    assert received[0]["partial"] is True
+    assert received[0]["counts"]["person"] == 1
+    assert received[0]["counts"]["cyclist"] == 1
+    assert len(recorded) == 1
+    assert recorded[0].counts["person"] == 1
+    daemon._test_client.close()  # type: ignore[attr-defined]
+
+
+def test_stop_skips_empty_open_window(tmp_path: Path) -> None:
+    """F5: an empty open window (zero counts) is not published on stop."""
+    received: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        received.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True, "latest_config_version": ""})
+
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(handler))
+    daemon.stop()  # no counts added → nothing published
+    assert received == []
+    daemon._test_client.close()  # type: ignore[attr-defined]
+
+
+def test_daemon_wires_fast_fail_inline_retry(tmp_path: Path) -> None:
+    """F6: the daemon's in-loop HttpClient uses the fast-fail policy so an
+    outage cannot stall the detection loop (the outbox owns durable retries)."""
+    daemon = _make_daemon(
+        tmp_path,
+        httpx.MockTransport(lambda _r: httpx.Response(200, json={"ok": True, "latest_config_version": ""})),
+    )
+    try:
+        assert daemon._http._retry is sd._INLINE_RETRY
+        assert sd._INLINE_RETRY.max_attempts == 2
+        assert sd._INLINE_RETRY.max_delay_s < RetryPolicy().max_delay_s
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()

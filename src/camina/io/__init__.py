@@ -9,6 +9,6 @@ Modules:
 """
 from __future__ import annotations
 
-from .offline_buffer import OfflineBuffer, OutboxItem
+from .offline_buffer import OfflineBuffer, OutboxItem, SendOutcome
 
-__all__ = ["OfflineBuffer", "OutboxItem"]
+__all__ = ["OfflineBuffer", "OutboxItem", "SendOutcome"]

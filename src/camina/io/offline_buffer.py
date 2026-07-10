@@ -12,15 +12,48 @@ import logging
 import sqlite3
 import time
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from threading import Lock
-from typing import Callable, Iterable
+from typing import Callable, Union
 
 
 logger = logging.getLogger(__name__)
 
 
 DEFAULT_MAX_ROWS = 10_000
+DEFAULT_MAX_ATTEMPTS = 50
+
+
+class SendOutcome(str, Enum):
+    """Tri-state result a sender reports for one outbox item.
+
+    ``SENT``  → delivered; delete the row.
+    ``RETRY`` → transient failure (transport error / 5xx / 408/425/429); stop
+                draining and preserve FIFO order so we retry later.
+    ``DROP``  → permanent rejection (4xx other than 408/425/429); delete the
+                row so a poison message cannot wedge the queue forever.
+    """
+
+    SENT = "sent"
+    RETRY = "retry"
+    DROP = "drop"
+
+
+# Senders may return the tri-state enum or a legacy bool (True→SENT, False→RETRY).
+SenderResult = Union[SendOutcome, bool]
+
+
+def _normalize_outcome(result: SenderResult) -> SendOutcome:
+    """Coerce a sender's return value into a :class:`SendOutcome`.
+
+    Preserves backward compatibility with bool-returning senders.
+    """
+    if result is True:
+        return SendOutcome.SENT
+    if result is False:
+        return SendOutcome.RETRY
+    return SendOutcome(result)
 
 
 @dataclass(frozen=True)
@@ -39,6 +72,7 @@ class OutboxStats:
     pending: int
     dropped: int
     oldest_enqueued_at: int | None
+    poisoned: int = 0
 
 
 class OfflineBuffer:
@@ -75,6 +109,7 @@ class OfflineBuffer:
         self._max_rows = max_rows
         self._lock = Lock()
         self._dropped: int = 0
+        self._poisoned: int = 0
 
     # ---------- Public API ----------
 
@@ -97,14 +132,25 @@ class OfflineBuffer:
 
     def drain(
         self,
-        send_fn: Callable[[OutboxItem], bool],
+        send_fn: Callable[[OutboxItem], SenderResult],
         max_items: int = 50,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     ) -> int:
         """Drain up to ``max_items`` from the queue in FIFO order.
 
-        ``send_fn`` is called with each item; if it returns ``True`` the row
-        is deleted, else the row's ``attempts`` counter is incremented and
-        draining stops (so we don't hammer a failing backend).
+        ``send_fn`` is called with each item and reports a :class:`SendOutcome`
+        (a legacy ``bool`` is also accepted: ``True``→SENT, ``False``→RETRY):
+
+        - ``SENT``  → the row is deleted and draining continues.
+        - ``DROP``  → the row is a poison message (e.g. a permanent 4xx); it is
+          deleted and ``stats().poisoned`` is incremented so it cannot wedge
+          the FIFO forever. Draining continues.
+        - ``RETRY`` → the row's ``attempts`` counter is incremented and draining
+          stops, preserving FIFO order so we don't hammer a failing backend.
+
+        Safety valve: any row whose ``attempts`` has reached ``max_attempts`` is
+        dropped (counted as poisoned) before ``send_fn`` is called, so a row
+        that keeps reporting RETRY cannot block the queue indefinitely.
 
         Returns the number of successfully sent items.
         """
@@ -114,15 +160,32 @@ class OfflineBuffer:
         with self._lock:
             rows = self._peek_locked(max_items)
             for item in rows:
+                if item.attempts >= max_attempts:
+                    self._delete_locked(item.id)
+                    self._poisoned += 1
+                    logger.warning(
+                        "OfflineBuffer: dropping item %d (%s) after %d attempts "
+                        "(safety valve; total poisoned=%d)",
+                        item.id, item.endpoint, item.attempts, self._poisoned,
+                    )
+                    continue
                 try:
-                    ok = send_fn(item)
+                    outcome = _normalize_outcome(send_fn(item))
                 except Exception:
                     logger.exception("send_fn raised on outbox item %d", item.id)
-                    ok = False
-                if ok:
+                    outcome = SendOutcome.RETRY
+                if outcome is SendOutcome.SENT:
                     self._delete_locked(item.id)
                     sent += 1
-                else:
+                elif outcome is SendOutcome.DROP:
+                    self._delete_locked(item.id)
+                    self._poisoned += 1
+                    logger.warning(
+                        "OfflineBuffer: dropping poison item %d (%s) "
+                        "(total poisoned=%d)",
+                        item.id, item.endpoint, self._poisoned,
+                    )
+                else:  # RETRY
                     self._conn.execute(
                         "UPDATE outbox SET attempts = attempts + 1 WHERE id = ?",
                         (item.id,),
@@ -143,7 +206,12 @@ class OfflineBuffer:
             oldest = self._conn.execute(
                 "SELECT MIN(enqueued_at) FROM outbox"
             ).fetchone()[0]
-        return OutboxStats(pending=int(pending), dropped=int(self._dropped), oldest_enqueued_at=oldest)
+        return OutboxStats(
+            pending=int(pending),
+            dropped=int(self._dropped),
+            oldest_enqueued_at=oldest,
+            poisoned=int(self._poisoned),
+        )
 
     def close(self) -> None:
         with self._lock:
@@ -190,4 +258,11 @@ class OfflineBuffer:
         )
 
 
-__all__ = ["OfflineBuffer", "OutboxItem", "OutboxStats", "DEFAULT_MAX_ROWS"]
+__all__ = [
+    "OfflineBuffer",
+    "OutboxItem",
+    "OutboxStats",
+    "SendOutcome",
+    "DEFAULT_MAX_ROWS",
+    "DEFAULT_MAX_ATTEMPTS",
+]

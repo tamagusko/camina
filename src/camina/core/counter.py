@@ -137,19 +137,36 @@ class WindowedCounter:
             return None
         return self._snapshot_and_reset(now)
 
-    def force_snapshot(self, now: datetime) -> WindowSnapshot:
-        """Unconditionally close the current window and start a new one."""
+    def force_snapshot(
+        self, now: datetime, *, partial: Optional[bool] = None
+    ) -> WindowSnapshot:
+        """Unconditionally close the current window and start a new one.
+
+        Args:
+            now: Timestamp used to align the next window.
+            partial: Override for the emitted snapshot's ``partial`` flag. When
+                ``None`` (default) the normal first-window rule is used. Pass
+                ``True`` to force a partial marking, e.g. when flushing an
+                incomplete window on graceful shutdown.
+        """
         now = self._as_utc(now)
-        return self._snapshot_and_reset(now)
+        return self._snapshot_and_reset(now, partial=partial)
 
     # ---------- Internal ----------
 
-    def _snapshot_and_reset(self, now: datetime) -> WindowSnapshot:
+    def _snapshot_and_reset(
+        self, now: datetime, *, partial: Optional[bool] = None
+    ) -> WindowSnapshot:
+        is_partial = (
+            self._is_first_window and self._started_at > self._window_start
+            if partial is None
+            else partial
+        )
         snapshot = WindowSnapshot(
             window_start=self._window_start,
             window_end=self._window_end,
             counts=dict(self._counts),
-            partial=self._is_first_window and self._started_at > self._window_start,
+            partial=is_partial,
         )
         # Start a new window aligned to ``now`` (handles long gaps correctly).
         self._window_start = self._align_to_window(now)

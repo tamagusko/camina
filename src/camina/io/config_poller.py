@@ -84,7 +84,7 @@ class ConfigPoller:
 
         try:
             response = self._http.request(
-                "GET", f"/v1/sensors/{self._sensor_id}/config"
+                "GET", f"/sensors/{self._sensor_id}/config"
             )
         except Exception:
             logger.exception("Config fetch failed for sensor %s", self._sensor_id)

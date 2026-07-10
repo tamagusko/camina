@@ -7,7 +7,7 @@ from typing import Iterator
 
 import pytest
 
-from src.camina.io.offline_buffer import OfflineBuffer, OutboxItem
+from src.camina.io.offline_buffer import OfflineBuffer, OutboxItem, SendOutcome
 
 
 @pytest.fixture()
@@ -113,6 +113,66 @@ def test_drain_respects_max_items(buf: OfflineBuffer) -> None:
     sent = buf.drain(ok, max_items=3)
     assert sent == 3
     assert buf.stats().pending == 7
+
+
+# ---------- Poison-message handling (tri-state outcomes) ----------
+
+
+def test_drain_drops_poison_and_continues(buf: OfflineBuffer) -> None:
+    for n in range(3):
+        buf.enqueue("counts", str(n).encode())
+
+    def sender(item: OutboxItem) -> SendOutcome:
+        # Middle row (id 2) is a poison message; the others deliver.
+        return SendOutcome.DROP if item.id == 2 else SendOutcome.SENT
+
+    sent = buf.drain(sender, max_items=3)
+    assert sent == 2
+    assert buf.stats().pending == 0
+    assert buf.stats().poisoned == 1
+
+
+def test_drain_retry_preserves_fifo_order(buf: OfflineBuffer) -> None:
+    for n in range(3):
+        buf.enqueue("counts", str(n).encode())
+
+    def sender(_: OutboxItem) -> SendOutcome:
+        return SendOutcome.RETRY
+
+    sent = buf.drain(sender, max_items=3)
+    assert sent == 0
+    assert buf.stats().pending == 3  # nothing lost on transient failure
+    [head] = buf.peek(1)
+    assert head.payload == b"0"      # order preserved
+    assert head.attempts == 1        # only the head was charged an attempt
+
+
+def test_drain_safety_valve_drops_after_max_attempts(buf: OfflineBuffer) -> None:
+    buf.enqueue("counts", b"x")
+
+    def retry(_: OutboxItem) -> SendOutcome:
+        return SendOutcome.RETRY
+
+    # Three RETRY drains bump attempts to 3 without dropping the row.
+    for _ in range(3):
+        buf.drain(retry, max_attempts=3)
+    assert buf.stats().pending == 1
+    assert buf.peek(1)[0].attempts == 3
+
+    # The next drain trips the safety valve and drops it as poisoned.
+    buf.drain(retry, max_attempts=3)
+    assert buf.stats().pending == 0
+    assert buf.stats().poisoned == 1
+
+
+def test_drain_legacy_bool_sender_still_works(buf: OfflineBuffer) -> None:
+    """Bool-returning senders remain valid: True→SENT, False→RETRY."""
+    for n in range(2):
+        buf.enqueue("counts", str(n).encode())
+
+    assert buf.drain(lambda _i: True, max_items=2) == 2
+    assert buf.stats().pending == 0
+    assert buf.stats().poisoned == 0
 
 
 # ---------- Size cap ----------
