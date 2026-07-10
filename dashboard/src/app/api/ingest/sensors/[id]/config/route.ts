@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyIngestToken } from "@/lib/ingest-auth";
+import { checkIngestRateLimit } from "@/lib/ingest-ratelimit";
+import { readSensorConfig } from "@/lib/ingest-store";
 import { isMock } from "@/lib/data-source";
 
 interface Ctx {
@@ -18,9 +20,16 @@ const MOCK_CONFIG = {
 
 export async function GET(request: Request, { params }: Ctx) {
   const { id } = await params;
-  const authError = verifyIngestToken(request, id);
+
+  const limited = await checkIngestRateLimit(request, id);
+  if (limited) return limited;
+
+  const authError = await verifyIngestToken(request, id);
   if (authError) return authError;
 
   if (isMock) return NextResponse.json(MOCK_CONFIG);
-  return NextResponse.json({ error: "live_mode_not_implemented" }, { status: 501 });
+  // Live mode: return the sensor's stored config (removes the 501 stub).
+  const cfg = await readSensorConfig(id);
+  if (!cfg) return NextResponse.json({ error: "unknown_sensor" }, { status: 404 });
+  return NextResponse.json({ ...cfg.config, config_version: cfg.config_version });
 }

@@ -20,7 +20,10 @@
     "db:seed": "tsx scripts/seed-from-mock.ts"
   },
   "dependencies": {
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.0",
     "@vercel/config": "^0.2.1",
+    "@vercel/functions": "^3.7.5",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.36.4",
     "lucide-react": "^0.460.0",

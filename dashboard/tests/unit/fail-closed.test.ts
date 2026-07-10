@@ -75,21 +75,21 @@ describe("verifyIngestToken — timing-safe dev token (H6)", () => {
     vi.stubEnv("CAMINA_DEV_INGEST_TOKEN", "dev-token");
     vi.resetModules();
     const { verifyIngestToken } = await import("@/lib/ingest-auth");
-    expect(verifyIngestToken(req("Bearer dev-token"), "D01")).toBeNull();
+    expect(await verifyIngestToken(req("Bearer dev-token"), "D01")).toBeNull();
   });
 
   it("rejects a wrong token of a different length", async () => {
     vi.stubEnv("CAMINA_DEV_INGEST_TOKEN", "dev-token");
     vi.resetModules();
     const { verifyIngestToken } = await import("@/lib/ingest-auth");
-    expect(verifyIngestToken(req("Bearer nope"), "D01")?.status).toBe(401);
+    expect((await verifyIngestToken(req("Bearer nope"), "D01"))?.status).toBe(401);
   });
 
   it("rejects a missing token", async () => {
     vi.stubEnv("CAMINA_DEV_INGEST_TOKEN", "dev-token");
     vi.resetModules();
     const { verifyIngestToken } = await import("@/lib/ingest-auth");
-    expect(verifyIngestToken(req(), "D01")?.status).toBe(401);
+    expect((await verifyIngestToken(req(), "D01"))?.status).toBe(401);
   });
 });
 
