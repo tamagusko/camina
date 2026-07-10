@@ -252,6 +252,7 @@ export const mockStreetsRepo: StreetsRepo = {
           metric === "counts"
             ? suppressCount(rawTotal.get(streetId) ?? 0)
             : avgSpeedKmh,
+        totalCount: suppressCount(rawTotal.get(streetId) ?? 0),
         classBreakdown: suppressBreakdown(rawBreakdown.get(streetId) ?? emptyBreakdown()),
         speedBreakdown,
         avgSpeedKmh,

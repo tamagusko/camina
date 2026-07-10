@@ -21,11 +21,11 @@ function fmtNumber(n: number | null | undefined, opts?: Intl.NumberFormatOptions
   return new Intl.NumberFormat("en-IE", opts).format(n);
 }
 
-function totalCount(m: MetricValue | null): number {
-  if (!m) return 0;
-  // Suppressed classes (null) contribute their k-floor-bounded minimum of 0 —
-  // the published total is therefore a privacy-safe lower bound.
-  return Object.values(m.classBreakdown).reduce<number>((a, b) => a + (b ?? 0), 0);
+function totalCountLabel(m: MetricValue | null): string {
+  if (!m) return "—";
+  // True all-class total from the repo (k-floored there): null means the
+  // whole total fell in 1..4 and is suppressed to the k-floor label.
+  return m.totalCount === null ? "<5" : fmtNumber(m.totalCount);
 }
 
 export function StreetSidePanel({ street, metric, onClose }: Props) {
@@ -54,7 +54,7 @@ export function StreetSidePanel({ street, metric, onClose }: Props) {
 
   if (!street) return null;
 
-  const total = totalCount(metric);
+  const total = totalCountLabel(metric);
   // null = suppressed (had 1..4, shown as "<5"); 0 = genuinely no traffic
   // (hidden). Sort suppressed rows just below the smallest published count.
   const perClass = metric
@@ -103,7 +103,7 @@ export function StreetSidePanel({ street, metric, onClose }: Props) {
       <div className="grid grid-cols-2 gap-3 px-6 pb-4">
         <div className="rounded-card bg-chip-gray p-4">
           <p className="text-micro uppercase tracking-wide text-body-gray">Total count</p>
-          <p className="mt-1 text-card tabular-nums leading-none">{fmtNumber(total)}</p>
+          <p className="mt-1 text-card tabular-nums leading-none">{total}</p>
         </div>
         <div className="rounded-card bg-chip-gray p-4">
           <p className="text-micro uppercase tracking-wide text-body-gray">Avg speed</p>

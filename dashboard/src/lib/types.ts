@@ -38,6 +38,9 @@ export interface MetricValue {
   streetId: string;
   // null when the aggregate count falls below the k-anonymity floor (1..4).
   value: number | null;
+  // True all-class total for the street window, independent of the selected
+  // metric. k-floored like `value`: null when the total falls in 1..4.
+  totalCount: number | null;
   // Per-class counts; null marks a value suppressed below the k-floor (1..4).
   // 0 is retained (no counted individual to re-identify).
   classBreakdown: Record<RoadUserClass, number | null>;
