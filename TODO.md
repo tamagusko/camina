@@ -22,20 +22,22 @@ Full detail + finding IDs: [`docs/production_readiness.md`](./docs/production_re
 - [x] Enforce `https://` in edge `HttpClient`; document token file perms; timing-safe compares — done 2026-07-10
 - [x] Heartbeat interval 300 → 600 s (Vercel invocation + Neon CU headroom) — done 2026-07-10
 
-### Medium (blocks live-mode flip)
+### Medium (blocks live-mode flip) — all done 2026-07-10
 
-- [ ] Live ingest persistence: `INSERT … ON CONFLICT DO UPDATE` on composite PKs (+ `partial`-promotion rule)
-- [ ] Per-sensor tokens (SHA-256 hash lookup, not bcrypt)
-- [ ] `attachDatabasePool` + `max: 1-2` + Neon pooler-URL assert
-- [ ] Retention job (raw ≤ 90 d) + bound materialized views to ~48 h
-- [ ] Cron on Hobby: ingest-piggybacked MV refresh + external scheduler for sub-daily jobs
-- [ ] `detect-silent` + public staleness styling (silent sensor ≠ quiet street)
-- [ ] k-anonymity k_min=5 suppression + extended privacy regression test
-- [ ] Server-side 60 s timestamp-skew rejection; rate limiting on ingest
-- [ ] Worker-thread publish + per-sensor first-attempt jitter (removes remaining in-loop blocking)
-- [ ] systemd: `time-sync.target` gate + implement `Type=notify`/`WatchdogSec=300` (or fix docs)
-- [ ] SQLite integrity check + recreate-on-corruption
-- [ ] Route-handler tests (auth, sensor-id mismatch, mock/501 branches)
+- [x] Live ingest persistence: `INSERT … ON CONFLICT DO UPDATE` on composite PKs (+ `partial`-promotion rule)
+- [x] Per-sensor tokens (SHA-256 hash lookup, not bcrypt)
+- [x] `attachDatabasePool` + `max: 1-2` + Neon pooler-URL assert
+- [x] Retention job (raw ≤ 90 d) + bound materialized views to ~48 h — see `docs/operations.md`
+- [x] Cron on Hobby: ingest-piggybacked MV refresh + external scheduler (`.github/workflows/cron.yml`) for sub-daily jobs
+- [x] `detect-silent` + public staleness styling (silent sensor ≠ quiet street)
+- [x] k-anonymity k_min=5 suppression + extended privacy regression test
+- [x] Server-side 60 s timestamp-skew rejection; rate limiting on ingest (Upstash, env-gated)
+- [x] Worker-thread publish + per-sensor first-attempt jitter (removes remaining in-loop blocking)
+- [x] systemd: `time-sync.target` gate + `Type=notify`/`WatchdogSec=300` + stdlib sd_notify
+- [x] SQLite integrity check + recreate-on-corruption (`utils/sqlite_integrity.py`)
+- [x] Route-handler tests (auth, sensor-id mismatch, skew, mock branches)
+
+**Operational follow-ups (before live flip):** run `pnpm db:migrate` (migration 0001), set GH Actions `VERCEL_CRON_SECRET` secret + `CAMINA_BASE_URL` var (see `docs/operations.md`), provision per-sensor tokens into `sensors.api_token_hash`. **Open decision:** Neon free 0.5 GB is insufficient at ~100 sensors even with retention — paid tier or re-architecture at fleet >~10 (C1).
 
 ### Blockers for later phases
 
