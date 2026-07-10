@@ -24,7 +24,9 @@ export function unionBbox(streets: StreetSummary[]):
     maxLat = -Infinity;
   for (const s of streets) {
     for (const ring of s.bbox.coordinates) {
-      for (const [lon, lat] of ring) {
+      for (const position of ring) {
+        const [lon, lat] = position;
+        if (lon === undefined || lat === undefined) continue;
         if (lon < minLon) minLon = lon;
         if (lat < minLat) minLat = lat;
         if (lon > maxLon) maxLon = lon;
