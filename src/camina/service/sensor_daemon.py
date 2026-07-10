@@ -69,7 +69,7 @@ class DaemonConfig:
     classes: list[str]
     fw_version: str
     publish_interval_seconds: int = 900
-    heartbeat_interval_seconds: int = 300
+    heartbeat_interval_seconds: int = 600
     outbox_max_rows: int = 10_000
     # NCNN inference (added in Plan 01-01).
     ncnn_model_path: Path = Path("models/20250629_warmup_best_ncnn_model")
@@ -88,7 +88,7 @@ class DaemonConfig:
             classes=list(data["classes"]),
             fw_version=data.get("fw_version", "0.0.0"),
             publish_interval_seconds=int(data.get("publish_interval_seconds", 900)),
-            heartbeat_interval_seconds=int(data.get("heartbeat_interval_seconds", 300)),
+            heartbeat_interval_seconds=int(data.get("heartbeat_interval_seconds", 600)),
             outbox_max_rows=int(data.get("outbox_max_rows", 10_000)),
             ncnn_model_path=Path(
                 data.get(

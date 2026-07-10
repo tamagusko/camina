@@ -23,7 +23,7 @@ classes:
 
 # Defaults used until the first successful backend contact.
 publish_interval_seconds: 900      # 15 min
-heartbeat_interval_seconds: 300    # 5 min
+heartbeat_interval_seconds: 600    # 10 min
 outbox_max_rows: 10000             # ~10 days of 15-min windows + heartbeats
 
 # NCNN inference (added in Plan 01-01).

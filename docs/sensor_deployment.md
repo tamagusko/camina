@@ -37,6 +37,14 @@ sudo -u camina sed -i \
     /etc/camina/sensor.yaml
 ```
 
+`sensor.yaml` contains the per-device `api_token` — restrict it to `chmod 640`,
+owned by the `camina` service user, so it isn't world-readable:
+
+```bash
+sudo chmod 640 /etc/camina/sensor.yaml
+sudo chown camina:camina /etc/camina/sensor.yaml
+```
+
 ## 4. Enable the service
 
 ```bash

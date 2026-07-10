@@ -11,6 +11,7 @@ import random
 import time
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -19,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 RETRIABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
+
+_LOCALHOST_HOSTS = {"localhost", "127.0.0.1"}
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,7 @@ class HttpClient:
         transport: Optional[httpx.BaseTransport] = None,
         client: Optional[httpx.Client] = None,
     ) -> None:
+        self._validate_scheme(base_url)
         self._retry = retry or RetryPolicy()
         self._client = client or httpx.Client(
             base_url=base_url.rstrip("/"),
@@ -136,6 +140,20 @@ class HttpClient:
         self.close()
 
     # ---------- Internal ----------
+
+    @staticmethod
+    def _validate_scheme(base_url: str) -> None:
+        """Reject non-HTTPS base URLs, except plain HTTP to localhost/127.0.0.1
+        (used by local dev servers and tests)."""
+        parts = urlsplit(base_url)
+        if parts.scheme == "https":
+            return
+        if parts.scheme == "http" and parts.hostname in _LOCALHOST_HOSTS:
+            return
+        raise ValueError(
+            f"HttpClient base_url must use https:// (got {base_url!r}); "
+            "http:// is only allowed for localhost/127.0.0.1"
+        )
 
     def _backoff(self, attempt: int) -> float:
         base = min(
