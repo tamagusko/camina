@@ -1,9 +1,10 @@
 // NEXT_PUBLIC_CAMINA_DEV_ADMIN bypasses admin auth in the dev UI. It is
 // inlined into the client bundle at build time, so it must never be present
-// when building for production.
+// when building for a production deployment. Keyed on VERCEL_ENV only:
+// `next build` always sets NODE_ENV=production, so gating on NODE_ENV would
+// block every local/CI build where the flag legitimately sits in .env.local.
 if (
-  (process.env.VERCEL_ENV === "production" ||
-    process.env.NODE_ENV === "production") &&
+  process.env.VERCEL_ENV === "production" &&
   process.env.NEXT_PUBLIC_CAMINA_DEV_ADMIN
 ) {
   throw new Error(

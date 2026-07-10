@@ -13,7 +13,10 @@ function resolveDataSource(): DataSource {
   if (env === "mock") return "mock";
   // Fail closed: production must opt in explicitly. An unset or invalid
   // value silently serving mock data would mask a dead deployment.
-  if (isProduction()) {
+  // Skipped during `next build` (which always sets NODE_ENV=production):
+  // local/CI builds must not require deploy env vars. A misconfigured
+  // production deploy still fails closed at the first runtime request.
+  if (isProduction() && process.env.NEXT_PHASE !== "phase-production-build") {
     throw new Error(
       `CAMINA_DATA_SOURCE must be "live" or "mock" in production, got ${
         env === undefined ? "unset" : `"${env}"`
