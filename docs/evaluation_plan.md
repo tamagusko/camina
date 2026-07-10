@@ -27,9 +27,25 @@ active-travel narrative and are the ones a car/person-dominated mAP will mask.
 
 ## 1. Held-out test set
 
-**Does not exist yet.** `convert_sdl_to_yolo11.py:155-164` creates an **empty**
-`images/test` (`:213` "Test split is empty"); today's "val" is just the SDL test split
-reused. A frozen held-out set is the foundation of comparability.
+**Built and frozen — DONE (2026-07-10).** `custom_model_train/scripts/freeze_holdout.py`
+carves a deterministic (seed 42), class-presence-stratified 15% held-out set out of the
+converted `camina_v1_9class` dataset and materialises it into `images/test` + `labels/test`,
+excluding it from the train/val paths. Result: **192/1296** images held out (train 1043 /
+val 61 / test 192). The TRACKED proof-of-freeze manifest
+`custom_model_train/holdout_manifest.json` records dataset-root-relative paths, a SHA-256 of
+every image and label, and `manifest_sha256 =
+d67d261de9bf7d67a2d78122b82ff54b5183628fd65a3de205b763440216e257`; anyone can re-hash to
+verify the set never changed. The build is idempotent (pool = train+val+test each run) and
+covered by `tests/test_freeze_holdout.py` (same seed → same manifest hash).
+
+**Caveat (blocked on training-plan §0.5 step 2):** the three v2 classes — e-scooter, SUV,
+delivery_van — have **0 boxes** in the current source, so the held-out set cannot yet meet
+the ≥50-boxes/class stratification target for them (or for any minority slicing that needs
+them). Re-freeze after the v2 relabel + QA gate populates ids 3/4/7.
+
+Original state (for reference): `convert_sdl_to_yolo11.py:155-164` created an **empty**
+`images/test` (`:213` "Test split is empty"); "val" was just the SDL test split reused.
+A frozen held-out set is the foundation of comparability.
 
 Requirements:
 - **Frozen, never trained on.** Materialise `images/test` + `labels/test` once, record its

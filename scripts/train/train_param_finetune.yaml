@@ -4,6 +4,6 @@ epochs: 500
 patience: 50
 save_period: 50
 device: 0
-data: datasets/cyclist_yolo/data.yaml
+data: custom_model_train/datasets/camina_v1_9class/data.yaml
 model: runs/warmup/cyclist_only/weights/best.pt  # ← Use warm-up checkpoint
 project: runs/finetune

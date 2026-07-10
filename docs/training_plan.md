@@ -71,16 +71,41 @@ size can't be verified). The legacy sidecar records the verified 640 from the NC
 
 ### 0.5 What still remains before a retrain can start
 
-Taxonomy is no longer the blocker. Remaining prerequisites:
-1. **Repoint dataset configs** — run `convert_sdl_to_yolo11.py` to emit a canonical 9-class
-   `data.yaml`; repoint `scripts/train/*.yaml` `data:` at it (or use `train_yolo11n.py`).
-2. **Relabel the three v2 classes** — `e-scooter`, `SUV`, `delivery_van` are unlabelled in the
-   SDL source (only classes 0-5 are populated). This is the bulk of the work (§2, gap G7):
-   manual seed labelling → assisted SAM2+CLIP proposal → **mandatory human QA gate** →
-   per-class accept/reject counts logged against the dataset version.
-3. **Verify labels** — every label's class-id ∈ [0, 8] and `data.yaml:names` resolves onto the
-   canonical set (data-time guard, gap G2; the export guard only covers export time).
-4. **Frozen held-out set** — build/stratify/hash it (`docs/evaluation_plan.md §1`).
+Taxonomy is no longer the blocker. Steps 1, 3, and 4 are **DONE (2026-07-10)** — the
+machine-executable prerequisites are complete. **Step 2 (relabel the three v2 classes +
+human QA gate) is the single remaining blocker** for a full 9-class retrain.
+
+1. **Repoint dataset configs — DONE (2026-07-10).** Unzipped `custom_model_train/SDL
+   fine-tuned_v3-cyclist_cleaned.zip` (Roboflow YOLO export: `nc: 6`, `bus, car, cyclist,
+   motorcycle, person, truck`; 1224 train + 72 test pairs) into `custom_model_train/datasets/`
+   (gitignored). Ran `convert_sdl_to_yolo11.py` → canonical 9-class dataset at
+   `custom_model_train/datasets/camina_v1_9class/` with `data.yaml` (`nc: 9`, canonical
+   names/order from `configs/classes.yaml`). Repointed `scripts/train/train_param_warmup.yaml`
+   and `train_param_finetune.yaml` `data:` at the new `data.yaml`.
+
+   Per-class box counts (whole dataset, 1296 label files): `person 7361 · cyclist 1761 ·
+   car 2116 · e-scooter 0 · SUV 0 · motorcyclist 445 · bus 309 · delivery_van 0 · truck 297`.
+   The six SDL classes populate canonical ids **0, 1, 2, 5, 6, 8**; the three v2 classes
+   (canonical ids **3 e-scooter, 4 SUV, 7 delivery_van**) are legitimately empty until step 2.
+2. **Relabel the three v2 classes** — `e-scooter` (id 3), `SUV` (id 4), `delivery_van` (id 7)
+   are unlabelled in the SDL source (confirmed empty above). **This is the single remaining
+   blocker** and the bulk of the work (§2, gap G7): manual seed labelling → assisted SAM2+CLIP
+   proposal → **mandatory human QA gate** → per-class accept/reject counts logged against the
+   dataset version. Explicitly out of scope for the machine-executable prerequisite pass.
+3. **Verify labels — DONE (2026-07-10).** New headless data-time guard
+   `custom_model_train/scripts/validate_labels.py` (gap G2): asserts every label's
+   class-id ∈ [0, 8], coords ∈ [0, 1], and `data.yaml:names` resolves exactly onto the
+   canonical set via `class_taxonomy`; exits non-zero with a per-file report on violation.
+   Run on `camina_v1_9class` → **PASS** (exit 0, 1296 files). Covered by
+   `tests/test_validate_labels.py` (pass + each violation class).
+4. **Frozen held-out set — DONE (2026-07-10).** New `custom_model_train/scripts/freeze_holdout.py`
+   (`docs/evaluation_plan.md §1`): deterministic (seed 42) class-presence-stratified carve,
+   default 15%. Materialised **192/1296** images into `images/test` + `labels/test` (train
+   1043 / val 61 / test 192) and wrote the TRACKED proof-of-freeze manifest
+   `custom_model_train/holdout_manifest.json` (relative paths + SHA-256 of every image+label +
+   `manifest_sha256 = d67d261de9bf7d67a2d78122b82ff54b5183628fd65a3de205b763440216e257`).
+   Idempotent (pool = train+val+test each run); covered by `tests/test_freeze_holdout.py`
+   (same seed → same manifest hash).
 
 Until a canonical 9-class model is trained and promoted, **the daemon cannot run**:
 `detect_track.py:74-77` raises `ValueError` unless the loaded model's `names` equal the
