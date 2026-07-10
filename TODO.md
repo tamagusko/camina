@@ -2,6 +2,48 @@
 
 Authoritative project roadmap: [`.planning/ROADMAP.md`](./.planning/ROADMAP.md). This file is the **work queue** — modular, well-defined tasks you can pick up without needing to touch the load-bearing core.
 
+---
+
+## 🔜 Next up (maintainer — from the 2026-07-10 audit)
+
+Full detail + finding IDs: [`docs/production_readiness.md`](./docs/production_readiness.md).
+
+### Immediate
+
+- [ ] Review + commit round-1 work as split commits: `fix(edge)`, `fix(dashboard)`, `feat(simulation)`, `docs(plans)`, `chore(structure)`
+- [x] Update `.planning/STATE.md` + `CLAUDE.md` for the audit outcomes (systemd `Type=notify`/watchdog claim, `sqlite_integrity.py` reference, test count) — done 2026-07-10
+
+### Quick wins (hours each, before live mode)
+
+- [ ] Fail closed in production: mock default (`data-source.ts`), admin mock-bypass, empty OAuth allowlist (`auth.ts`), missing cron secret (`cron-auth.ts`)
+- [ ] Build-time guard: `NEXT_PUBLIC_CAMINA_DEV_ADMIN` must not ship to prod
+- [ ] Drop redundant index `idx_readings_sensor_window`; add FK CASCADE to `sensor_heartbeats`
+- [ ] Tighten zod: 9-class enum keys, count bounds, `window_end > window_start`, timestamp sanity
+- [ ] Enforce `https://` in edge `HttpClient`; document token file perms; timing-safe compares
+- [ ] Heartbeat interval 300 → 600 s (Vercel invocation + Neon CU headroom)
+
+### Medium (blocks live-mode flip)
+
+- [ ] Live ingest persistence: `INSERT … ON CONFLICT DO UPDATE` on composite PKs (+ `partial`-promotion rule)
+- [ ] Per-sensor tokens (SHA-256 hash lookup, not bcrypt)
+- [ ] `attachDatabasePool` + `max: 1-2` + Neon pooler-URL assert
+- [ ] Retention job (raw ≤ 90 d) + bound materialized views to ~48 h
+- [ ] Cron on Hobby: ingest-piggybacked MV refresh + external scheduler for sub-daily jobs
+- [ ] `detect-silent` + public staleness styling (silent sensor ≠ quiet street)
+- [ ] k-anonymity k_min=5 suppression + extended privacy regression test
+- [ ] Server-side 60 s timestamp-skew rejection; rate limiting on ingest
+- [ ] Worker-thread publish + per-sensor first-attempt jitter (removes remaining in-loop blocking)
+- [ ] systemd: `time-sync.target` gate + implement `Type=notify`/`WatchdogSec=300` (or fix docs)
+- [ ] SQLite integrity check + recreate-on-corruption
+- [ ] Route-handler tests (auth, sensor-id mismatch, mock/501 branches)
+
+### Blockers for later phases
+
+- [ ] **Reconcile the 4-way class-taxonomy conflict** (runtime 9-class/480 vs toolchain vs deployed 6-class NCNN/640) — prerequisite for any retrain; see `docs/training_plan.md`
+- [ ] LoRa Phase 4: widen busy classes beyond 1 byte (simulation showed `person` peaks 259–425 vs 255 cap) or add saturation flag; TTN webhook + HMAC; airtime gate
+
+---
+
 **Difficulty:** ★ starter (<½ day) · ★★ medium (1–2 days) · ★★★ deeper (2–5 days)
 **Tracks:** 📚 Docs · 🎨 Dashboard UX · 🧪 Tests · 🛠 Tooling · 🔧 Ops
 

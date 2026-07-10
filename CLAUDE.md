@@ -43,7 +43,7 @@ Full detail in `.planning/codebase/STACK.md` and `.planning/research/STACK.md`.
 - `src/camina/core/` (WindowedCounter, DailyAccumulator, OfflineBuffer, Tracker)
 - `src/camina/io/` (HttpClient, HttpsPublisher, ConfigPoller)
 - `src/camina/service/sensor_daemon.py` (composed orchestrator)
-- Runs on Pi 5 8GB ARM64 via `systemd` (`Type=notify`, `WatchdogSec=300`)
+- Runs on Pi 5 8GB ARM64 via `systemd` (currently `Type=simple`, no watchdog; `Type=notify` + `WatchdogSec=300` is planned — see TODO.md)
 
 **Dashboard (`dashboard/`, pnpm):**
 - Next.js 16 App Router + React 19 + TypeScript 5 (strict, `noUncheckedIndexedAccess`)
@@ -55,7 +55,7 @@ Full detail in `.planning/codebase/STACK.md` and `.planning/research/STACK.md`.
 - **Critical (M2):** `attachDatabasePool(client)` from `@vercel/functions` in `dashboard/src/lib/db.ts`
 
 **Transport:**
-- P0: WiFi/HTTPS (primary) — 60 tests passing
+- P0: WiFi/HTTPS (primary) — 89 edge tests passing; cellular = HTTPS over a cellular bearer (bearer-agnostic edge, no code change)
 - P1: LoRaWAN → TTN webhook → `/api/ingest/lora/uplink`, 17-byte binary codec (3B cam ID + 4B epoch + 9B counts + 1B schema)
 
 ## Load-bearing constraints
@@ -74,7 +74,7 @@ Full detail in `.planning/codebase/STACK.md` and `.planning/research/STACK.md`.
 - **Python:** PEP 8, type hints, `logger = logging.getLogger(__name__)` (no `print`), dataclass configs preferred immutable.
 - **TypeScript:** strict mode; zod at API boundaries; Drizzle for DB.
 - **Secrets:** never commit `.env*`, `settings.json`, `*.pem`, `credentials.json`. `dashboard/.env.local` is gitignored. `AUTH_SECRET` was rotated 2026-04-23 — do not reuse the old value.
-- **Tests:** pytest on edge (60 tests currently pass); Vitest + Playwright on dashboard.
+- **Tests:** pytest on edge (89 tests currently pass); Vitest (12 unit, incl. binding privacy-regression test) + Playwright on dashboard.
 - **MapLibre tech-debt:** Strict Mode is disabled as a safety net for a canvas sizing race; re-enable only after the race is properly guarded (tracked as v2 TECH-01..03).
 
 ---

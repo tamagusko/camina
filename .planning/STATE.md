@@ -49,7 +49,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Most load-bearing for cu
 
 ### Pending Todos
 
-- **Future-debt (post-Phase-1):** Add import-linter rule preventing `src/camina/utils/` from importing `core/` or `io/` (currently no enforcement; new `utils/sqlite_integrity.py` is stdlib-only, so risk theoretical until Phase 2+).
+- **Future-debt (post-Phase-1):** Add import-linter rule preventing `src/camina/utils/` from importing `core/` or `io/` (currently no enforcement; the planned `utils/sqlite_integrity.py` — not yet implemented as of 2026-07-10 — will be stdlib-only, so risk theoretical until Phase 2+).
 - **Phase-3 coupling watch:** `dashboard/src/lib/schemas.ts::heartbeatPayloadSchema.strict()` will reject unknown keys. Phase 3 simulator must NOT ride heartbeat schema for debug fields. Flag for Phase-3 plan-checker.
 - **CONTRIBUTING.md "Getting help" placeholders** still need stand-up time + async chat URL before interns start.
 
