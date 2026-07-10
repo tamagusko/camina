@@ -2,16 +2,14 @@
 Automatic camera calibration system using Depth Anything V2 for pixel-to-meter conversion.
 """
 
-import time
 import os
 import cv2
 import numpy as np
 import torch
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Tuple, Optional, Any
+from typing import Optional
 import yaml
-import hashlib
 
 from .config import load_config, _get_project_root
 

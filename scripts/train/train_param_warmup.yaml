@@ -5,6 +5,6 @@ patience: 10
 save_period: 10
 device: 0
 data: datasets/SDL-fine-tuned/data.yaml
-model: yolo11n.pt
+model: models/yolo11n.pt
 project: runs/warmup
 name: cyclist_dataset

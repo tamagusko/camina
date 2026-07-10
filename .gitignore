@@ -10,6 +10,10 @@ __pycache__/
 # macOS system files
 .DS_Store
 
+# Test and linter caches
+.pytest_cache/
+.ruff_cache/
+
 # Jupyter
 *.ipynb_checkpoints/
 
