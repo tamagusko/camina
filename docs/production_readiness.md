@@ -45,7 +45,7 @@ auto-refresh/gap-rendering/Dublin-time) are **done**.
 | Model retrain + promotion pipeline: **first reconcile the 4-way class-taxonomy conflict** (runtime 9-class vs toolchain 9-class-different-names vs deployed 6-class NCNN at imgsz 640 vs runtime-expected 480), frozen held-out set, per-class metrics, count-level metric, NCNN parity check | `docs/training_plan.md`, `docs/evaluation_plan.md` |
 | Fleet provisioning at 100 sensors: per-device token issuance/rotation, config rollout, monitoring dashboards, alerting | Phase 9-10 |
 | Observability: Sentry wiring, structured ingest metrics, reconciliation alerts | Phase 5+ |
-| Neon paid tier or storage re-architecture decision point (~when fleet > ~10 sensors even with retention) | C1 |
+| Neon paid tier or storage re-architecture decision point (~when fleet > ~10 sensors even with retention) — **decided 2026-07-10: stay on free tier for v1 (8–10 sensors fit with retention); revisit at v2 scale-up** | C1 |
 
 ## Deliberately deferred / accepted at TRL-6
 

@@ -37,12 +37,12 @@ Full detail + finding IDs: [`docs/production_readiness.md`](./docs/production_re
 - [x] SQLite integrity check + recreate-on-corruption (`utils/sqlite_integrity.py`)
 - [x] Route-handler tests (auth, sensor-id mismatch, skew, mock branches)
 
-**Operational follow-ups (before live flip):** run `pnpm db:migrate` (migration 0001), set GH Actions `VERCEL_CRON_SECRET` secret + `CAMINA_BASE_URL` var (see `docs/operations.md`), provision per-sensor tokens into `sensors.api_token_hash`. **Open decision:** Neon free 0.5 GB is insufficient at ~100 sensors even with retention — paid tier or re-architecture at fleet >~10 (C1).
+**Operational follow-ups (before live flip):** run `pnpm db:migrate` (migration 0001), set GH Actions `VERCEL_CRON_SECRET` secret + `CAMINA_BASE_URL` var (see `docs/operations.md`), provision per-sensor tokens into `sensors.api_token_hash`. **Decision (2026-07-10):** stay on Vercel Hobby + Neon free tier for v1 — the v1 fleet (8–10 sensors) fits comfortably with retention (~60–120 MB steady-state). The ~100-sensor storage question (C1) is deferred to v2 scale-up.
 
-### Blockers for later phases
+### Blockers for later phases — code-side done 2026-07-10
 
-- [ ] **Reconcile the 4-way class-taxonomy conflict** (runtime 9-class/480 vs toolchain vs deployed 6-class NCNN/640) — prerequisite for any retrain; see `docs/training_plan.md`
-- [ ] LoRa Phase 4: widen busy classes beyond 1 byte (simulation showed `person` peaks 259–425 vs 255 cap) or add saturation flag; TTN webhook + HMAC; airtime gate
+- [x] **Reconcile the 4-way class-taxonomy conflict** — canonical 9-class locked in `configs/classes.yaml` (matches dashboard enum), alias mapping + fail-on-unmapped loader in `custom_model_train/`, export guard + per-weights `.meta.yaml` imgsz contract (480 for deploy), dummy-metric fallbacks removed. **Remaining before retrain** (see `docs/training_plan.md §0.5`): relabel the 3 v2 classes with QA gate, frozen held-out set. Note: deployed 6-class NCNN cannot load under the canonical config — retrain required before Pi deployment.
+- [x] LoRa Phase 4 (code side): 20-byte schema-v2 codec (`person`/`cyclist`/`car` uint16 — saturation solved), Python + TS parity-tested, TTN webhook `/api/ingest/lora/uplink` with timing-safe key auth through the shared idempotent upsert; airtime budget documented (`docs/lora.md`, fair-use ceiling = SF9 @ 96 uplinks/day). **Remaining (external):** TTN console setup, Dublin coverage walk-test, RAK3172 integration.
 
 ---
 
