@@ -1,11 +1,17 @@
 [Unit]
 Description=CAMINA edge sensor daemon
 Documentation=file:///opt/camina/docs/sensor_deployment.md
-After=network-online.target
-Wants=network-online.target
+# Gate start-up on a synced clock (H5-clock): windows and idempotency keys are
+# wall-clock derived, so a pre-NTP boot must not publish skewed timestamps.
+After=time-sync.target network-online.target
+Wants=time-sync.target network-online.target
 
 [Service]
-Type=simple
+# Type=notify: the daemon signals READY=1 once start-up is complete and sends
+# WATCHDOG=1 keep-alives from the main loop; a stall past WatchdogSec triggers
+# an automatic restart (M8).
+Type=notify
+WatchdogSec=300
 User=camina
 Group=camina
 WorkingDirectory=/opt/camina

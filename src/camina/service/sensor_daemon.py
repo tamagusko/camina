@@ -20,8 +20,11 @@ Typical invocation (see ``deploy/systemd/camina-sensor.service``):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
+import queue
 import signal
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,6 +44,8 @@ from src.camina.io.http_client import HttpClient, RetryPolicy
 from src.camina.io.https_publisher import HttpsPublisher
 from src.camina.io.offline_buffer import OfflineBuffer
 from src.camina.io.schemas import HeartbeatPayload, SensorConfig
+from src.camina.utils.sqlite_integrity import check_and_recover
+from src.camina.utils.systemd_notify import SystemdNotifier
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +58,31 @@ logger = logging.getLogger(__name__)
 # Hence 2 attempts with a short backoff cap. RetryPolicy defaults are left
 # untouched for other callers/tests.
 _INLINE_RETRY = RetryPolicy(max_attempts=2, base_delay_s=0.5, max_delay_s=2.0)
+
+# Bound the shutdown drain of the publish queue so a dead network cannot hang a
+# deploy: any snapshot not delivered/buffered within this window is left in the
+# outbox (durable) or re-flushed by ``_flush_open_window``.
+_SHUTDOWN_FLUSH_TIMEOUT_S = 10.0
+
+# Emit a systemd watchdog keep-alive at most this often from the main loop —
+# comfortably under the unit's ``WatchdogSec=300`` so normal operation never
+# trips a restart, while a genuinely stalled loop does.
+_WATCHDOG_INTERVAL_S = 60.0
+
+# First-attempt publish jitter: each sensor delays its window publish by a
+# deterministic offset in ``[0, _PUBLISH_JITTER_MODULO_S)`` seconds so 100
+# sensors rolling over at the same wall-clock boundary don't stampede the API.
+_PUBLISH_JITTER_MODULO_S = 60
+
+# Sentinel enqueued on shutdown so the publish worker drains remaining jobs
+# then exits cleanly.
+_WORKER_SENTINEL = object()
+
+
+def _publish_jitter_seconds(sensor_id: str) -> float:
+    """Deterministic per-sensor first-attempt publish offset in seconds."""
+    digest = hashlib.sha256(sensor_id.encode("utf-8")).digest()
+    return float(int.from_bytes(digest[:8], "big") % _PUBLISH_JITTER_MODULO_S)
 
 
 @dataclass
@@ -125,11 +155,17 @@ class SensorDaemon:
             classes=config.classes,
             window_seconds=config.publish_interval_seconds,
         )
+        # Quarantine a corrupt state DB (bad shutdown / power cut) before either
+        # accumulator opens it, so a bad file recreates fresh instead of
+        # crashing the daemon on boot (M9). Both DBs share the state path stem.
+        outbox_db_path = config.state_db_path.with_suffix(".outbox.db")
+        check_and_recover(config.state_db_path)
+        check_and_recover(outbox_db_path)
         self._daily = DailyAccumulator(
             db_path=config.state_db_path, classes=config.classes
         )
         self._outbox = OfflineBuffer(
-            db_path=config.state_db_path.with_suffix(".outbox.db"),
+            db_path=outbox_db_path,
             max_rows=config.outbox_max_rows,
         )
         self._http = HttpClient(
@@ -154,15 +190,31 @@ class SensorDaemon:
         self._heartbeat_thread: Optional[Thread] = None
         self._stopped = False
 
+        # Publish work (counts / daily / heartbeat POSTs) runs on a single
+        # background worker so the detection loop never blocks on the network.
+        # One worker preserves per-payload-type ordering naturally.
+        self._publish_queue: "queue.Queue[object]" = queue.Queue()
+        self._worker_thread: Optional[Thread] = None
+        self._publish_jitter_s = _publish_jitter_seconds(config.sensor_id)
+
+        # sd_notify is a no-op unless launched under a Type=notify systemd unit.
+        self._notifier = SystemdNotifier()
+
     # ---------- Public API ----------
 
     def start(self) -> None:
         logger.info("Sensor daemon starting for %s", self._config.sensor_id)
         self._catch_up_daily()
+        self._worker_thread = Thread(
+            target=self._publish_worker, name="camina-publish", daemon=True
+        )
+        self._worker_thread.start()
         self._heartbeat_thread = Thread(target=self._heartbeat_loop, daemon=True)
         self._heartbeat_thread.start()
         signal.signal(signal.SIGINT, self._on_signal)
         signal.signal(signal.SIGTERM, self._on_signal)
+        # Start-up complete: tell systemd we're ready (Type=notify).
+        self._notifier.ready()
         try:
             self._main_loop()
         finally:
@@ -178,19 +230,34 @@ class SensorDaemon:
         self._shutdown.set()
         if self._heartbeat_thread is not None:
             self._heartbeat_thread.join(timeout=5.0)
+        # Drain any in-flight publish jobs before closing state: the sentinel
+        # makes the worker finish the remaining queue then exit. ``_shutdown``
+        # is already set, so the jitter wait returns immediately and the drain
+        # is bounded by ``_SHUTDOWN_FLUSH_TIMEOUT_S``.
+        if self._worker_thread is not None:
+            self._publish_queue.put(_WORKER_SENTINEL)
+            self._worker_thread.join(timeout=_SHUTDOWN_FLUSH_TIMEOUT_S)
+            if self._worker_thread.is_alive():
+                logger.warning(
+                    "Publish worker did not drain within %.0fs; "
+                    "undelivered jobs remain buffered in the outbox",
+                    _SHUTDOWN_FLUSH_TIMEOUT_S,
+                )
         # Flush the open (incomplete) window before closing state so a deploy
-        # doesn't silently drop up to one window of counts; the heartbeat
-        # thread is already joined, so the counter is no longer touched
-        # concurrently.
+        # doesn't silently drop up to one window of counts; the worker and
+        # heartbeat threads are already joined, so the counter/daily state is
+        # no longer touched concurrently.
         self._flush_open_window()
         self._outbox.close()
         self._daily.close()
         self._http.close()
+        self._notifier.close()
         logger.info("Sensor daemon stopped")
 
     # ---------- Internal ----------
 
     def _main_loop(self) -> None:
+        last_watchdog = time.monotonic()
         for frame in self._frame_source:
             if self._shutdown.is_set():
                 break
@@ -200,14 +267,76 @@ class SensorDaemon:
 
             snapshot = self._counter.maybe_rollover(now)
             if snapshot is not None:
-                self._on_window_snapshot(snapshot, now)
+                # Record locally on this thread (fast local SQLite), then hand
+                # the network POST to the worker so the loop never blocks.
+                self._daily.add_window(snapshot)
+                self._enqueue(("counts", snapshot))
 
             daily_snapshot = self._daily.maybe_rollover(now)
             if daily_snapshot is not None:
-                self._publish_daily(daily_snapshot)
+                # Mark published up-front so ``maybe_rollover`` doesn't re-emit
+                # this row every frame while the async POST is in flight — the
+                # outbox owns durable delivery, so a daily is always
+                # delivered-or-buffered (F2).
+                self._daily.mark_published(daily_snapshot.day)
+                self._enqueue(("daily", daily_snapshot))
+
+            if time.monotonic() - last_watchdog >= _WATCHDOG_INTERVAL_S:
+                self._notifier.watchdog()
+                last_watchdog = time.monotonic()
+
+    # ---------- Publish worker ----------
+
+    def _enqueue(self, job: tuple) -> None:
+        """Hand a publish job to the worker, or run it inline when no worker is
+        running (keeps direct/test call paths synchronous)."""
+        if self._worker_thread is not None and self._worker_thread.is_alive():
+            self._publish_queue.put(job)
+        else:
+            self._dispatch(job)
+
+    def _dispatch(self, job: tuple) -> None:
+        kind = job[0]
+        if kind == "counts":
+            self._publish_counts(job[1])
+        elif kind == "daily":
+            self._publish_daily_row(job[1])
+        elif kind == "heartbeat":
+            self._send_heartbeat()
+
+    def _publish_worker(self) -> None:
+        """Single consumer of the publish queue.
+
+        Serializing all network POSTs on one thread keeps the detection loop
+        non-blocking and preserves per-payload-type ordering for free. A
+        ``_WORKER_SENTINEL`` (enqueued on shutdown) drains the remaining jobs
+        then exits.
+        """
+        while True:
+            job = self._publish_queue.get()
+            try:
+                if job is _WORKER_SENTINEL:
+                    return
+                if job[0] == "counts":
+                    # Per-sensor first-attempt jitter, interruptible on
+                    # shutdown (``_shutdown`` is already set during the drain,
+                    # so this returns immediately then).
+                    self._shutdown.wait(timeout=self._publish_jitter_s)
+                self._dispatch(job)
+            except Exception:
+                logger.exception("Publish worker job failed")
+            finally:
+                self._publish_queue.task_done()
+
+    # ---------- Publish helpers ----------
 
     def _on_window_snapshot(self, snapshot: WindowSnapshot, now: datetime) -> None:
+        # Synchronous unit used by the shutdown flush (worker already joined):
+        # record locally, then publish on this thread.
         self._daily.add_window(snapshot)
+        self._publish_counts(snapshot)
+
+    def _publish_counts(self, snapshot: WindowSnapshot) -> None:
         result = self._publisher.post_counts(
             snapshot=snapshot,
             config_version=self._poller.current_version,
@@ -217,6 +346,10 @@ class SensorDaemon:
             self._poller.check(result.latest_config_version)
 
     def _publish_daily(self, snapshot: DailySnapshot) -> None:
+        # Full synchronous daily publish used by start-up catch-up: POST and
+        # mark published locally. The main-loop path marks the row published
+        # up-front (to stop re-emit) and routes the POST via
+        # ``_publish_daily_row``.
         result = self._publisher.post_daily(
             snapshot=snapshot,
             config_version=self._poller.current_version,
@@ -227,6 +360,17 @@ class SensorDaemon:
         # the same daily row every frame, flooding the outbox on an outage.
         if result.delivered or result.buffered:
             self._daily.mark_published(snapshot.day)
+        if result.latest_config_version:
+            self._poller.check(result.latest_config_version)
+
+    def _publish_daily_row(self, snapshot: DailySnapshot) -> None:
+        # Network-only daily publish for the worker; the main loop already
+        # marked this row published, so this must not touch ``_daily``.
+        result = self._publisher.post_daily(
+            snapshot=snapshot,
+            config_version=self._poller.current_version,
+            fw_version=self._config.fw_version,
+        )
         if result.latest_config_version:
             self._poller.check(result.latest_config_version)
 
@@ -254,7 +398,9 @@ class SensorDaemon:
     def _heartbeat_loop(self) -> None:
         interval = self._config.heartbeat_interval_seconds
         while not self._shutdown.wait(timeout=interval):
-            self._send_heartbeat()
+            # Route through the worker so the heartbeat POST shares the single
+            # publish thread (no separate network path off the detection loop).
+            self._enqueue(("heartbeat",))
 
     def _send_heartbeat(self) -> None:
         now = datetime.now(tz=timezone.utc)

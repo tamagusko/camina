@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Event
+from threading import Thread
 
 import httpx
 import pytest
@@ -224,3 +224,63 @@ def test_daemon_wires_fast_fail_inline_retry(tmp_path: Path) -> None:
     finally:
         daemon._test_client.close()  # type: ignore[attr-defined]
         daemon.stop()
+
+
+def test_publish_jitter_is_deterministic_per_sensor() -> None:
+    """M5: each sensor gets a stable first-attempt offset in [0, 60) seconds,
+    and different sensors spread across the range (no window-rollover stampede)."""
+    first = sd._publish_jitter_seconds("cam-01")
+    again = sd._publish_jitter_seconds("cam-01")
+    assert first == again
+    assert 0.0 <= first < 60.0
+
+    offsets = {sd._publish_jitter_seconds(f"cam-{i:02d}") for i in range(25)}
+    assert all(0.0 <= o < 60.0 for o in offsets)
+    assert len(offsets) > 1  # not all sensors collapse to the same offset
+
+
+def test_daemon_seeds_jitter_from_sensor_id(tmp_path: Path) -> None:
+    daemon = _make_daemon(
+        tmp_path,
+        httpx.MockTransport(lambda _r: httpx.Response(200, json={"ok": True})),
+    )
+    try:
+        assert daemon._publish_jitter_s == sd._publish_jitter_seconds("cam-01")
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
+
+
+def test_publish_worker_drains_enqueued_counts_on_stop(tmp_path: Path) -> None:
+    """M11: counts enqueued from the (main-loop) producer are published by the
+    background worker, and stop() drains the queue before closing state."""
+    received: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        received.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True, "latest_config_version": ""})
+
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(handler))
+    daemon._publish_jitter_s = 0.0  # deterministic: no first-attempt delay
+    daemon._worker_thread = Thread(
+        target=daemon._publish_worker, name="test-publish", daemon=True
+    )
+    daemon._worker_thread.start()
+    try:
+        snap = WindowSnapshot(
+            window_start=datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC),
+            window_end=datetime(2026, 4, 21, 10, 15, 0, tzinfo=UTC),
+            counts={"person": 4, "cyclist": 0, "car": 0},
+            partial=False,
+        )
+        daemon._daily.add_window(snap)      # local bookkeeping (producer thread)
+        daemon._enqueue(("counts", snap))   # network POST → worker thread
+
+        daemon.stop()  # sentinel drains the queue and joins the worker
+
+        assert len(received) == 1
+        assert received[0]["counts"]["person"] == 4
+        assert daemon._publish_queue.empty()
+        assert not daemon._worker_thread.is_alive()
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]

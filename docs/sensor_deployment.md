@@ -128,6 +128,25 @@ daemon's main loop will fail at `picam2 = Picamera2()` with a
   that demonstrates this pattern with `cv2.VideoCapture` against a
   test clip.
 
+### Service supervision (Type=notify + watchdog)
+
+`camina-sensor.service` runs as `Type=notify` with `WatchdogSec=300`. The
+daemon signals `READY=1` once start-up completes (threads up, state opened)
+and emits `WATCHDOG=1` keep-alives from its main loop roughly every 60 s. If
+the detection loop wedges (camera stall, GIL-locked worker) and no keep-alive
+arrives within 300 s, systemd restarts the unit. The unit is also ordered
+`After=time-sync.target` so a pre-NTP boot cannot publish clock-skewed
+window timestamps.
+
+### State-DB corruption recovery
+
+On start-up the daemon runs `PRAGMA integrity_check` on both state databases
+(`state.db` and `state.db.outbox.db`) before opening them. A file corrupted by
+an unclean power-off is moved aside to `<name>.corrupt.<epoch>` and recreated
+fresh — a bad buffer logs an `ERROR` and self-heals instead of crash-looping
+the service. Inspect any `*.corrupt.*` files under `/var/lib/camina` if counts
+appear to reset unexpectedly.
+
 ## Troubleshooting (appendix)
 
 This appendix sits outside the numbered sequence so future plans (01-02
@@ -143,3 +162,5 @@ without renumbering.
 | Daemon restart loop | Unrecoverable auth error | Rotate token; redeploy config |
 | `--dry-run` works on Mac, full run does not | picamera2 unavailable on macOS | Expected; see §7 dev notes — use `--dry-run` or inject a video-file camera factory |
 | Class mismatch on startup | Wrong `.pt` weights exported | Re-run `src.utils.export_ncnn` against the fine-tuned `models/20250629_warmup_best.pt` |
+| Service restarts every ~5 min | Main loop stalled; watchdog fired | Check `journalctl` for a wedged camera/detector; `WatchdogSec=300` restarts a stuck loop by design |
+| `*.corrupt.*` file in `/var/lib/camina` | Corrupt state DB quarantined on boot | Expected self-heal after an unclean power-off; remove the quarantined file once inspected |
