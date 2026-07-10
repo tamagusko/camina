@@ -58,7 +58,6 @@ CREATE TABLE sensor_readings (
   PRIMARY KEY (sensor_id, window_start, class_name)
 );
 CREATE INDEX idx_readings_window_start ON sensor_readings USING BRIN (window_start);
-CREATE INDEX idx_readings_sensor_window ON sensor_readings (sensor_id, window_start);
 
 CREATE TABLE sensor_daily_totals (
   sensor_id     TEXT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
@@ -73,7 +72,7 @@ CREATE TABLE sensor_daily_totals (
 );
 
 CREATE TABLE sensor_heartbeats (
-  sensor_id        TEXT NOT NULL,
+  sensor_id        TEXT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
   ts               TIMESTAMPTZ NOT NULL,
   uptime_s         INTEGER,
   cpu_temp_c       REAL,

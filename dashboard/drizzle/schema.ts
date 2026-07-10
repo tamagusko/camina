@@ -96,7 +96,9 @@ export const sensorDailyTotals = pgTable(
 export const sensorHeartbeats = pgTable(
   "sensor_heartbeats",
   {
-    sensorId: text("sensor_id").notNull(),
+    sensorId: text("sensor_id")
+      .notNull()
+      .references(() => sensors.id, { onDelete: "cascade" }),
     ts: timestamp("ts", { withTimezone: true }).notNull(),
     uptimeS: integer("uptime_s"),
     cpuTempC: real("cpu_temp_c"),
