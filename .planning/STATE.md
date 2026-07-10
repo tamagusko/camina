@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 
 ## Current Position
 
-Phase: 1 of 11 (Edge baseline on Pi)
+Phase: 1 of 11 (Edge baseline on Pi) — but see 2026-07-10 note: a full audit-and-harden pass (outside GSD, user-directed) implemented much of Phases 2/5/6/7/9 scope directly.
 Plan: 0 of 4 executed (4 of 4 planned + checked)
-Status: Ready to execute
-Last activity: 2026-05-09 — Phase 1 plans 01-02/01-03/01-04 revised after PLAN-CHECK pass-1 flagged 3 blockers + 11 issues. ROADMAP amended (SC#4 split: edge-only NTP gate in Phase 1; server-side 60s rejection moved to Phase 2 SC#5 alongside Publisher refactor + attachDatabasePool). Pass-2 PLAN-CHECK = PASS (0 blockers, 2 future-debt warnings).
+Status: GSD plans stale — re-baseline against the 2026-07-10 audit outcomes before executing Phase 1 plans.
+Last activity: 2026-07-10 — Full audit + hardening executed directly (user opted out of GSD for this work): edge publish pipeline hardened (worker-thread publish, jitter, sd_notify watchdog, SQLite self-healing, HTTPS enforcement), live ingest persistence (idempotent upserts, per-sensor SHA-256 tokens, attachDatabasePool, skew rejection, rate limiting), fail-closed production gates, k_min=5 suppression + staleness surface, 90-day retention + bounded MVs + Hobby-safe cron topology, LoRa schema-v2 codec + TTN webhook, class taxonomy reconciled (canonical 9-class locked; retrain blocked only on v2-class relabel), dataset converted + held-out set frozen. Tests: 144 pytest, 89 vitest, 6 e2e, tsc clean, pnpm build green. See docs/production_readiness.md + TODO.md.
 
-Progress: [░░░░░░░░░░] 0% (0 of ~31 plans executed)
+Progress: [░░░░░░░░░░] 0% of GSD plans (0 of ~31) — substantial equivalent scope delivered outside GSD 2026-07-10; ROADMAP/plans need re-baselining
 
 ## Performance Metrics
 
@@ -82,9 +82,9 @@ From `.planning/codebase/CONCERNS.md` — carry into the phases that touch them:
 
 ## Session Continuity
 
-Last session: 2026-05-09 — Phase 1 plans drafted, plan-checked (pass-1 REVISE-BLOCKERS), revised, plan-checked (pass-2 PASS). ROADMAP scope-split confirmed by user.
-Stopped at: Ready to commit revision artifacts (ROADMAP.md + 01-02/01-03/01-04 revised + PLAN-CHECK.md + REVISION-NOTES.md + this STATE.md sync) then `/gsd-execute-phase 1`.
-Resume file: `.planning/phases/01-edge-baseline-on-pi/PLAN-CHECK.md`.
+Last session: 2026-07-10 — audit-and-harden pass, all findings implemented and pushed (see Last activity above). Remaining non-code work: human relabel of e-scooter/SUV/delivery_van (only retrain blocker), TTN walk-test + RAK3172, pre-live-flip ops steps (docs/operations.md).
+Stopped at: All audit work committed + pushed to origin/main. Next GSD action: re-baseline ROADMAP/Phase-1 plans against the delivered scope before `/gsd-execute-phase 1`.
+Resume file: `docs/production_readiness.md` + `TODO.md` (audit state); `.planning/phases/01-edge-baseline-on-pi/PLAN-CHECK.md` (stale GSD plans).
 
 ---
 *STATE.md initialised 2026-04-23. Synced 2026-05-09.*

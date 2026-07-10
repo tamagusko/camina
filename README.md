@@ -15,7 +15,7 @@ Pi Camera 3 → YOLO11 NCNN → per-class Kalman/Hungarian tracker
    → Neon Postgres → Next.js public map (Dublin)
 ```
 
-- **Transports:** Wi-Fi/HTTPS (primary). LoRaWAN via TTN planned (Phase 4, 17-byte binary uplink). Cellular works as HTTPS over a cellular bearer — the edge code is bearer-agnostic, no code change needed.
+- **Transports:** Wi-Fi/HTTPS (primary). LoRaWAN via TTN implemented code-side (20-byte schema-v2 binary uplink + webhook ingest, `docs/lora.md`; hardware walk-test pending). Cellular works as HTTPS over a cellular bearer — the edge code is bearer-agnostic, no code change needed.
 - **Privacy:** fully edge-processed, counts only; public UI never exposes sensor GPS; k-anonymity floor; right-to-erasure via DB cascade. GDPR-first by design.
 
 ## 📁 Directory structure
