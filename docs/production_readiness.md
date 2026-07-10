@@ -6,7 +6,7 @@ findings table. Round-1 fixes (path mismatch, daily retry storm, poison-message
 handling, heartbeat buffering, shutdown flush, fast-fail sends, dashboard
 auto-refresh/gap-rendering/Dublin-time) are **done**.
 
-## Quick wins (hours each, do before live mode)
+## Quick wins (hours each, do before live mode) — **all done 2026-07-10**
 
 | Item | Finding | Where |
 |---|---|---|

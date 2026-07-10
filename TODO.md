@@ -10,17 +10,17 @@ Full detail + finding IDs: [`docs/production_readiness.md`](./docs/production_re
 
 ### Immediate
 
-- [ ] Review + commit round-1 work as split commits: `fix(edge)`, `fix(dashboard)`, `feat(simulation)`, `docs(plans)`, `chore(structure)`
+- [x] Review + commit round-1 work as split commits: `fix(edge)`, `fix(dashboard)`, `feat(simulation)`, `docs(plans)`, `chore(structure)` — done 2026-07-10
 - [x] Update `.planning/STATE.md` + `CLAUDE.md` for the audit outcomes (systemd `Type=notify`/watchdog claim, `sqlite_integrity.py` reference, test count) — done 2026-07-10
 
 ### Quick wins (hours each, before live mode)
 
-- [ ] Fail closed in production: mock default (`data-source.ts`), admin mock-bypass, empty OAuth allowlist (`auth.ts`), missing cron secret (`cron-auth.ts`)
-- [ ] Build-time guard: `NEXT_PUBLIC_CAMINA_DEV_ADMIN` must not ship to prod
-- [ ] Drop redundant index `idx_readings_sensor_window`; add FK CASCADE to `sensor_heartbeats`
-- [ ] Tighten zod: 9-class enum keys, count bounds, `window_end > window_start`, timestamp sanity
-- [ ] Enforce `https://` in edge `HttpClient`; document token file perms; timing-safe compares
-- [ ] Heartbeat interval 300 → 600 s (Vercel invocation + Neon CU headroom)
+- [x] Fail closed in production: mock default (`data-source.ts`), admin mock-bypass, empty OAuth allowlist (`auth.ts`), missing cron secret (`cron-auth.ts`) — done 2026-07-10
+- [x] Build-time guard: `NEXT_PUBLIC_CAMINA_DEV_ADMIN` must not ship to prod — done 2026-07-10
+- [x] Drop redundant index `idx_readings_sensor_window`; add FK CASCADE to `sensor_heartbeats` — done 2026-07-10
+- [x] Tighten zod: 9-class enum keys, count bounds, `window_end > window_start`, timestamp sanity — done 2026-07-10
+- [x] Enforce `https://` in edge `HttpClient`; document token file perms; timing-safe compares — done 2026-07-10
+- [x] Heartbeat interval 300 → 600 s (Vercel invocation + Neon CU headroom) — done 2026-07-10
 
 ### Medium (blocks live-mode flip)
 
