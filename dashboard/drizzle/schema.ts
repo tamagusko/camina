@@ -108,6 +108,49 @@ export const sensorHeartbeats = pgTable(
   (t) => ({ pk: primaryKey({ columns: [t.sensorId, t.ts] }) })
 );
 
+// ── Durable rollup tables (retention history store, migration 0001) ──
+// Averages are stored as weighted-sum components; avg_speed_kmh is a DB
+// GENERATED column (read-only from the ORM's perspective, so it is omitted
+// here — the retention job writes total_count / speed_weighted_sum / speed_count).
+export const streetHourly = pgTable(
+  "street_hourly",
+  {
+    streetId: text("street_id")
+      .notNull()
+      .references(() => streets.id, { onDelete: "cascade" }),
+    className: text("class_name").notNull(),
+    hour: timestamp("hour", { withTimezone: true }).notNull(),
+    totalCount: bigint("total_count", { mode: "number" }).notNull().default(0),
+    speedWeightedSum: doublePrecision("speed_weighted_sum").notNull().default(0),
+    speedCount: bigint("speed_count", { mode: "number" }).notNull().default(0),
+    avgSpeedKmh: doublePrecision("avg_speed_kmh"),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.streetId, t.className, t.hour] }) })
+);
+
+export const streetDaily = pgTable(
+  "street_daily",
+  {
+    streetId: text("street_id")
+      .notNull()
+      .references(() => streets.id, { onDelete: "cascade" }),
+    className: text("class_name").notNull(),
+    day: date("day").notNull(),
+    totalCount: bigint("total_count", { mode: "number" }).notNull().default(0),
+    speedWeightedSum: doublePrecision("speed_weighted_sum").notNull().default(0),
+    speedCount: bigint("speed_count", { mode: "number" }).notNull().default(0),
+    avgSpeedKmh: doublePrecision("avg_speed_kmh"),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.streetId, t.className, t.day] }) })
+);
+
+// Cron coordination metadata — gates the piggyback MV refresh (migration 0001).
+export const cronMeta = pgTable("cron_meta", {
+  job: text("job").primaryKey(),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }).notNull().defaultNow(),
+  stats: jsonb("stats"),
+});
+
 export const allowedMembers = pgTable("allowed_members", {
   email: text("email").primaryKey(),
   role: text("role").notNull(),

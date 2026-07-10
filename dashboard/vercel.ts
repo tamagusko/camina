@@ -1,6 +1,6 @@
 // Vercel project configuration (typed). Replaces vercel.json.
 // Declares framework, headers, redirects, and scheduled cron jobs.
-import { routes, type VercelConfig } from "@vercel/config/v1";
+import { routes, type Redirect, type VercelConfig } from "@vercel/config/v1";
 
 export const config: VercelConfig = {
   framework: "nextjs",
@@ -12,19 +12,21 @@ export const config: VercelConfig = {
       immutable: true,
     }),
     // Security headers applied to all pages.
-    routes.header("/(.*)", {
-      "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
-      "X-Content-Type-Options": "nosniff",
-      "Referrer-Policy": "strict-origin-when-cross-origin",
-      "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    }),
+    routes.header("/(.*)", [
+      { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+      { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+    ]),
   ],
   redirects: [
-    routes.redirect("/", "/dublin", { permanent: false }),
+    { source: "/", destination: "/dublin", permanent: false } satisfies Redirect,
   ],
+  // Vercel Hobby honours DAILY cron granularity only (H14). Sub-daily jobs
+  // (refresh-aggregates, detect-silent) are driven externally by GitHub Actions
+  // (.github/workflows/cron.yml); MV refresh is also piggybacked on ingest.
   crons: [
-    { path: "/api/cron/refresh-aggregates", schedule: "*/5 * * * *" },
-    { path: "/api/cron/detect-silent", schedule: "*/15 * * * *" },
+    { path: "/api/cron/retention", schedule: "0 3 * * *" },
     { path: "/api/cron/reconcile-daily", schedule: "0 1 * * *" },
   ],
 };

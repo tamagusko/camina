@@ -1,0 +1,52 @@
+# External scheduler for CAMINA sub-daily cron jobs (audit H14).
+#
+# The Vercel Hobby plan honours DAILY cron granularity only, so the sub-daily
+# jobs (bounded-MV refresh fallback, silent-sensor detection) are driven from
+# here. Vercel Cron still owns the daily jobs (retention, reconcile-daily) via
+# dashboard/vercel.ts. Each request carries the same Bearer secret that
+# verifyCron (dashboard/src/lib/cron-auth.ts) checks.
+#
+# Required GitHub configuration (Settings → Secrets and variables → Actions):
+#   • Secret  VERCEL_CRON_SECRET  — must equal the VERCEL_CRON_SECRET env var set
+#                                   on the Vercel project (Production).
+#   • Variable CAMINA_BASE_URL    — production origin, no trailing slash,
+#                                   e.g. https://camina.vercel.app
+#
+# Note: GitHub-hosted schedules are best-effort and can be delayed under load;
+# a 15-minute cadence is the practical floor. The MV refresh is idempotent and
+# advisory-lock guarded, so overlapping or skipped runs are safe.
+
+name: External Cron (sub-daily)
+
+on:
+  schedule:
+    - cron: "*/15 * * * *" # every 15 minutes (UTC)
+  workflow_dispatch: {} # allow manual runs
+
+concurrency:
+  group: external-cron
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Pass config via env (not inline interpolation) so the secret never lands
+    # in shell process args, and curl reads the header from a variable.
+    env:
+      CRON_SECRET: ${{ secrets.VERCEL_CRON_SECRET }}
+      BASE_URL: ${{ vars.CAMINA_BASE_URL }}
+    steps:
+      - name: Refresh bounded aggregates (MV refresh fallback)
+        run: |
+          curl --fail --silent --show-error --location \
+            --max-time 60 \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            "${BASE_URL}/api/cron/refresh-aggregates"
+
+      - name: Detect silent sensors
+        run: |
+          curl --fail --silent --show-error --location \
+            --max-time 60 \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            "${BASE_URL}/api/cron/detect-silent"
