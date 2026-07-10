@@ -1,3 +1,18 @@
+// NEXT_PUBLIC_CAMINA_DEV_ADMIN bypasses admin auth in the dev UI. It is
+// inlined into the client bundle at build time, so it must never be present
+// when building for production.
+if (
+  (process.env.VERCEL_ENV === "production" ||
+    process.env.NODE_ENV === "production") &&
+  process.env.NEXT_PUBLIC_CAMINA_DEV_ADMIN
+) {
+  throw new Error(
+    "NEXT_PUBLIC_CAMINA_DEV_ADMIN is set while building for production. " +
+      "It bypasses admin auth and must not ship. Remove the variable from " +
+      "the Vercel project environment (or your shell) and rebuild."
+  );
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Strict Mode double-mounts effects in dev, which races with MapLibre's

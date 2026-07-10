@@ -1,6 +1,7 @@
 import "server-only";
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
+import { isProduction } from "@/lib/env";
 
 // Auth.js v5 configuration. Google SSO only.
 //
@@ -30,9 +31,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (!email) return false;
       // Dev-mode allowlist check. Live mode will hit `allowed_members` table.
       if (devAllowlist.length === 0) {
-        // If no allowlist configured in dev, accept any sign-in — convenient
-        // for first-run setup. Production MUST set the env var or run live.
-        return true;
+        // Fail closed in production: an empty allowlist denies everyone.
+        // In dev, accept any sign-in — convenient for first-run setup.
+        return !isProduction();
       }
       return devAllowlist.includes(email);
     },

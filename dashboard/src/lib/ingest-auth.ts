@@ -1,5 +1,6 @@
 import "server-only";
 import { NextResponse } from "next/server";
+import { secureCompare } from "@/lib/secure-compare";
 
 // Minimal per-device Bearer-token check for ingest routes.
 // Live mode will lookup sensors.api_token_hash via Drizzle and bcrypt-compare;
@@ -19,7 +20,7 @@ export function verifyIngestToken(
   if (!token) {
     return NextResponse.json({ error: "missing_token" }, { status: 401 });
   }
-  if (DEV_TOKEN && token === DEV_TOKEN) return null;
+  if (DEV_TOKEN && secureCompare(token, DEV_TOKEN)) return null;
 
   // Live mode hook goes here.
   return NextResponse.json(
