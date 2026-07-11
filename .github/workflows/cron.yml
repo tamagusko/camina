@@ -29,6 +29,12 @@ concurrency:
 
 jobs:
   ping:
+    # Skip (green, no failure noise) until the production deployment exists and
+    # CAMINA_BASE_URL is configured. The job activates automatically once the
+    # repository variable is set — no workflow edit needed at go-live.
+    # (vars is usable in job-level `if`; the secrets context is not, so the
+    # secret is validated in the first step instead.)
+    if: vars.CAMINA_BASE_URL != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Pass config via env (not inline interpolation) so the secret never lands
@@ -37,6 +43,13 @@ jobs:
       CRON_SECRET: ${{ secrets.VERCEL_CRON_SECRET }}
       BASE_URL: ${{ vars.CAMINA_BASE_URL }}
     steps:
+      - name: Check cron secret is configured
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CAMINA_BASE_URL is set but the VERCEL_CRON_SECRET secret is missing (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+
       - name: Refresh bounded aggregates (MV refresh fallback)
         run: |
           curl --fail --silent --show-error --location \
