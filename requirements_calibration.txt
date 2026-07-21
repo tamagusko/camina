@@ -13,5 +13,5 @@ transformers>=4.20.0  # For alternative depth models
 timm>=0.6.0          # Model architectures
 
 # Enhanced image processing
-Pillow>=8.0.0        # Image processing
+Pillow>=12.3.0        # Image processing
 numpy>=1.21.0        # Numerical computing
