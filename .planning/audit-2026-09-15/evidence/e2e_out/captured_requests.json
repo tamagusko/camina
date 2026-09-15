@@ -1,0 +1,145 @@
+[
+ {
+  "path": "/api/ingest/sensors/cam-dub-01/counts",
+  "method": "POST",
+  "headers": {
+   "authorization": "Bearer tok",
+   "content-type": "application/json",
+   "idempotency-key": "2f9995d2-6b22-4af3-8aa4-e66e1a8c7681"
+  },
+  "body": {
+   "schema_version": "1.0",
+   "sensor_id": "cam-dub-01",
+   "window_start": "2026-09-15T21:00:00Z",
+   "window_end": "2026-09-15T21:15:00Z",
+   "partial": true,
+   "counts": {
+    "person": 42,
+    "cyclist": 0,
+    "car": 9,
+    "e-scooter": 0,
+    "SUV": 0,
+    "motorcyclist": 0,
+    "bus": 0,
+    "delivery_van": 0,
+    "truck": 0
+   },
+   "avg_speed_kmh": {},
+   "config_version": "",
+   "fw_version": "0.2.0",
+   "produced_at": "2026-09-15T21:09:23.120088Z"
+  }
+ },
+ {
+  "path": "/api/ingest/sensors/cam-dub-01/daily",
+  "method": "POST",
+  "headers": {
+   "authorization": "Bearer tok",
+   "content-type": "application/json",
+   "idempotency-key": "40a93128-f361-4c33-bc69-fb564c886b6d"
+  },
+  "body": {
+   "schema_version": "1.0",
+   "sensor_id": "cam-dub-01",
+   "day": "2026-09-15",
+   "totals": {
+    "person": 42,
+    "cyclist": 0,
+    "car": 9,
+    "e-scooter": 0,
+    "SUV": 0,
+    "motorcyclist": 0,
+    "bus": 0,
+    "delivery_van": 0,
+    "truck": 0
+   },
+   "window_count": 1,
+   "late": false,
+   "config_version": "",
+   "fw_version": "0.2.0",
+   "produced_at": "2026-09-15T21:09:23.120714Z"
+  }
+ },
+ {
+  "path": "/api/ingest/sensors/cam-dub-01/heartbeat",
+  "method": "POST",
+  "headers": {
+   "authorization": "Bearer tok",
+   "content-type": "application/json",
+   "idempotency-key": "a0ddb0f1-c117-4974-8491-d130357bb9ca"
+  },
+  "body": {
+   "sensor_id": "cam-dub-01",
+   "ts": "2026-09-15T21:09:23.120981Z",
+   "uptime_s": 10,
+   "cpu_temp_c": null,
+   "last_window_end": "2026-09-15T21:15:00Z",
+   "config_version": "",
+   "fw_version": "0.2.0",
+   "auth_error": false,
+   "config_error": false
+  }
+ },
+ {
+  "path": "/api/ingest/sensors/cam-dub-01/counts",
+  "method": "POST",
+  "headers": {
+   "authorization": "Bearer tok",
+   "content-type": "application/json",
+   "idempotency-key": "outbox-1"
+  },
+  "body": {
+   "schema_version": "1.0",
+   "sensor_id": "cam-dub-01",
+   "window_start": "2026-09-15T21:00:00Z",
+   "window_end": "2026-09-15T21:15:00Z",
+   "partial": true,
+   "counts": {
+    "person": 42,
+    "cyclist": 0,
+    "car": 9,
+    "e-scooter": 0,
+    "SUV": 0,
+    "motorcyclist": 0,
+    "bus": 0,
+    "delivery_van": 0,
+    "truck": 0
+   },
+   "avg_speed_kmh": {},
+   "config_version": "",
+   "fw_version": "0.2.0",
+   "produced_at": "2026-09-15T21:09:23.121230Z"
+  }
+ },
+ {
+  "path": "/api/ingest/sensors/cam-dub-01/counts",
+  "method": "POST",
+  "headers": {
+   "authorization": "Bearer tok",
+   "content-type": "application/json",
+   "idempotency-key": "7e9103e6-438a-4f44-99ca-f275e7f83b79"
+  },
+  "body": {
+   "schema_version": "1.0",
+   "sensor_id": "cam-dub-01",
+   "window_start": "2026-09-15T21:00:00Z",
+   "window_end": "2026-09-15T21:15:00Z",
+   "partial": true,
+   "counts": {
+    "person": 42,
+    "cyclist": 0,
+    "car": 9,
+    "e-scooter": 0,
+    "SUV": 0,
+    "motorcyclist": 0,
+    "bus": 0,
+    "delivery_van": 0,
+    "truck": 0
+   },
+   "avg_speed_kmh": {},
+   "config_version": "",
+   "fw_version": "0.2.0",
+   "produced_at": "2026-09-15T21:09:23.121581Z"
+  }
+ }
+]

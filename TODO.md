@@ -4,42 +4,21 @@ Authoritative project roadmap: [`.planning/ROADMAP.md`](./.planning/ROADMAP.md).
 
 ---
 
-## 🔜 Next up (maintainer — from the 2026-07-10 audit)
+## 🔜 Next up (maintainer)
 
-Full detail + finding IDs: [`docs/production_readiness.md`](./docs/production_readiness.md).
+Maintainer work is now tracked in [`.planning/PLAN.md`](./.planning/PLAN.md) (stages S1–S14) and [`.planning/STATE.md`](./.planning/STATE.md). The 2026-07-10 audit checklist that previously lived here is preserved in git history — see commit `ca5f126`, the last commit that touched this file before the 2026-09-15 planning rebuild.
 
-### Immediate
+### Maintainer — next (M1 unblockers)
 
-- [x] Review + commit round-1 work as split commits: `fix(edge)`, `fix(dashboard)`, `feat(simulation)`, `docs(plans)`, `chore(structure)` — done 2026-07-10
-- [x] Update `.planning/STATE.md` + `CLAUDE.md` for the audit outcomes (systemd `Type=notify`/watchdog claim, `sqlite_integrity.py` reference, test count) — done 2026-07-10
+- [ ] **S1** — bring the TRA2026 9-class NCNN model to `main`: name-based class remap, `imgsz: 640`, `ncnn` dependency
+- [ ] **S2** — CI gate: pytest, vitest (with generated fixtures), tsc, mock build
+- [ ] **S3** — config handshake server fix
+- [ ] **S4** — live read path (`streets-live.ts`) + `provision-sensor` CLI + migrations journal, speed suppressed with counts below k_min
+- [ ] Start S8 prerequisites now: UCD DPO/ethics contact, host site, UCD Google OAuth app request
 
-### Quick wins (hours each, before live mode)
+### Open — v2-class relabel (tracked as PLAN.md S13)
 
-- [x] Fail closed in production: mock default (`data-source.ts`), admin mock-bypass, empty OAuth allowlist (`auth.ts`), missing cron secret (`cron-auth.ts`) — done 2026-07-10
-- [x] Build-time guard: `NEXT_PUBLIC_CAMINA_DEV_ADMIN` must not ship to prod — done 2026-07-10
-- [x] Drop redundant index `idx_readings_sensor_window`; add FK CASCADE to `sensor_heartbeats` — done 2026-07-10
-- [x] Tighten zod: 9-class enum keys, count bounds, `window_end > window_start`, timestamp sanity — done 2026-07-10
-- [x] Enforce `https://` in edge `HttpClient`; document token file perms; timing-safe compares — done 2026-07-10
-- [x] Heartbeat interval 300 → 600 s (Vercel invocation + Neon CU headroom) — done 2026-07-10
-
-### Medium (blocks live-mode flip) — all done 2026-07-10
-
-- [x] Live ingest persistence: `INSERT … ON CONFLICT DO UPDATE` on composite PKs (+ `partial`-promotion rule)
-- [x] Per-sensor tokens (SHA-256 hash lookup, not bcrypt)
-- [x] `attachDatabasePool` + `max: 1-2` + Neon pooler-URL assert
-- [x] Retention job (raw ≤ 90 d) + bound materialized views to ~48 h — see `docs/operations.md`
-- [x] Cron on Hobby: ingest-piggybacked MV refresh + external scheduler (`.github/workflows/cron.yml`) for sub-daily jobs
-- [x] `detect-silent` + public staleness styling (silent sensor ≠ quiet street)
-- [x] k-anonymity k_min=5 suppression + extended privacy regression test
-- [x] Server-side 60 s timestamp-skew rejection; rate limiting on ingest (Upstash, env-gated)
-- [x] Worker-thread publish + per-sensor first-attempt jitter (removes remaining in-loop blocking)
-- [x] systemd: `time-sync.target` gate + `Type=notify`/`WatchdogSec=300` + stdlib sd_notify
-- [x] SQLite integrity check + recreate-on-corruption (`utils/sqlite_integrity.py`)
-- [x] Route-handler tests (auth, sensor-id mismatch, skew, mock branches)
-
-**Operational follow-ups (before live flip):** run `pnpm db:migrate` (migration 0001), set GH Actions `VERCEL_CRON_SECRET` secret + `CAMINA_BASE_URL` var (see `docs/operations.md`), provision per-sensor tokens into `sensors.api_token_hash`. **Decision (2026-07-10):** stay on Vercel Hobby + Neon free tier for v1 — the v1 fleet (8–10 sensors) fits comfortably with retention (~60–120 MB steady-state). The ~100-sensor storage question (C1) is deferred to v2 scale-up.
-
-### Open — v2-class relabel (the only retrain blocker)
+Dataset decision (D8b): merge with Roboflow v3 as the reference corpus.
 
 - [ ] **Scarcity check first (~20 min):** eyeball ~50 random images from `custom_model_train/datasets/camina_v1_9class/` — if e-scooter/delivery_van barely appear, extra Dublin footage is needed before any labelling effort
 - [ ] Labelling guide: SUV-vs-car and e-scooter boundary rules with example crops (Opus-assisted, ~1 h)
@@ -47,11 +26,6 @@ Full detail + finding IDs: [`docs/production_readiness.md`](./docs/production_re
 - [ ] Assisted proposals: SAM2 boxes + cheap-vision-model classification over car/truck/person crops (Sonnet/Haiku tier — per-crop cost dominates; pipeline per `docs/training_plan.md §2`)
 - [ ] **Mandatory human QA gate:** accept/reject every proposal + car→SUV disambiguation pass over all 1,296 images incl. the frozen held-out 192 (~6–9 h with CVAT/Label Studio hotkeys; good intern task once the guide exists). Log per-class accept/reject counts against the dataset version
 - [ ] Re-run `validate_labels.py` + re-freeze the held-out manifest after relabel
-
-### Blockers for later phases — code-side done 2026-07-10
-
-- [x] **Reconcile the 4-way class-taxonomy conflict** — canonical 9-class locked in `configs/classes.yaml` (matches dashboard enum), alias mapping + fail-on-unmapped loader in `custom_model_train/`, export guard + per-weights `.meta.yaml` imgsz contract (480 for deploy), dummy-metric fallbacks removed. **Remaining before retrain** (see `docs/training_plan.md §0.5`): relabel the 3 v2 classes with QA gate, frozen held-out set. Note: deployed 6-class NCNN cannot load under the canonical config — retrain required before Pi deployment.
-- [x] LoRa Phase 4 (code side): 20-byte schema-v2 codec (`person`/`cyclist`/`car` uint16 — saturation solved), Python + TS parity-tested, TTN webhook `/api/ingest/lora/uplink` with timing-safe key auth through the shared idempotent upsert; airtime budget documented (`docs/lora.md`, fair-use ceiling = SF9 @ 96 uplinks/day). **Remaining (external):** TTN console setup, Dublin coverage walk-test, RAK3172 integration.
 
 ---
 
@@ -238,7 +212,7 @@ These touch load-bearing core or security-sensitive paths:
 - Privacy k-anonymity enforcement (`k_min=5`) changes
 - YOLO fine-tuning, CAMINAv1 model weights, tracker logic
 - systemd + NTP gate + USB SSD durability on the Pi
-- Vercel Rolling Releases, BotID, Upstash rate-limiting, Sentry setup
+- Upstash rate-limiting (Rolling Releases, BotID and Sentry were closed on 2026-09-15 — `.planning/PLAN.md` §4)
 - Anything under `.planning/` — that's the project memory layer
 
 Want to work on one of these? Ping first. Sometimes the answer is yes-but-pair.
