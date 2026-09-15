@@ -173,3 +173,22 @@ conf_threshold: 0.4
     assert cfg.ncnn_model_path == Path("/opt/camina/models/CAMINAv1_ncnn_model")
     assert cfg.imgsz == 480
     assert cfg.conf_threshold == pytest.approx(0.4)
+
+
+def test_daemon_config_defaults_to_canonical_model_at_640(tmp_path: Path) -> None:
+    """Without explicit NCNN fields, the config points at the 9-class TRA 2026
+    export and the size it was exported at (640), not the 6-class warm-up
+    model at 480."""
+    from src.camina.service.sensor_daemon import DaemonConfig
+
+    yaml_path = tmp_path / "sensor.yaml"
+    yaml_path.write_text(
+        "sensor_id: cam-yaml-02\napi_base_url: https://api.test\napi_token: t\n"
+        "classes: [person, cyclist, car, e-scooter, SUV, motorcyclist, bus, "
+        "delivery_van, truck]\n"
+    )
+    cfg = DaemonConfig.from_yaml(yaml_path)
+
+    # Ultralytics only recognises an NCNN export by the ``_ncnn_model`` suffix.
+    assert cfg.ncnn_model_path == Path("models/camina_v1_yolo11n_ncnn_model")
+    assert cfg.imgsz == 640

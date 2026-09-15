@@ -13,11 +13,16 @@ Design notes:
   classes can never collide on the same string key in ``WindowedCounter``.
 - Confidence is filtered before the tracker (Test 2). ``Sort`` itself does
   not consult confidence.
-- Class indices outside ``0..len(classes)-1`` raise ``ValueError`` (Test 3)
-  — this catches the "wrong model loaded" failure mode loudly.
-- ``model.names`` is verified against the configured ``classes`` list at
-  closure creation (Test 4). Mismatch raises ``ValueError`` before any
-  frame ever reaches the tracker.
+- Class indices outside the model's ``0..len(names)-1`` raise ``ValueError``
+  (Test 3) — this catches the "wrong model loaded" failure mode loudly.
+- ``model.names`` is mapped onto the configured ``classes`` BY NAME through
+  ``custom_model_train/class_mapping.yaml`` at closure creation. The TRA 2026
+  export lists classes alphabetically and says ``motorcycle``; the mapping
+  turns each model index into the canonical index. An unknown, missing or
+  duplicated class raises ``ValueError`` before any frame reaches the tracker.
+- The requested ``imgsz`` is checked against the export's ``metadata.yaml``.
+  An NCNN model run at a size other than its export size returns garbage
+  boxes (audit 2026-09-15: 300 boxes per image at 480 for a 640 export).
 
 Plan deviation note: the plan's interfaces block sketched a hypothetical
 ``Tracker`` class with a ``TrackedObject``-returning API. The codebase's
@@ -33,9 +38,11 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 import numpy as np
+import yaml
 from ultralytics import YOLO
 
 from src.camina.core.tracker import Sort
+from src.utils.export_ncnn import load_class_aliases
 
 
 logger = logging.getLogger(__name__)
@@ -47,16 +54,17 @@ logger = logging.getLogger(__name__)
 def make_detect_and_track(
     ncnn_model_path: Path | str,
     classes: list[str],
-    imgsz: int = 480,
+    imgsz: int = 640,
     conf: float = 0.3,
 ) -> Callable[[np.ndarray], Iterable[tuple[str, str]]]:
     """Build a ``detect_and_track(frame)`` closure wiring YOLO NCNN -> Sort.
 
     Args:
         ncnn_model_path: Path to the exported NCNN model directory
-            (e.g. ``models/20250629_warmup_best_ncnn_model/``).
-        classes: Canonical class list in CAMINAv1 order. Must equal the
-            loaded model's ``names`` attribute, in order.
+            (e.g. ``models/camina_v1_yolo11n_ncnn_model/``).
+        classes: Canonical class list in CAMINAv1 order. The loaded model's
+            ``names`` must cover exactly these classes after alias mapping;
+            their order may differ.
         imgsz: Square YOLO inference size. Must match the NCNN export.
         conf: Confidence threshold; detections below this are dropped before
             the tracker.
@@ -68,18 +76,18 @@ def make_detect_and_track(
         the current frame.
 
     Raises:
-        ValueError: when ``model.names`` does not match ``classes`` in order.
+        ValueError: when ``imgsz`` differs from the export's recorded size, or
+            when the model's class names do not map onto ``classes``.
     """
+    _check_export_imgsz(Path(ncnn_model_path), imgsz)
+
     model = YOLO(str(ncnn_model_path))
-    names_list = [model.names[i] for i in sorted(model.names.keys())]
-    if names_list != classes:
-        raise ValueError(
-            f"Model classes {names_list} do not match config {classes}"
-        )
+    model_names = [model.names[i] for i in sorted(model.names.keys())]
+    model_to_class = _map_model_classes(model_names, classes)
 
     # One tracker per class so each Sort's integer ids stay class-scoped.
     trackers: dict[int, Sort] = {i: Sort() for i in range(len(classes))}
-    n_classes = len(classes)
+    n_model_classes = len(model_names)
 
     def detect_and_track(frame: np.ndarray) -> Iterable[tuple[str, str]]:
         results = model(frame, verbose=False, imgsz=imgsz, conf=conf)
@@ -87,9 +95,10 @@ def make_detect_and_track(
             return
         r = results[0]
 
-        per_class_dets = _split_detections_by_class(r, n_classes, conf)
+        per_class_dets = _split_detections_by_class(r, n_model_classes, conf)
 
-        for cls_idx, dets in per_class_dets.items():
+        for model_idx, dets in per_class_dets.items():
+            cls_idx = model_to_class[model_idx]
             class_name = classes[cls_idx]
             tracker = trackers[cls_idx]
             tracked = tracker.update(dets) if dets.size else tracker.update()
@@ -101,6 +110,64 @@ def make_detect_and_track(
 
 
 # ---------- Internal ----------
+
+
+def _check_export_imgsz(ncnn_model_path: Path, imgsz: int) -> None:
+    """Refuse an inference size that differs from the NCNN export size.
+
+    Args:
+        ncnn_model_path: NCNN model directory; its ``metadata.yaml`` records
+            the export ``imgsz`` (``[h, w]`` or a single int).
+        imgsz: Requested square inference size.
+
+    Raises:
+        ValueError: when the recorded export size differs from ``imgsz``.
+    """
+    meta_path = ncnn_model_path / "metadata.yaml"
+    if not meta_path.is_file():
+        logger.warning(
+            "No metadata.yaml in %s; cannot verify the export imgsz", ncnn_model_path
+        )
+        return
+    with meta_path.open("r", encoding="utf-8") as f:
+        exported = (yaml.safe_load(f) or {}).get("imgsz")
+    if isinstance(exported, list):
+        exported = exported[0]
+    if exported is not None and int(exported) != imgsz:
+        raise ValueError(
+            f"imgsz {imgsz} does not match the NCNN export imgsz {exported} "
+            f"({meta_path}); set imgsz to the export size"
+        )
+
+
+def _map_model_classes(model_names: list[str], classes: list[str]) -> dict[int, int]:
+    """Map each model class index to its index in the canonical ``classes``.
+
+    Args:
+        model_names: The loaded model's class names, in model index order.
+        classes: Canonical class list in CAMINAv1 order.
+
+    Returns:
+        ``{model_idx: canonical_idx}`` covering every model class.
+
+    Raises:
+        ValueError: when a model name has no alias entry, or when the mapped
+            names are not exactly the canonical classes (missing, extra or
+            duplicated).
+    """
+    aliases = load_class_aliases()
+    unmapped = [n for n in model_names if n not in aliases]
+    if unmapped:
+        raise ValueError(
+            f"Model class name(s) {unmapped} have no entry in "
+            f"custom_model_train/class_mapping.yaml"
+        )
+    mapped = [aliases[n] for n in model_names]
+    if sorted(mapped) != sorted(classes) or len(set(mapped)) != len(mapped):
+        raise ValueError(
+            f"Model classes {mapped} (after alias mapping) do not match config {classes}"
+        )
+    return {i: classes.index(name) for i, name in enumerate(mapped)}
 
 
 def _split_detections_by_class(

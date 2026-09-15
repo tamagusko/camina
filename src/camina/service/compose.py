@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 def compose(
     cfg: DaemonConfig,
     ncnn_model_path: Path,
-    imgsz: int = 480,
+    imgsz: int = 640,
     conf: float = 0.3,
     *,
     camera_factory: Callable[[int], Iterator[np.ndarray]] = picamera2_frame_source,

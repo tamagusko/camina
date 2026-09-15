@@ -1,5 +1,10 @@
 # CAMINA Models Documentation
 
+> **Note (2026-09-15):** this page describes the 2025 6-class warm-up model
+> (`20250629_warmup_best`). The model the daemon runs is the 9-class TRA 2026
+> YOLO11n export in `models/camina_v1_yolo11n_ncnn_model/` (see its
+> `PROVENANCE.md`), at imgsz 640.
+
 ## 🤖 CAMINAv1 - Custom Cyclist Detection Model
 
 ### Overview
@@ -34,8 +39,9 @@ CAMINAv1 introduces a novel approach to cyclist detection by:
 
 ### Configuration
 ```yaml
-# Use CAMINAv1 in main_config.yaml
-ncnn_model_path: models/20250629_warmup_best_ncnn_model/
+# Use CAMINAv1 in configs/sensor.yaml
+ncnn_model_path: /opt/camina/models/camina_v1_yolo11n_ncnn_model
+imgsz: 640
 
 # Class mapping in classes.yaml
 0: person

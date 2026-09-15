@@ -102,8 +102,8 @@ class DaemonConfig:
     heartbeat_interval_seconds: int = 600
     outbox_max_rows: int = 10_000
     # NCNN inference (added in Plan 01-01).
-    ncnn_model_path: Path = Path("models/20250629_warmup_best_ncnn_model")
-    imgsz: int = 480
+    ncnn_model_path: Path = Path("models/camina_v1_yolo11n_ncnn_model")
+    imgsz: int = 640
     conf_threshold: float = 0.3
 
     @classmethod
@@ -121,11 +121,9 @@ class DaemonConfig:
             heartbeat_interval_seconds=int(data.get("heartbeat_interval_seconds", 600)),
             outbox_max_rows=int(data.get("outbox_max_rows", 10_000)),
             ncnn_model_path=Path(
-                data.get(
-                    "ncnn_model_path", "models/20250629_warmup_best_ncnn_model"
-                )
+                data.get("ncnn_model_path", "models/camina_v1_yolo11n_ncnn_model")
             ),
-            imgsz=int(data.get("imgsz", 480)),
+            imgsz=int(data.get("imgsz", 640)),
             conf_threshold=float(data.get("conf_threshold", 0.3)),
         )
 

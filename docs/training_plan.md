@@ -36,7 +36,7 @@ wire contract.
 
 | Leg (was) | Verified location | Reconciliation |
 |---|---|---|
-| Runtime 9-class @ 480 | `configs/sensor.yaml:13-22,31`; `detect_track.py:49-50,74-77` | Adopted as canonical. Unchanged. |
+| Runtime 9-class @ 480 | `configs/sensor.yaml:13-22,31`; `detect_track.py:49-50,74-77` | Adopted as canonical. Runtime size changed to 640 on 2026-09-15 to match the TRA 2026 export (PLAN.md S1); `detect_track.py` now maps model classes by name. |
 | Toolchain 9-class, different names/order (`pedestrian`, `motorcycle`, order ped,cyc,car,moto,bus,truck,escooter,suv,van) | `convert_sdl_to_yolo11.py`, `train_yolo11n.py:111`, `model_comparison_framework.py`, `evaluation_logging_system.py:49-57` | Now consume the SSOT + an **alias table** (`custom_model_train/class_mapping.yaml`) via `custom_model_train/scripts/class_taxonomy.py`. `pedestrian`→`person`, `motorcycle`→`motorcyclist`; converter emits canonical order; the comparison per-class mAP is now indexed by canonical order. |
 | Deployed weights 6-class @ 640 | `models/20250629_warmup_best_ncnn_model/metadata.yaml`; old `configs/classes.yaml` | Documented as **legacy** in a provenance sidecar `models/20250629_warmup_best.meta.yaml` (6 classes; can express only `person, cyclist, car, motorcyclist, bus, truck`; **missing** `e-scooter, SUV, delivery_van`). It fails the new export guard by design. |
 | `scripts/train/*.yaml` @ 640, 6-class cyclist datasets | `scripts/train/train_param_warmup.yaml`, `train_param_finetune.yaml` | Left as the two-stage warm-up→fine-tune *pattern*; their `data:` paths still point at old cyclist datasets and must be repointed at the canonical `data.yaml` before use (§0.3). The fuller trainer is `custom_model_train/scripts/train_yolo11n.py`. |
@@ -57,11 +57,10 @@ wire contract.
 
 ### 0.4 imgsz contract
 
-**Deployment/export imgsz = 480** is the one value carried through: training config → export
-→ runtime. Training may run at a larger `imgsz` (640) for accuracy, but **promotion eval and
-the exported NCNN must use 480** (deployment size; `configs/sensor.yaml:31`,
-`detect_track.py` default, `export_ncnn.py --imgsz` default). Never benchmark accuracy at 640
-and deploy at 480 without a validation pass at 480 (§4, §5; gap G10).
+**Deployment/export imgsz = 640** is the one value carried through: training config → export
+→ runtime (changed from 480 on 2026-09-15, PLAN.md S1). Training, **promotion eval and the
+exported NCNN all use 640** (`configs/sensor.yaml`, `detect_track.py` default). At runtime
+`detect_track.py` refuses any size that differs from the export's `metadata.yaml`.
 
 Enforcement: each weights file gets a provenance sidecar `models/<stem>.meta.yaml` recording
 `train_imgsz`, the deployment `imgsz`, `canonical` (bool), and the classes it provides.
@@ -230,11 +229,8 @@ uv run python custom_model_train/scripts/train_yolo11n.py \
     --project caminav1
 ```
 
-**imgsz decision — resolve before promotion:** training default is 640; deployment runs
-at 480 (`configs/sensor.yaml`, `export_ncnn.py`). Train at 640 for accuracy, but the
-promotion eval and the exported NCNN **must** use imgsz=480 (§5) so eval reflects the
-deployed model. Consider a final fine-tune / validation at 480 to close the train/deploy
-gap. Do not benchmark accuracy at 640 and deploy at 480.
+**imgsz:** train, evaluate, export and deploy at 640 (deployment moved from 480 to 640 on
+2026-09-15, PLAN.md S1), so there is no train/deploy size gap.
 
 **Checkpointing:** `save_period=10` writes periodic checkpoints; `best.pt` / `last.pt`
 under `weights/`. `--resume` continues from `last.pt`. For class imbalance on the three
@@ -254,8 +250,8 @@ plan guards against).
 candidate best.pt
    │  (1) eval gate — docs/evaluation_plan.md §4 regression gates
    ▼
-   │  (2) NCNN export  ── src/utils/export_ncnn.py --imgsz 480 --half
-   ▼   (taxonomy guard + imgsz contract must PASS → confirms canonical 9-class + 480)
+   │  (2) NCNN export  ── src/utils/export_ncnn.py --imgsz 640 --half
+   ▼   (taxonomy guard + imgsz contract must PASS → confirms canonical 9-class + 640)
    │  (3) Pi smoke benchmark  ── 30-min in-enclosure, ambient ≥25 °C
    ▼
    │  (4) NCNN-vs-PyTorch parity check (eval plan §5)
@@ -267,10 +263,10 @@ versioned model dir under models/<date>_caminav1_best_ncnn_model/
    on the frozen held-out set before anything else.
 2. **NCNN export** via `src/utils/export_ncnn.py` (the one hardened, tested export path):
    ```bash
-   uv run python -m src.utils.export_ncnn --source models/<date>_caminav1_best.pt --imgsz 480 --half
+   uv run python -m src.utils.export_ncnn --source models/<date>_caminav1_best.pt --imgsz 640 --half
    ```
-   - `imgsz` **must be 480** to match `configs/sensor.yaml`. The export CLI enforces this
-     against the candidate's `models/<stem>.meta.yaml` sidecar (`imgsz: 480`, `canonical:
+   - `imgsz` **must be 640** to match `configs/sensor.yaml`. The export CLI enforces this
+     against the candidate's `models/<stem>.meta.yaml` sidecar (`imgsz: 640`, `canonical:
      true`) — a mismatch fails for a canonical model (§0.4). (`train_yolo11n.py:342-358`
      also exports but defaults to 640 and to onnx/tflite/ncnn — **do not use it for the
      production NCNN artefact**; use `export_ncnn.py`.)
@@ -282,7 +278,7 @@ versioned model dir under models/<date>_caminav1_best_ncnn_model/
    EDGE-03 require a **30-minute sustained, in-enclosure** benchmark on Pi 5 8GB at
    **ambient ≥25 °C**, capturing FPS, CPU load, RSS, core temp, and
    `vcgencmd get_throttled`, documented in `docs/sensor_deployment.md`. Gate:
-   **FPS ≥ 5 at imgsz=480** (`.planning/ROADMAP.md:39`) and `get_throttled == 0x0`.
+   **FPS ≥ 5 at imgsz=640** (`.planning/PLAN.md` S6) and `get_throttled == 0x0`.
    The Pi 5 Official Active Cooler is a documented prerequisite (EDGE-04;
    `.planning/research/PITFALLS.md:13-32` — throttling silently drops FPS 25-40 % and
    corrupts counts). Benchmark on a desk ≠ benchmark in the box.
@@ -301,7 +297,7 @@ versioned model dir under models/<date>_caminav1_best_ncnn_model/
   new `models/<date>_...` dir, eval-results JSON.
 - Do **not** silently change `imgsz`, class order, or `conf_threshold` without a
   re-benchmark — the daemon, LoRa 9-count codec, and dashboard all assume the fixed
-  9-class order and 480 input.
+  9-class order and 640 input.
 
 ---
 
@@ -319,4 +315,4 @@ versioned model dir under models/<date>_caminav1_best_ncnn_model/
 | G7 | Real annotation of e-scooter / SUV / delivery_van; the assisted labelers are prototypes (heuristic/random fallbacks). Bulk of the effort in a v2 retrain. | **L** |
 | G8 | Automatic write of val metrics into the experiment DB (nothing populates `ExperimentLog` from a real `model.val()` run today — see eval plan §3). | M |
 | G9 | Single promotion script tying eval-gate → export → parity → version bump (currently manual steps). | M |
-| G10 | Resolve train@640 / deploy@480 (final fine-tune or validation at 480). | S |
+| G10 | Resolved 2026-09-15: deployment now runs at 640, the training size (PLAN.md S1). | — |

@@ -76,13 +76,17 @@ ARM64-friendly inference backend). Export once on any host that has the
 `.pt` weights and Ultralytics installed; the resulting directory is what
 the daemon loads at startup.
 
+The current CAMINAv1 export (TRA 2026 YOLO11n, 640×640) is committed at
+`models/camina_v1_yolo11n_ncnn_model/` (provenance in its `PROVENANCE.md`),
+so no export step is needed for it. After a retrain, export the new weights:
+
 ```bash
 uv run python -m src.utils.export_ncnn \
-    --source models/20250629_warmup_best.pt \
-    --imgsz 480 --half
+    --source models/<date>_caminav1_best.pt \
+    --imgsz 640 --half
 ```
 
-Produces `models/20250629_warmup_best_ncnn_model/`. Re-run only after
+Produces `models/<date>_caminav1_best_ncnn_model/`. Re-run only after
 retraining CAMINAv1 (the script is idempotent — it skips re-exporting an
 existing target directory unless you pass `--force`). The export verifies
 that the model's class taxonomy matches the canonical 9-class list and
@@ -91,7 +95,9 @@ will fail loudly instead of shipping wrong-taxonomy counts.
 
 Copy the exported directory to the Pi at the path referenced by
 `configs/sensor.yaml::ncnn_model_path` (default
-`/opt/camina/models/20250629_warmup_best_ncnn_model`).
+`/opt/camina/models/camina_v1_yolo11n_ncnn_model`). The daemon refuses to
+start if `configs/sensor.yaml::imgsz` differs from the export size recorded in
+the model's `metadata.yaml`.
 
 ## 7. Running the daemon
 

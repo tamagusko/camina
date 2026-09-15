@@ -191,7 +191,7 @@ Dataset decision (D8b): merge with Roboflow v3 as the reference corpus.
 **Claimed by:** _(available)_
 **Files:** new `scripts/bench_host.py`, update `docs/sensor_deployment.md`
 **Task:** Run CAMINAv1 **on the dev host** against a folder of test images; report FPS, latency P50/P95, per-image class counts. This is a sanity check, not a thermal benchmark.
-**Acceptance:** `uv run python scripts/bench_host.py --images tests/fixtures/images/ --imgsz 480` prints a summary table; docs get a "Host vs Pi benchmark" note explaining what this does and doesn't measure.
+**Acceptance:** `uv run python scripts/bench_host.py --images tests/fixtures/images/ --imgsz 640` prints a summary table; docs get a "Host vs Pi benchmark" note explaining what this does and doesn't measure.
 **Depends on:** sample test images — ask @tamagusko for 20 frames.
 
 ### [ ] ★★★ Read-only `/admin/diagnostics` page

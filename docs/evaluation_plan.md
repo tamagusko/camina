@@ -138,7 +138,7 @@ motorcyclist↔e-scooter).
   "model_id": "caminav1_20260710_1430",
   "dataset_hash": "sha256:ab12cd…",
   "date": "2026-07-10",
-  "imgsz": 480,
+  "imgsz": 640,
   "runtime": "pytorch",              // or "ncnn"
   "overall": { "mAP50": 0.0, "mAP50_95": 0.0, "precision": 0.0, "recall": 0.0, "f1": 0.0 },
   "per_class": {
@@ -161,7 +161,7 @@ real; a candidate-vs-prod diff table is the practical form (gap G3 wires per-cla
 ## 4. Regression gates for promotion
 
 A candidate promotes only if it clears **all** gates on the frozen held-out set (§1),
-evaluated at **imgsz=480** (deployment size). "prod" = the model currently referenced by
+evaluated at **imgsz=640** (deployment size). "prod" = the model currently referenced by
 `configs/sensor.yaml:ncnn_model_path`.
 
 | Gate | Threshold |
@@ -190,14 +190,14 @@ Two checks after export, before/at field deployment:
 
 1. **NCNN-vs-PyTorch parity (new — gap G6).** Run the same **N images** (recommend the
    full frozen held-out set, or ≥ 200 images if time-boxed) through both the PyTorch
-   `best.pt` and the exported NCNN model at imgsz=480. Compare:
+   `best.pt` and the exported NCNN model at imgsz=640. Compare:
    - per-class detection counts and mean confidence; flag any class whose detection count
      shifts > ~5 %;
    - box IoU agreement on matched detections.
    Purpose is *parity*, not re-scoring accuracy — a large divergence means the export is
    lossy and the eval-gate numbers (measured on PyTorch) don't hold for the deployed model.
 2. **FPS threshold on Pi.** From the 30-min in-enclosure benchmark (training plan §5.3):
-   **FPS ≥ 5 at imgsz=480** (`.planning/ROADMAP.md:39`) sustained, ambient ≥25 °C, with
+   **FPS ≥ 5 at imgsz=640** (`.planning/PLAN.md` S6) sustained, ambient ≥25 °C, with
    `vcgencmd get_throttled == 0x0` (`.planning/research/PITFALLS.md:24-32`,
    `REQUIREMENTS.md` EDGE-03). Below threshold or any throttle bit set → not deployable;
    drop target FPS in config or improve cooling.

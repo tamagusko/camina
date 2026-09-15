@@ -24,7 +24,7 @@ Usage::
 
     uv run python -m src.utils.export_ncnn \\
         --source models/<canonical_9class>.pt \\
-        --imgsz 480 --half
+        --imgsz 640 --half
 
 Produces ``models/<stem>_ncnn_model/``. See ``docs/sensor_deployment.md §6`` for
 the full deployment context and ``docs/training_plan.md`` for the taxonomy /
