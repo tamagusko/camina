@@ -20,7 +20,7 @@ numpy==2.2.5
 opencv-python==4.11.0.86
 packaging==25.0
 pandas==2.2.3
-pillow==12.2.0
+pillow==12.3.0
 psutil==7.0.0
 py-cpuinfo==9.0.0
 pyparsing==3.2.3
@@ -32,8 +32,8 @@ scipy==1.15.2
 seaborn==0.13.2
 six==1.17.0
 sympy==1.14.0
-torch==2.10.0
-torchvision==0.25.0
+torch==2.13.0
+torchvision==0.28.0
 tqdm==4.67.1
 typing_extensions==4.13.2
 tzdata==2025.2
