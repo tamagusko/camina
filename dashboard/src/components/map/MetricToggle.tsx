@@ -1,5 +1,4 @@
 "use client";
-import { Pill } from "@/components/ui/pill";
 import { cn } from "@/lib/cn";
 import type { Metric } from "@/lib/types";
 
