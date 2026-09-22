@@ -36,6 +36,13 @@ export function formatSearch(v: Viewport, existing?: string): string {
 }
 
 export function useMapQuery(fallback: Viewport) {
+  // Whether the page ARRIVED with a viewport in the URL (a shared link). Read
+  // once at mount: `attachTo` writes the current view back into the URL on
+  // every moveend, including the first render, so reading later always says
+  // "pinned" and an auto-fit to the data would never run.
+  const [pinned] = useState<boolean>(
+    () => typeof window !== "undefined" && parseSearch(window.location.search) !== null
+  );
   const [viewport, setViewport] = useState<Viewport>(() => {
     if (typeof window === "undefined") return fallback;
     return parseSearch(window.location.search) ?? fallback;
@@ -68,5 +75,5 @@ export function useMapQuery(fallback: Viewport) {
     };
   }, []);
 
-  return { viewport, attachTo };
+  return { viewport, attachTo, pinned };
 }

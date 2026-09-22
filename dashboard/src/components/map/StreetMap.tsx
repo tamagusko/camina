@@ -1,15 +1,29 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type Map as MaplibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-import { CITY_VIEWS, CIVIDIS_5, VIRIDIS_5, rampExpression } from "@/lib/geo";
+import { CITY_VIEWS, CIVIDIS_5, VIRIDIS_5, initialViewBounds, rampExpression } from "@/lib/geo";
 import { ROAD_USER_CLASSES, type Metric, type MetricValue, type RoadUserClass, type StreetSummary, type TimeWindow } from "@/lib/types";
 import { ClassFilter } from "./ClassFilter";
 import { ColourLegend } from "./ColourLegend";
 import { MetricToggle } from "./MetricToggle";
 import { TimeWindowPicker } from "./TimeWindowPicker";
 import { useMapQuery, type Viewport } from "./useMapQuery";
+
+// Basemap: OpenFreeMap's Positron style — the same pure grey/white OpenMapTiles
+// look DESIGN.md asks for, served as vector tiles with no API key, no account
+// and no request quota.
+//
+// This replaced Carto's raster CDN on 2026-09-22: Carto now requires an API key
+// and stamps "API KEY REQUIRED" across every unauthenticated tile, including the
+// ones `scripts/download-dublin-tiles.mjs` had cached into `public/tiles/`.
+//
+// Trade-off: the basemap is fetched from the network, so the map needs internet.
+// For an offline demo, self-host a Protomaps PMTiles extract instead — that is
+// the production path this component's `pmtilesUrl` prop is reserved for.
+const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
+
 
 interface Props {
   city: string;
@@ -37,7 +51,7 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet, onMet
     () => CITY_VIEWS[city] ?? { center: [-6.26, 53.35], zoom: 13 },
     [city]
   );
-  const { viewport, attachTo } = useMapQuery(fallback);
+  const { viewport, attachTo, pinned } = useMapQuery(fallback);
 
   // Re-fetch metrics when the user changes filters, and keep an idle open map
   // current by polling every 5 minutes. The first poll aligns to shortly after
@@ -97,35 +111,13 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet, onMet
       parts.push(`window:${window.innerHeight}`);
       console.info("[CAMINA] ancestor heights:", parts.join(" > "));
     }
-    // Minimal OSM basemap (Carto Positron): pure grey/white, no coloured
-    // POIs, matches the DESIGN.md monochrome aesthetic. Subdomains a/b/c/d
-    // spread tile requests — the default MapLibre raster source uses them in
-    // round-robin when multiple URLs are listed.
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: {
-        version: 8,
-        sources: {
-          osm: {
-            type: "raster",
-            // Local Dublin tiles pre-downloaded by
-            // `pnpm exec node scripts/download-dublin-tiles.mjs`
-            // into `public/tiles/{z}/{x}/{y}.png` — instant load, no CDN
-            // dependency. Re-run the script to refresh or expand coverage.
-            tiles: ["/tiles/{z}/{x}/{y}.png"],
-            tileSize: 256,
-            minzoom: 12,
-            maxzoom: 18,
-            attribution:
-              '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a>',
-          },
-        },
-        layers: [{ id: "osm", type: "raster", source: "osm" }],
-      },
+      style: BASEMAP_STYLE_URL,
       center: viewport.center,
       zoom: viewport.zoom,
-      minZoom: 12,   // matches the lowest downloaded tile level
-      maxZoom: 18,   // matches the highest downloaded tile level
+      minZoom: 12,   // city level — below this a street map is meaningless
+      maxZoom: 18,   // building level — enough to place a sensor
       pitch: 0,
       bearing: 0,
       // Explicit interaction flags — defaults, but pinned here for clarity.
@@ -191,6 +183,13 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet, onMet
       });
       map.on("mouseenter", "streets-hit", () => (map.getCanvas().style.cursor = "pointer"));
       map.on("mouseleave", "streets-hit", () => (map.getCanvas().style.cursor = ""));
+
+      // Open on the streets themselves, not on the city centre — otherwise
+      // segments sit outside the first viewport and the map looks empty.
+      const bounds = initialViewBounds(streets, pinned);
+      if (bounds) {
+        map.fitBounds(bounds, { padding: 64, animate: false, maxZoom: 15 });
+      }
       // Force a resize in case the container had zero dimensions at init
       // time (can happen during strict-mode double-mount before final layout).
       map.resize();

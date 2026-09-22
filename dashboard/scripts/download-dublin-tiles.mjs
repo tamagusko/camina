@@ -1,3 +1,16 @@
+// DEPRECATED (2026-09-22) — DO NOT RUN.
+//
+// Carto's basemap CDN now requires an API key and returns tiles stamped
+// "API KEY REQUIRED · carto.com/basemaps/apikey" to unauthenticated callers.
+// The imagery underneath is real, so the watermark survives any size or
+// checksum sanity check — every one of the 8063 tiles this script cached was
+// watermarked.
+//
+// The map now loads OpenFreeMap's Positron vector style directly (no key, no
+// cache): see BASEMAP_STYLE_URL in src/components/map/StreetMap.tsx. For an
+// offline basemap, use a self-hosted Protomaps PMTiles extract instead of
+// re-pointing this script at another raster CDN.
+
 // Pre-downloads Carto Positron raster tiles for central Dublin into
 // dashboard/public/tiles/{z}/{x}/{y}.png so the map loads instantly in dev
 // and is self-contained (no external CDN calls from the browser).
@@ -33,7 +46,7 @@ function latToY(lat, z) {
   );
 }
 
-async function downloadTile(z, x, y, subIdx, concurrentCount) {
+async function downloadTile(z, x, y, subIdx, _concurrentCount) {
   const dir = path.join(OUT_DIR, String(z), String(x));
   const file = path.join(dir, `${y}.png`);
   try {
