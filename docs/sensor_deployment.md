@@ -86,12 +86,38 @@ uv run python -m src.utils.export_ncnn \
     --imgsz 640 --half
 ```
 
-Produces `models/<date>_caminav1_best_ncnn_model/`. Re-run only after
+Produces `models/<date>_caminav1_best_fp16_ncnn_model/`. Re-run only after
 retraining CAMINAv1 (the script is idempotent — it skips re-exporting an
 existing target directory unless you pass `--force`). The export verifies
-that the model's class taxonomy matches the canonical 9-class list and
+that the model's class taxonomy maps onto the canonical 9-class list and
 exits non-zero on mismatch, so a base `yolo11n.pt` slipped in by mistake
-will fail loudly instead of shipping wrong-taxonomy counts.
+will fail loudly instead of shipping wrong-taxonomy counts. Export *order*
+is not checked: `detect_track.py` remaps model index -> canonical index by
+name, which is how the alphabetically-ordered TRA 2026 export is consumed.
+
+### Precision: FP16 or FP32
+
+`--half` (the default) writes FP16 weights to `<stem>_fp16_ncnn_model/`;
+`--no-half` writes FP32 to `<stem>_ncnn_model/`. The two directories are
+siblings, so both precisions can be built from the same weights and kept
+side by side — the FP16 export never overwrites the FP32 reference.
+
+FP16 halves the `.bin` (measured on `yolo11n.pt` at 640: **10.57 MB ->
+5.35 MB**), which cuts load time and memory traffic on any Pi. What it does
+for *speed* depends on the board:
+
+| Board | Core | FP16 arithmetic | Expect from FP16 |
+|---|---|---|---|
+| Pi 5 | Cortex-A76 (ARMv8.2-A) | native | smaller model; NCNN already runs FP16 math on this core even from an FP32 file, so the speed gain is usually small |
+| Pi 4 | Cortex-A72 (ARMv8.0-A) | **none** | smaller model and less memory traffic only; arithmetic stays FP32 |
+
+Treat FP16 as a size/memory win that is free to take, not as a speed fix.
+Neither precision changes detection accuracy meaningfully; **input size
+does** — do not drop below the 640 export contract without re-validating
+(see `docs/evaluation_plan.md`).
+
+Point `configs/sensor.yaml::ncnn_model_path` at whichever directory you
+deployed.
 
 Copy the exported directory to the Pi at the path referenced by
 `configs/sensor.yaml::ncnn_model_path` (default

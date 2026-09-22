@@ -34,6 +34,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
@@ -80,7 +82,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     source: Path = args.source
     out_dir: Path = args.out_dir
-    target_dir = out_dir / f"{source.stem}_ncnn_model"
+    target_dir = out_dir / ncnn_dir_name(source.stem, args.half)
 
     if target_dir.exists() and not args.force:
         logger.info(
@@ -100,17 +102,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     started = time.monotonic()
     logger.info(
-        "Exporting NCNN model from %s (imgsz=%d, half=%s)",
-        source, args.imgsz, args.half,
+        "Exporting NCNN model from %s (imgsz=%d, half=%s) -> %s",
+        source, args.imgsz, args.half, target_dir,
     )
-    model = YOLO(str(source))
-    export_path = model.export(format="ncnn", half=args.half, imgsz=args.imgsz)
+    _export_to(source, target_dir, imgsz=args.imgsz, half=args.half)
     elapsed = time.monotonic() - started
-    logger.info("NCNN export finished in %.1fs -> %s", elapsed, export_path)
+    logger.info("NCNN export finished in %.1fs -> %s", elapsed, target_dir)
 
     # Verify canonical taxonomy on the exported artefact. Reload to make sure we
     # are reading the on-disk model, not the in-memory PyTorch one.
-    exported_model = YOLO(str(export_path))
+    exported_model = YOLO(str(target_dir))
     names_list = [exported_model.names[i] for i in sorted(exported_model.names.keys())]
     _verify_canonical_taxonomy(names_list)
 
@@ -119,6 +120,46 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         len(names_list),
     )
     return 0
+
+
+def ncnn_dir_name(stem: str, half: bool) -> str:
+    """Return the NCNN directory name for ``stem`` at the given precision.
+
+    FP16 and FP32 exports of the same weights must coexist: the Pi 5 runs the
+    FP32 reference and a Pi 4 (no native FP16 arithmetic) still benefits from
+    the halved .bin. The ``_ncnn_model`` suffix is mandatory — Ultralytics only
+    recognises an NCNN directory by that suffix.
+    """
+    return f"{stem}_fp16_ncnn_model" if half else f"{stem}_ncnn_model"
+
+
+def _export_to(source: Path, target_dir: Path, *, imgsz: int, half: bool) -> None:
+    """Export ``source`` to NCNN and place the result at ``target_dir``.
+
+    Ultralytics always writes ``<stem>_ncnn_model/`` next to the weights file it
+    loaded. Exporting from a scratch copy and moving the result is what keeps an
+    FP16 export from overwriting the FP32 model built from the same weights.
+
+    Args:
+        source: Path to the ``.pt`` weights file.
+        target_dir: Final destination directory (replaced if it exists).
+        imgsz: Square inference size baked into the export.
+        half: Export FP16 weights.
+    """
+    with tempfile.TemporaryDirectory(prefix="camina_ncnn_") as scratch:
+        staged = Path(scratch) / source.name
+        try:
+            staged.symlink_to(source.resolve())
+        except OSError:  # e.g. no symlink support; a copy works just as well.
+            shutil.copy2(source, staged)
+
+        model = YOLO(str(staged))
+        export_path = Path(model.export(format="ncnn", half=half, imgsz=imgsz))
+
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(export_path), str(target_dir))
 
 
 # ---------- Taxonomy loading (decoupled: reads the same YAML SSOT) ----------
@@ -171,11 +212,22 @@ def _verify_canonical_taxonomy(names_list: Sequence[str]) -> None:
         )
 
     mapped = [aliases[n] for n in names_list]
-    if mapped == canonical:
-        return
-
     missing = [c for c in canonical if c not in mapped]
     extra = [c for c in mapped if c not in canonical]
+    duplicates = sorted({c for c in mapped if mapped.count(c) > 1})
+
+    if not (missing or extra or duplicates):
+        if mapped != canonical:
+            # Export order is not a contract: the TRA 2026 weights list their
+            # classes alphabetically, and detect_track.py maps each model index
+            # onto the canonical index BY NAME. A different SET of classes is
+            # fatal; a different order is not.
+            logger.info(
+                "Export order %s differs from canonical %s; detect_track.py "
+                "remaps by name at load time.", mapped, canonical,
+            )
+        return
+
     parts = [
         "Class mismatch.",
         f"Expected canonical {canonical};",
@@ -185,8 +237,8 @@ def _verify_canonical_taxonomy(names_list: Sequence[str]) -> None:
         parts.append(f"Missing canonical classes: {missing}.")
     if extra:
         parts.append(f"Unexpected classes: {extra}.")
-    if not missing and not extra:
-        parts.append("Classes present but in the wrong order.")
+    if duplicates:
+        parts.append(f"Duplicate classes after alias mapping: {duplicates}.")
     raise SystemExit(" ".join(parts))
 
 
@@ -270,14 +322,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--imgsz",
         type=int,
-        default=480,
-        help="Square inference size used at export time (default: 480).",
+        default=640,
+        help=(
+            "Square inference size used at export time (default: 640, the size "
+            "configs/sensor.yaml and detect_track.py enforce)."
+        ),
     )
     parser.add_argument(
         "--half",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
-        help="Export with FP16 weights (default: True; passes half=True to Ultralytics).",
+        help=(
+            "Export FP16 weights (default). --no-half exports FP32. FP16 halves "
+            "the .bin; on ARMv8.2 CPUs (Pi 5) NCNN also does FP16 arithmetic."
+        ),
     )
     parser.add_argument(
         "--force",
@@ -295,6 +353,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 __all__ = [
     "main",
+    "ncnn_dir_name",
     "CAMINAV1_CLASSES",
     "load_canonical_classes",
     "load_class_aliases",

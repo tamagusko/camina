@@ -272,7 +272,13 @@ versioned model dir under models/<date>_caminav1_best_ncnn_model/
      production NCNN artefact**; use `export_ncnn.py`.)
    - The canonical-taxonomy guard (`_verify_canonical_taxonomy`) is the promotion gate — it
      resolves the exported model's `names` through `custom_model_train/class_mapping.yaml`
-     and passes only if they equal the canonical 9-class list in order (§0.3).
+     and passes only if they are exactly the canonical 9 classes, with no unmapped name,
+     no missing or extra class and no duplicate (§0.3). Their *order* is not a contract:
+     `detect_track.py` maps each model index onto the canonical index by name at load
+     time, which is how the alphabetically-ordered TRA 2026 export runs unchanged.
+   - `--half` (default) writes `<stem>_fp16_ncnn_model/`; `--no-half` writes
+     `<stem>_ncnn_model/`. Both can exist side by side — see
+     `docs/sensor_deployment.md §6` for which precision to deploy on which board.
    - Idempotent: re-export needs `--force`.
 3. **Pi smoke benchmark (blocker).** `.planning/STATE.md:61` and `REQUIREMENTS.md`
    EDGE-03 require a **30-minute sustained, in-enclosure** benchmark on Pi 5 8GB at
