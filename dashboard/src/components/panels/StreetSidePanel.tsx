@@ -28,18 +28,26 @@ function totalCountLabel(m: MetricValue | null): string {
   return m.totalCount === null ? "<5" : fmtNumber(m.totalCount);
 }
 
+// Bottom sheet on mobile; right-hand column on desktop. Exported so a test can
+// check the merged result — `cn()` runs tailwind-merge, which drops a class it
+// considers overridden by a later one.
+export const PANEL_CLASS = cn(
+  "pointer-events-auto fixed z-30 bg-white shadow-medium overflow-y-auto",
+  "inset-x-0 bottom-0 rounded-t-feature max-h-[75dvh]",
+  // Longhands only: an `md:inset-auto` here would make tailwind-merge drop
+  // `md:right-0 md:top-0`, and the panel would render below the viewport.
+  "md:left-auto md:bottom-auto md:right-0 md:top-0 md:h-full md:w-[400px] md:rounded-none md:max-h-none"
+);
+
 export function StreetSidePanel({ street, metric, onClose }: Props) {
   const [admin, setAdmin] = useState<StreetAdminInfo | null>(null);
   const [adminError, setAdminError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!street || !isDevAdmin) {
-      setAdmin(null);
-      setAdminError(null);
-      return;
-    }
+    // No state reset here: the parent keys this component by street id, so a
+    // new selection gets a fresh instance with empty admin state.
+    if (!street || !isDevAdmin) return;
     let cancelled = false;
-    setAdminError(null);
     fetch(`/api/admin/streets/${street.id}/info`, { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) throw new Error(`${r.status}`);
@@ -65,11 +73,7 @@ export function StreetSidePanel({ street, metric, onClose }: Props) {
 
   return (
     <div
-      className={cn(
-        "pointer-events-auto fixed z-30 bg-white shadow-medium overflow-y-auto",
-        "md:right-0 md:top-0 md:h-full md:w-[400px] md:rounded-none",
-        "inset-x-0 bottom-0 rounded-t-feature max-h-[75dvh] md:inset-auto md:max-h-none"
-      )}
+      className={PANEL_CLASS}
       role="dialog"
       aria-label={street.displayName}
     >
