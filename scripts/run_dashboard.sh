@@ -33,7 +33,15 @@ if [ -z "$(ls -A data/mock/dublin 2>/dev/null || true)" ]; then
   python3 scripts/generate_mock_dublin.py
 fi
 
-# 2. Local env file. Mock mode works with the defaults in .env.example.
+# 2. Basemap tiles (gitignored, ~500 Carto tiles / ~10 MB). Without these the
+#    map area renders blank while the rest of the UI works.
+if [ -z "$(ls -A dashboard/public/tiles 2>/dev/null || true)" ]; then
+  echo "==> downloading Dublin basemap tiles (one-off, ~10 MB)"
+  # Plain node: the script only uses node:fs/node:path, so this works before install.
+  (cd dashboard && node scripts/download-dublin-tiles.mjs)
+fi
+
+# 3. Local env file. Mock mode works with the defaults in .env.example.
 if [ ! -f dashboard/.env.local ]; then
   echo "==> creating dashboard/.env.local from .env.example"
   cp dashboard/.env.example dashboard/.env.local
@@ -41,13 +49,13 @@ fi
 
 cd dashboard
 
-# 3. Dependencies.
+# 4. Dependencies.
 if [ ! -d node_modules ]; then
   echo "==> installing dashboard dependencies"
   "${PNPM[@]}" install
 fi
 
-# 4. Run.
+# 5. Run.
 export CAMINA_DATA_SOURCE=mock
 case "$MODE" in
   setup)
