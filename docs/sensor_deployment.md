@@ -116,8 +116,22 @@ Neither precision changes detection accuracy meaningfully; **input size
 does** — do not drop below the 640 export contract without re-validating
 (see `docs/evaluation_plan.md`).
 
-Point `configs/sensor.yaml::ncnn_model_path` at whichever directory you
-deployed.
+Both precisions of the current model are committed:
+`models/camina_v1_yolo11n_ncnn_model/` (FP32) and
+`models/camina_v1_yolo11n_fp16_ncnn_model/` (FP16, detection parity in its
+`PROVENANCE.md`). Point `configs/sensor.yaml::ncnn_model_path` at whichever
+directory you deployed.
+
+**pnnx version matters.** Every export ends with a forward pass in a child
+process; a build that crashes there fails the export. The pnnx bundled with the
+installed Ultralytics produces such builds for this model, so a `.torchscript`
+source must name its converter explicitly (`--pnnx`, release 20250924
+validated):
+
+```bash
+uv run python -m src.utils.export_ncnn \
+    --source camina_v1_yolo11n.torchscript --pnnx <pnnx-20250924>/pnnx
+```
 
 Copy the exported directory to the Pi at the path referenced by
 `configs/sensor.yaml::ncnn_model_path` (default

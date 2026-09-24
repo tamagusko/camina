@@ -43,6 +43,8 @@ from typing import Dict, List, Optional, Sequence
 import yaml
 from ultralytics import YOLO
 
+from src.utils.pnnx_export import export_torchscript, read_torchscript_metadata, smoke_test
+
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +97,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         logger.error("Source weights not found: %s", source)
         raise SystemExit(f"Source weights not found: {source}")
 
+    # A .torchscript source (the only surviving form of the CAMINAv1 weights)
+    # goes straight to pnnx; Ultralytics can only export from a .pt.
+    is_torchscript = source.suffix == ".torchscript"
+    if is_torchscript and args.pnnx is None:
+        raise SystemExit(
+            "A .torchscript source needs --pnnx <binary>. pnnx releases are not "
+            "interchangeable: 20250924 is validated for this model (see "
+            "models/camina_v1_yolo11n_ncnn_model/PROVENANCE.md)."
+        )
+
     # Guard the imgsz contract BEFORE the expensive export.
-    _check_imgsz_contract(source, args.imgsz)
+    if is_torchscript:
+        _check_torchscript_imgsz(source, args.imgsz)
+    else:
+        _check_imgsz_contract(source, args.imgsz)
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -105,9 +120,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "Exporting NCNN model from %s (imgsz=%d, half=%s) -> %s",
         source, args.imgsz, args.half, target_dir,
     )
-    _export_to(source, target_dir, imgsz=args.imgsz, half=args.half)
+    if is_torchscript:
+        export_torchscript(source, target_dir, imgsz=args.imgsz, half=args.half, pnnx=args.pnnx)
+    else:
+        _export_to(source, target_dir, imgsz=args.imgsz, half=args.half)
     elapsed = time.monotonic() - started
     logger.info("NCNN export finished in %.1fs -> %s", elapsed, target_dir)
+
+    # Run the model before trusting it: exports that passed every static check
+    # have segfaulted in NCNN's forward pass (pnnx/ncnn version mismatch).
+    try:
+        smoke_test(target_dir)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
 
     # Verify canonical taxonomy on the exported artefact. Reload to make sure we
     # are reading the on-disk model, not the in-memory PyTorch one.
@@ -305,6 +330,21 @@ def _check_imgsz_contract(source: Path, requested: int) -> None:
     )
 
 
+def _check_torchscript_imgsz(source: Path, requested: int) -> None:
+    """Refuse an imgsz that differs from the size the TorchScript was traced at.
+
+    Raises:
+        SystemExit: on a mismatch — the graph's input shape is fixed at trace time.
+    """
+    recorded = read_torchscript_metadata(source).get("imgsz")
+    size = recorded[0] if isinstance(recorded, list) else recorded
+    if size != requested:
+        raise SystemExit(
+            f"imgsz contract violation: --imgsz {requested}, but {source.name} "
+            f"was traced at {recorded}."
+        )
+
+
 # ---------- Internal ----------
 
 
@@ -317,7 +357,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--source",
         type=Path,
         required=True,
-        help="Path to the .pt weights file (e.g. models/20250629_warmup_best.pt).",
+        help=(
+            "Weights to export: a .pt, or an Ultralytics .torchscript (the only "
+            "surviving form of CAMINAv1 — needs --pnnx)."
+        ),
+    )
+    parser.add_argument(
+        "--pnnx",
+        type=Path,
+        default=None,
+        help="pnnx binary for a .torchscript source. Use release 20250924 (validated).",
     )
     parser.add_argument(
         "--imgsz",

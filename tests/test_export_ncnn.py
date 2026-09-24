@@ -14,6 +14,13 @@ from unittest.mock import MagicMock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _smoke_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fakes write placeholder bytes, so stub the runtime smoke test."""
+    mod = importlib.import_module("src.utils.export_ncnn")
+    monkeypatch.setattr(mod, "smoke_test", lambda model_dir: None)
+
+
 CAMINAV1_CLASSES = [
     "person",
     "cyclist",
@@ -215,3 +222,75 @@ def test_alphabetical_export_order_is_accepted(
     rc = mod.main(["--source", str(source), "--out-dir", str(tmp_path), "--force"])
 
     assert rc == 0
+
+
+# ---------- Runtime smoke test and TorchScript sources (2026-09-24) ----------
+
+def test_a_model_that_crashes_at_runtime_fails_the_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Size and taxonomy checks passed on models that segfault; only running them catches it."""
+    mod = importlib.import_module("src.utils.export_ncnn")
+    source = tmp_path / "weights.pt"
+    source.write_bytes(b"")
+    fake_yolo, _ = _fake_yolo(TRA2026_MODEL_NAMES)
+    monkeypatch.setattr(mod, "YOLO", fake_yolo)
+
+    def crash(model_dir):
+        raise RuntimeError("NCNN forward pass crashed (signal 11)")
+
+    monkeypatch.setattr(mod, "smoke_test", crash)
+
+    with pytest.raises(SystemExit, match="crashed"):
+        mod.main(["--source", str(source), "--out-dir", str(tmp_path)])
+
+
+def _torchscript(tmp_path: Path, imgsz: int = 640) -> Path:
+    import json
+    import zipfile
+
+    ts = tmp_path / "best.torchscript"
+    meta = {"imgsz": [imgsz, imgsz], "names": {str(i): n for i, n in enumerate(TRA2026_MODEL_NAMES)},
+            "args": {"batch": 1, "half": False}}
+    with zipfile.ZipFile(ts, "w") as z:
+        z.writestr("best/extra/config.txt", json.dumps(meta))
+    return ts
+
+
+def test_torchscript_source_requires_an_explicit_pnnx(tmp_path: Path) -> None:
+    """pnnx releases are not interchangeable, so there is no silent default."""
+    mod = importlib.import_module("src.utils.export_ncnn")
+
+    with pytest.raises(SystemExit, match="--pnnx"):
+        mod.main(["--source", str(_torchscript(tmp_path)), "--out-dir", str(tmp_path)])
+
+
+def test_torchscript_source_enforces_its_embedded_imgsz(tmp_path: Path) -> None:
+    mod = importlib.import_module("src.utils.export_ncnn")
+    ts = _torchscript(tmp_path, imgsz=640)
+
+    with pytest.raises(SystemExit, match="imgsz"):
+        mod.main(["--source", str(ts), "--out-dir", str(tmp_path), "--pnnx", "/opt/pnnx", "--imgsz", "480"])
+
+
+def test_torchscript_source_exports_through_pnnx_not_ultralytics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mod = importlib.import_module("src.utils.export_ncnn")
+    ts = _torchscript(tmp_path)
+    seen = {}
+
+    def fake_export(source, target_dir, *, imgsz, half, pnnx):
+        seen.update(source=source, target=target_dir, imgsz=imgsz, half=half, pnnx=pnnx)
+        target_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(mod, "export_torchscript", fake_export)
+    fake_yolo, fake_model = _fake_yolo(TRA2026_MODEL_NAMES)
+    monkeypatch.setattr(mod, "YOLO", fake_yolo)
+
+    rc = mod.main(["--source", str(ts), "--out-dir", str(tmp_path), "--pnnx", "/opt/pnnx"])
+
+    assert rc == 0
+    assert seen["target"] == tmp_path / "best_fp16_ncnn_model"
+    assert (seen["imgsz"], seen["half"], seen["pnnx"]) == (640, True, Path("/opt/pnnx"))
+    fake_model.export.assert_not_called()
