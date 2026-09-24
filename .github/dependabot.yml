@@ -1,0 +1,25 @@
+# Dependabot: security updates only, one grouped PR per ecosystem.
+# open-pull-requests-limit: 0 disables version-update PRs; security updates are
+# still raised (repo setting "Dependabot security updates" is enabled) and are
+# grouped by the `applies-to: security-updates` groups below.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      edge-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: "/dashboard"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      dashboard-security:
+        applies-to: security-updates
+        patterns: ["*"]
