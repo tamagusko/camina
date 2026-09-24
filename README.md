@@ -59,5 +59,11 @@ scripts/run_dashboard.sh    # → http://localhost:3000/dublin
 
 ## License
 
-Code: [MIT](LICENSE). The models in `models/` were trained and exported with
-Ultralytics YOLO and carry its AGPL-3.0 licence (see each `metadata.yaml`).
+- **Code:** [MIT](LICENSE).
+- **Models:** [AGPL-3.0](models/LICENSE) — everything in `models/`, plus
+  `custom_model_train/yolo11n.pt`. They were trained and exported with
+  [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), which is AGPL-3.0 and declares
+  that licence for the models it produces (stated in each NCNN export's `metadata.yaml`).
+
+The edge software loads these models through the `ultralytics` package, so a distributed build
+of the sensor software must comply with AGPL-3.0. The dashboard does not use Ultralytics.
