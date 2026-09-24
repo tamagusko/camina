@@ -1,7 +1,6 @@
 "use client";
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { Pill } from "@/components/ui/pill";
 import { cn } from "@/lib/cn";
 import { ROAD_USER_CLASSES, type RoadUserClass } from "@/lib/types";
 

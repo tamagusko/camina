@@ -7,7 +7,7 @@
 
 import { NextResponse } from "next/server";
 
-export function proxy(request: Request) {
+export function proxy(_request: Request) {
   const response = NextResponse.next();
   // Defence-in-depth security headers on every response.
   response.headers.set("X-Content-Type-Options", "nosniff");

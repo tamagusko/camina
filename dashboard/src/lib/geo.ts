@@ -40,6 +40,21 @@ export function unionBbox(streets: StreetSummary[]):
   ];
 }
 
+/** Bounds the map should open at, or null to use the city's default view.
+ *
+ * The street data is what the page is about, so the first view frames it —
+ * `CITY_VIEWS` is only a fallback for when there is nothing to frame. A
+ * viewport pinned in the URL always wins: that is someone following a shared
+ * link to a specific place.
+ */
+export function initialViewBounds(
+  streets: StreetSummary[],
+  hasPinnedViewport: boolean
+): [[number, number], [number, number]] | null {
+  if (hasPinnedViewport) return null;
+  return unionBbox(streets);
+}
+
 /** MapLibre paint expression that interpolates a 5-stop ramp by metric value.
  *
  * The feature-state lookup is wrapped in `coalesce` so features that haven't

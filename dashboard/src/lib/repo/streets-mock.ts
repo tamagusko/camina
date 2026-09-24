@@ -9,7 +9,6 @@ import {
 } from "@/lib/mock-loader";
 import {
   ROAD_USER_CLASSES,
-  type Metric,
   type MetricValue,
   type RoadUserClass,
   type StreetAdminInfo,

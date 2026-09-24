@@ -55,6 +55,9 @@ export function CityMapShell({ city, streets, initialMetrics }: Props) {
         onMetricsChange={setMetrics}
       />
       <StreetSidePanel
+        // Remount per street: the panel's admin state then starts empty for
+        // each selection, instead of being reset inside an effect.
+        key={selectedStreet?.id ?? "none"}
         street={selectedStreet}
         metric={selectedMetric}
         onClose={() => setSelected(null)}

@@ -71,7 +71,7 @@ async function readJson<T>(file: string): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
-let cache: {
+const cache: {
   streets?: MockStreet[];
   sensors?: MockSensor[];
   coverage?: MockCoverage[];
