@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import maplibregl, { type Map as MaplibreMap } from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
+import type { Map as MaplibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { CITY_VIEWS, CIVIDIS_5, VIRIDIS_5, rampExpression } from "@/lib/geo";
