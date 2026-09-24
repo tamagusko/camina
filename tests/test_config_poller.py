@@ -1,15 +1,12 @@
 """Unit tests for ConfigPoller."""
+
 from __future__ import annotations
 
-import json
-from typing import Iterator
-
 import httpx
-import pytest
 
-from src.camina.io.config_poller import ConfigPoller
-from src.camina.io.http_client import HttpClient, RetryPolicy
-from src.camina.io.schemas import SensorConfig
+from camina.io.config_poller import ConfigPoller
+from camina.io.http_client import HttpClient, RetryPolicy
+from camina.io.schemas import SensorConfig
 
 
 def _fast_retry() -> RetryPolicy:
@@ -43,9 +40,7 @@ def _make(
         return response
 
     transport = httpx.MockTransport(handler)
-    client = HttpClient(
-        "https://api.test", token="t", retry=_fast_retry(), transport=transport
-    )
+    client = HttpClient("https://api.test", token="t", retry=_fast_retry(), transport=transport)
     poller = ConfigPoller(
         sensor_id="cam-01",
         http_client=client,
@@ -195,8 +190,8 @@ def test_apply_failure_is_recorded() -> None:
 def test_successful_apply_clears_prior_error() -> None:
     applied: list[SensorConfig] = []
     responses = [
-        httpx.Response(503),                         # first attempt fails
-        httpx.Response(503),                         # retry fails
+        httpx.Response(503),  # first attempt fails
+        httpx.Response(503),  # retry fails
         httpx.Response(200, json=_valid_config("v3")),  # later success
     ]
     idx = {"i": 0}

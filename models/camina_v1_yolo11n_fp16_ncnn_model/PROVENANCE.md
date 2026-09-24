@@ -20,12 +20,12 @@ Built 2026-09-24.
 
 ```bash
 cp <best.torchscript> camina_v1_yolo11n.torchscript   # the stem names the output dir
-uv run python -m src.utils.export_ncnn \
+uv run python -m training.export_ncnn \
     --source camina_v1_yolo11n.torchscript --pnnx <pnnx-20250924>/pnnx --out-dir models
 ```
 
 `--half` is the default. The export ends with a forward pass in a child
-process (`src/utils/pnnx_export.py:smoke_test`) and the canonical-taxonomy check.
+process (`training/pnnx_export.py:smoke_test`) and the canonical-taxonomy check.
 
 ## Verification (x86 dev host, ncnn 1.0.20260526)
 
@@ -33,7 +33,7 @@ process (`src/utils/pnnx_export.py:smoke_test`) and the canonical-taxonomy check
 |---|---|
 | Same command with `--no-half` vs the committed FP32 model | `model.ncnn.bin`, `model.ncnn.param`, `metadata.yaml` **byte-identical** |
 | Smoke test (random 640×640 input) | exit 0, output (13, 8400), all finite |
-| Detections vs FP32 on `custom_model_train/test_images` (10 images, conf 0.3, imgsz 640) | 81 / 81 matched (IoU ≥ 0.5), **0 class changes**; box IoU min 0.9918, mean 0.9991; \|Δconf\| max 0.0198, mean 0.0027; no detection gained or lost |
+| Detections vs FP32 on `training/test_images` (10 images, conf 0.3, imgsz 640) | 81 / 81 matched (IoU ≥ 0.5), **0 class changes**; box IoU min 0.9918, mean 0.9991; \|Δconf\| max 0.0198, mean 0.0027; no detection gained or lost |
 | `model.ncnn.bin` SHA-256 | `e1d276b0d3af1aec46f06dab3b1fd333fdb35c9dc533e194286892afc0b0ff66` |
 
 Not yet run on a Raspberry Pi (PLAN.md S6).

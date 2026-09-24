@@ -4,12 +4,12 @@ Verifies that the same seed over the same pooled files produces the same
 ``manifest_sha256`` (determinism), that re-running is idempotent, and that the
 selected pairs are materialised into the ``test`` split with no split overlap.
 """
+
 from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
 from types import ModuleType
-from typing import Dict
 
 import yaml
 
@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load_module() -> ModuleType:
-    path = REPO_ROOT / "custom_model_train" / "scripts" / "freeze_holdout.py"
+    path = REPO_ROOT / "training" / "freeze_holdout.py"
     spec = importlib.util.spec_from_file_location("freeze_holdout", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -48,7 +48,12 @@ def _make_dataset(root: Path) -> Path:
     data_yaml = root / "data.yaml"
     with open(data_yaml, "w") as f:
         yaml.safe_dump(
-            {"path": str(root), "train": "images/train", "val": "images/val", "test": "images/test"},
+            {
+                "path": str(root),
+                "train": "images/train",
+                "val": "images/val",
+                "test": "images/test",
+            },
             f,
         )
     return data_yaml
@@ -63,8 +68,8 @@ def test_same_seed_same_manifest_hash(tmp_path: Path) -> None:
     ds_a = _make_dataset(tmp_path / "a")
     ds_b = _make_dataset(tmp_path / "b")
 
-    man_a: Dict[str, object] = fh.freeze_holdout(ds_a, frac=0.15, seed=42)
-    man_b: Dict[str, object] = fh.freeze_holdout(ds_b, frac=0.15, seed=42)
+    man_a: dict[str, object] = fh.freeze_holdout(ds_a, frac=0.15, seed=42)
+    man_b: dict[str, object] = fh.freeze_holdout(ds_b, frac=0.15, seed=42)
 
     assert man_a["manifest_sha256"] == man_b["manifest_sha256"]
     assert man_a["num_test"] == man_b["num_test"]

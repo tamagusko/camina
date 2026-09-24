@@ -64,4 +64,4 @@ self-contained tasks anyone can pick up. **Difficulty:** ★ under half a day ·
 
 These touch the core or security; talk to @tamagusko before starting: database migrations and
 the live repository, authentication, privacy thresholds, the model and tracker, the Pi service
-setup, LoRa, and anything in `.planning/`.
+setup, and anything in `.planning/`.

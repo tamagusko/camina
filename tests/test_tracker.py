@@ -5,11 +5,12 @@ frame. With a tracker per class, each flip started a second track and the
 vehicle was counted twice. One tracker keeps one track per object, and the
 track's class is the confidence-weighted vote over its detections.
 """
+
 from __future__ import annotations
 
 import numpy as np
 
-from src.camina.core.tracker import Sort
+from camina.core.tracker import Sort
 
 CAR, SUV, PERSON = 2, 4, 0
 
@@ -42,7 +43,8 @@ def test_track_class_is_the_confidence_weighted_majority() -> None:
     # Three SUV frames at 0.4 (total 1.2) lose to two car frames at 0.9 (1.8).
     classes = [SUV, CAR, SUV, CAR, SUV]
     scores = [0.4, 0.9, 0.4, 0.9, 0.4]
-    frames = [[_det(10 + 5 * i, s, c)] for i, (c, s) in enumerate(zip(classes, scores))]
+    pairs = enumerate(zip(classes, scores, strict=True))
+    frames = [[_det(10 + 5 * i, s, c)] for i, (c, s) in pairs]
 
     assert _run(frames)[-1][0, 5] == CAR
 

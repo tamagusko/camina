@@ -6,11 +6,12 @@ counts a track once, and only when it has actually travelled: across a
 screenline (with direction) when one is configured, otherwise a minimum
 distance measured in its own box heights.
 """
+
 from __future__ import annotations
 
 import pytest
 
-from src.camina.core.counting import CountEvent, CountGate, Screenline
+from camina.core.counting import CountEvent, CountGate, Screenline
 
 FRAME = (1000, 1000)  # (width, height) in pixels
 
@@ -28,6 +29,7 @@ def _walk(gate: CountGate, key: str, xs: list[float], y: float = 500.0) -> list[
 
 
 # ---------- Screenline geometry ----------
+
 
 def test_crossing_left_to_right_of_a_vertical_line_is_a_to_b() -> None:
     line = Screenline((0.5, 0.0), (0.5, 1.0))
@@ -50,11 +52,12 @@ def test_passing_beyond_the_end_of_the_segment_is_not_a_crossing() -> None:
 
 
 def test_screenline_rejects_coordinates_outside_the_frame() -> None:
-    with pytest.raises(ValueError, match="0..1"):
+    with pytest.raises(ValueError, match=r"0\.\.1"):
         Screenline((0.5, 0.0), (1.5, 1.0))
 
 
 # ---------- Movement mode (no screenline) ----------
+
 
 def test_a_static_track_is_never_counted() -> None:
     gate = CountGate(min_move=1.0)
@@ -84,6 +87,7 @@ def test_min_move_is_measured_in_box_heights() -> None:
 
 
 # ---------- Screenline mode ----------
+
 
 def test_a_track_crossing_the_line_is_counted_with_its_direction() -> None:
     gate = CountGate(screenline=Screenline((0.5, 0.0), (0.5, 1.0)))
@@ -137,6 +141,7 @@ def test_tracks_are_independent() -> None:
 
 
 # ---------- Memory ----------
+
 
 def test_tracks_not_seen_for_a_while_are_forgotten() -> None:
     gate = CountGate(forget_after=3)

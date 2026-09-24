@@ -1,7 +1,6 @@
-# CAMINA sensor daemon configuration — edit per device.
-# Only start-up values live here; runtime parameters (intervals, detection
-# zone, etc.) are owned by the backend and applied on the fly via
-# GET /sensors/{id}/config (see plan/01-windowed-counter-and-ingest.md §3.8).
+# CAMINA sensor configuration — one per device, installed at /etc/camina/sensor.yaml.
+# Start-up values only; intervals are then owned by the server and applied via
+# GET /sensors/{id}/config (docs/PROTOCOL.md).
 
 sensor_id: cam-dub-01
 api_base_url: https://camina.ucd.ie/api/ingest
@@ -38,7 +37,7 @@ ncnn_model_path: /opt/camina/models/camina_v1_yolo11n_ncnn_model
 imgsz: 640
 conf_threshold: 0.3
 
-# Counting (src/camina/core/counting.py). Each track is counted once, when it
+# Counting (camina/core/counting.py). Each track is counted once, when it
 # has travelled; parked cars and street furniture never count.
 # - screenline: two points [x, y] in fractions of the frame (0..1). A track is
 #   counted when its centre crosses this segment, with direction AB or BA. For

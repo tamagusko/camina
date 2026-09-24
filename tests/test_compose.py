@@ -5,13 +5,13 @@ The factory wires ``DaemonConfig`` + a camera frame source + a YOLO/tracker
 loading picamera2 / Ultralytics in CI, both are passed in as factory
 callables and replaced with fakes here.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
 import numpy as np
 import pytest
-
 
 CLASSES = [
     "person",
@@ -27,7 +27,7 @@ CLASSES = [
 
 
 def _make_cfg(tmp_path: Path):
-    from src.camina.service.sensor_daemon import DaemonConfig
+    from camina.service.sensor_daemon import DaemonConfig
 
     return DaemonConfig(
         sensor_id="cam-test-01",
@@ -58,8 +58,8 @@ def _fake_detect_factory(**_kwargs):
 def test_compose_returns_configured_daemon(tmp_path: Path) -> None:
     """Compose returns a SensorDaemon whose internal counter knows the 9
     classes and whose frame source is iterable (not a callable)."""
-    from src.camina.service.compose import compose
-    from src.camina.service.sensor_daemon import SensorDaemon
+    from camina.service.compose import compose
+    from camina.service.sensor_daemon import SensorDaemon
 
     cfg = _make_cfg(tmp_path)
     daemon = compose(
@@ -89,15 +89,12 @@ def test_compose_returns_configured_daemon(tmp_path: Path) -> None:
 def test_compose_propagates_class_mismatch(tmp_path: Path) -> None:
     """If the detect-factory raises ValueError on class-name mismatch, compose
     surfaces it (no swallowing)."""
-    from src.camina.service.compose import compose
+    from camina.service.compose import compose
 
     cfg = _make_cfg(tmp_path)
 
     def _exploding_detect_factory(**_kwargs):
-        raise ValueError(
-            "Model classes ['person', 'WRONG'] do not match config "
-            f"{CLASSES}"
-        )
+        raise ValueError(f"Model classes ['person', 'WRONG'] do not match config {CLASSES}")
 
     with pytest.raises(ValueError, match="Model classes"):
         compose(
@@ -111,7 +108,7 @@ def test_compose_propagates_class_mismatch(tmp_path: Path) -> None:
 def test_compose_passes_through_tunables(tmp_path: Path) -> None:
     """The detect_factory receives the imgsz/conf/classes/ncnn_model_path
     arguments verbatim, so production code can rely on the wiring."""
-    from src.camina.service.compose import compose
+    from camina.service.compose import compose
 
     cfg = _make_cfg(tmp_path)
     captured: dict = {}
@@ -142,7 +139,7 @@ def test_compose_passes_through_tunables(tmp_path: Path) -> None:
 def test_daemon_config_from_yaml_reads_ncnn_fields(tmp_path: Path) -> None:
     """``DaemonConfig.from_yaml`` reads the new NCNN fields with sensible
     defaults, leaving the existing required fields untouched."""
-    from src.camina.service.sensor_daemon import DaemonConfig
+    from camina.service.sensor_daemon import DaemonConfig
 
     yaml_text = """
 sensor_id: cam-yaml-01
@@ -179,7 +176,7 @@ def test_daemon_config_defaults_to_canonical_model_at_640(tmp_path: Path) -> Non
     """Without explicit NCNN fields, the config points at the 9-class TRA 2026
     export and the size it was exported at (640), not the 6-class warm-up
     model at 480."""
-    from src.camina.service.sensor_daemon import DaemonConfig
+    from camina.service.sensor_daemon import DaemonConfig
 
     yaml_path = tmp_path / "sensor.yaml"
     yaml_path.write_text(
@@ -202,7 +199,7 @@ _MINIMAL_YAML = (
 
 
 def test_daemon_config_reads_the_screenline(tmp_path: Path) -> None:
-    from src.camina.service.sensor_daemon import DaemonConfig
+    from camina.service.sensor_daemon import DaemonConfig
 
     yaml_path = tmp_path / "sensor.yaml"
     yaml_path.write_text(_MINIMAL_YAML + "screenline: [[0.65, 0.1], [0.65, 0.9]]\nmin_move: 2\n")
@@ -213,7 +210,7 @@ def test_daemon_config_reads_the_screenline(tmp_path: Path) -> None:
 
 
 def test_daemon_config_counts_on_movement_by_default(tmp_path: Path) -> None:
-    from src.camina.service.sensor_daemon import DaemonConfig
+    from camina.service.sensor_daemon import DaemonConfig
 
     yaml_path = tmp_path / "sensor.yaml"
     yaml_path.write_text(_MINIMAL_YAML)
@@ -226,8 +223,8 @@ def test_compose_gives_the_detector_a_count_gate_from_config(tmp_path: Path) -> 
     """The daemon always counts through a gate: static tracks never reach the counter."""
     from dataclasses import replace
 
-    from src.camina.core.counting import CountGate, Screenline
-    from src.camina.service.compose import compose
+    from camina.core.counting import CountGate, Screenline
+    from camina.service.compose import compose
 
     cfg = replace(_make_cfg(tmp_path), screenline=((0.5, 0.0), (0.5, 1.0)), min_move=1.5)
     captured: dict = {}

@@ -11,7 +11,7 @@
 # needs desktop GL libraries that Raspberry Pi OS Lite does not have.
 #
 # No PyTorch, no Ultralytics: the NCNN model runs through
-# src/camina/service/ncnn_detector.py. Training, export and the parity tests
+# camina/service/ncnn_detector.py. Training, export and the parity tests
 # need requirements.txt. picamera2 comes from apt (python3-picamera2); create
 # the venv with --system-site-packages so the daemon can import it.
 #

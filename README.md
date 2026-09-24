@@ -11,11 +11,14 @@ is in [`.planning/PLAN.md`](.planning/PLAN.md), current status in
 ## How it works
 
 ```
-Pi camera → YOLO11n (NCNN) → tracker → 15-min counts → HTTPS → dashboard
+Pi camera → YOLO11n (NCNN) → tracker → count gate → 15-min counts → HTTPS → dashboard
 ```
 
-- **Detector:** the 9-class YOLO11n from the TRA 2026 paper (classes below). FP32 and FP16
-  NCNN exports in [`models/`](models/), provenance in each folder's `PROVENANCE.md`.
+- **Detector:** the 9-class YOLO11n from the TRA 2026 paper, as NCNN (FP32 and FP16) in
+  [`models/`](models/), provenance in each folder's `PROVENANCE.md`.
+- **Tracker:** one SORT tracker for all classes; a track's class is its majority vote.
+- **Count gate:** each track is counted once, when it crosses a screenline (with direction)
+  or has moved far enough. Parked cars and street furniture never count.
 - **Privacy:** counts only; the public map never shows sensor locations; counts below 5
   are suppressed.
 
@@ -37,48 +40,40 @@ IDs are the published order, fixed in [`configs/classes.yaml`](configs/classes.y
 
 ## Quick start
 
-Edge (Python 3.10+):
-
 ```bash
 git clone https://github.com/tamagusko/camina.git && cd camina
-uv venv && uv pip install -r requirements.txt pytest
-uv run pytest
+uv venv && uv pip install -r requirements.txt
+.venv/bin/python -m pytest
+
+# See what the sensor sees and counts, on a test video
+.venv/bin/python scripts/view_detections.py --video videos/test.mov --out /tmp/out.mp4 \
+    --screenline 0.65 0.15 0.65 0.72 --play
+
+# Dashboard with mock data (Node 20.11+) → http://localhost:3000/dublin
+scripts/run_dashboard.sh
 ```
 
-Running the sensor on a Raspberry Pi 5: [docs/raspberry_pi_5.md](docs/raspberry_pi_5.md).
-
-Dashboard, with mock data (Node 20.11+):
-
-```bash
-scripts/run_dashboard.sh    # → http://localhost:3000/dublin
-```
+On a Raspberry Pi 5: [docs/raspberry_pi_5.md](docs/raspberry_pi_5.md).
 
 ## Repository
 
 | Path | Contents |
 |---|---|
-| `src/camina/` | Edge daemon: tracker, counters, offline buffer, publisher |
-| `dashboard/` | Next.js dashboard and ingest API |
+| `camina/` | The sensor: detector, tracker, count gate, counters, publisher (`python -m camina`) |
+| `dashboard/` | Next.js map and ingest API |
+| `training/` | Dataset, training and NCNN export |
 | `models/` | CAMINAv1 NCNN models |
-| `custom_model_train/` | Training pipeline |
-| `configs/` | Sensor and class configuration |
+| `configs/` | Classes and per-device sensor config |
+| `videos/` | Test videos |
+| `scripts/` | Viewer, dashboard runner, mock data generator |
 | `deploy/` | systemd unit |
-| `docs/` | Deployment, protocol, simulation, training |
-
-## Docs
-
-- [Raspberry Pi 5 setup](docs/raspberry_pi_5.md) and [sensor deployment details](docs/sensor_deployment.md)
-- [Simulation mode](docs/simulation.md)
-- [Training](docs/training_plan.md) and [evaluation](docs/evaluation_plan.md)
-- [Contributing and branches](CONTRIBUTING.md)
+| `docs/` | Pi setup, ingest protocol, operations, mock mode |
 
 ## License
 
 - **Code:** [MIT](LICENSE).
-- **Models:** [AGPL-3.0](models/LICENSE) — everything in `models/`, plus
-  `custom_model_train/yolo11n.pt`. They were trained and exported with
-  [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), which is AGPL-3.0 and declares
-  that licence for the models it produces (stated in each NCNN export's `metadata.yaml`).
-
-The edge software loads these models through the `ultralytics` package, so a distributed build
-of the sensor software must comply with AGPL-3.0. The dashboard does not use Ultralytics.
+- **Models:** [AGPL-3.0](models/LICENSE) — everything in `models/`. They were trained and
+  exported with [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), which is
+  AGPL-3.0 and declares that licence for the models it produces (stated in each export's
+  `metadata.yaml`). The sensor runs them with `ncnn` and does not use Ultralytics; training
+  and export do.
