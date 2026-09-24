@@ -76,22 +76,68 @@ ARM64-friendly inference backend). Export once on any host that has the
 `.pt` weights and Ultralytics installed; the resulting directory is what
 the daemon loads at startup.
 
+The current CAMINAv1 export (TRA 2026 YOLO11n, 640×640) is committed at
+`models/camina_v1_yolo11n_ncnn_model/` (provenance in its `PROVENANCE.md`),
+so no export step is needed for it. After a retrain, export the new weights:
+
 ```bash
 uv run python -m src.utils.export_ncnn \
-    --source models/20250629_warmup_best.pt \
-    --imgsz 480 --half
+    --source models/<date>_caminav1_best.pt \
+    --imgsz 640 --half
 ```
 
-Produces `models/20250629_warmup_best_ncnn_model/`. Re-run only after
+Produces `models/<date>_caminav1_best_fp16_ncnn_model/`. Re-run only after
 retraining CAMINAv1 (the script is idempotent — it skips re-exporting an
 existing target directory unless you pass `--force`). The export verifies
-that the model's class taxonomy matches the canonical 9-class list and
+that the model's class taxonomy maps onto the canonical 9-class list and
 exits non-zero on mismatch, so a base `yolo11n.pt` slipped in by mistake
-will fail loudly instead of shipping wrong-taxonomy counts.
+will fail loudly instead of shipping wrong-taxonomy counts. Export *order*
+is not checked: `detect_track.py` remaps model index -> canonical index by
+name, which is how the alphabetically-ordered TRA 2026 export is consumed.
+
+### Precision: FP16 or FP32
+
+`--half` (the default) writes FP16 weights to `<stem>_fp16_ncnn_model/`;
+`--no-half` writes FP32 to `<stem>_ncnn_model/`. The two directories are
+siblings, so both precisions can be built from the same weights and kept
+side by side — the FP16 export never overwrites the FP32 reference.
+
+FP16 halves the `.bin` (measured on `yolo11n.pt` at 640: **10.57 MB ->
+5.35 MB**), which cuts load time and memory traffic on any Pi. What it does
+for *speed* depends on the board:
+
+| Board | Core | FP16 arithmetic | Expect from FP16 |
+|---|---|---|---|
+| Pi 5 | Cortex-A76 (ARMv8.2-A) | native | smaller model; NCNN already runs FP16 math on this core even from an FP32 file, so the speed gain is usually small |
+| Pi 4 | Cortex-A72 (ARMv8.0-A) | **none** | smaller model and less memory traffic only; arithmetic stays FP32 |
+
+Treat FP16 as a size/memory win that is free to take, not as a speed fix.
+Neither precision changes detection accuracy meaningfully; **input size
+does** — do not drop below the 640 export contract without re-validating
+(see `docs/evaluation_plan.md`).
+
+Both precisions of the current model are committed:
+`models/camina_v1_yolo11n_ncnn_model/` (FP32) and
+`models/camina_v1_yolo11n_fp16_ncnn_model/` (FP16, detection parity in its
+`PROVENANCE.md`). Point `configs/sensor.yaml::ncnn_model_path` at whichever
+directory you deployed.
+
+**pnnx version matters.** Every export ends with a forward pass in a child
+process; a build that crashes there fails the export. The pnnx bundled with the
+installed Ultralytics produces such builds for this model, so a `.torchscript`
+source must name its converter explicitly (`--pnnx`, release 20250924
+validated):
+
+```bash
+uv run python -m src.utils.export_ncnn \
+    --source camina_v1_yolo11n.torchscript --pnnx <pnnx-20250924>/pnnx
+```
 
 Copy the exported directory to the Pi at the path referenced by
 `configs/sensor.yaml::ncnn_model_path` (default
-`/opt/camina/models/20250629_warmup_best_ncnn_model`).
+`/opt/camina/models/camina_v1_yolo11n_ncnn_model`). The daemon refuses to
+start if `configs/sensor.yaml::imgsz` differs from the export size recorded in
+the model's `metadata.yaml`.
 
 ## 7. Running the daemon
 

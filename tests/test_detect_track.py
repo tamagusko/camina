@@ -46,17 +46,36 @@ class _FakeResult:
         self.boxes = boxes
 
 
-def _fake_yolo_factory(boxes_per_call: list[_FakeBoxes]):
+# Class order of the TRA 2026 YOLO11n NCNN export (alphabetical, as Ultralytics
+# wrote it), including the dataset alias ``motorcycle`` for ``motorcyclist``.
+TRA2026_MODEL_NAMES = [
+    "SUV",
+    "bus",
+    "car",
+    "cyclist",
+    "delivery_van",
+    "e-scooter",
+    "motorcycle",
+    "person",
+    "truck",
+]
+
+
+def _fake_yolo_factory(
+    boxes_per_call: list[_FakeBoxes], model_names: list[str] | None = None
+):
     """Build a ``YOLO`` stand-in whose call returns a list of fake results.
 
     The fake model is callable: ``model(frame, ...)`` returns
     ``[FakeResult(boxes_per_call[i])]`` and advances ``i`` on each call.
-    The model also exposes ``.names`` matching CAMINAv1.
+    The model exposes ``.names`` in ``model_names`` order (CAMINAv1 order by
+    default).
     """
     state = {"i": 0}
+    names_map = {i: c for i, c in enumerate(model_names or CLASSES)}
 
     class _FakeModel:
-        names = {i: c for i, c in enumerate(CLASSES)}
+        names = names_map
 
         def __call__(self, frame, **kwargs):  # noqa: D401 — mimic YOLO signature
             idx = state["i"]
@@ -170,4 +189,66 @@ def test_class_name_mismatch_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValueError, match="Model classes"):
         detect_track.make_detect_and_track(
             ncnn_model_path="ignored", classes=bad_classes
+        )
+
+
+def test_alphabetical_model_names_are_remapped_to_canonical(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The TRA 2026 export lists classes alphabetically and calls motorcyclists
+    ``motorcycle``. Detections must come out under the canonical names, looked
+    up by name rather than by index."""
+    from src.camina.service import detect_track
+
+    boxes = _FakeBoxes(
+        cls=[TRA2026_MODEL_NAMES.index("car"), TRA2026_MODEL_NAMES.index("motorcycle")],
+        conf=[0.9, 0.9],
+        xyxy=[[10.0, 10.0, 60.0, 60.0], [200.0, 200.0, 260.0, 260.0]],
+    )
+    monkeypatch.setattr(
+        detect_track,
+        "YOLO",
+        _fake_yolo_factory([boxes] * 5, model_names=TRA2026_MODEL_NAMES),
+    )
+
+    f = detect_track.make_detect_and_track(
+        ncnn_model_path="ignored", classes=CLASSES, imgsz=640, conf=0.3
+    )
+    frame = np.zeros((640, 640, 3), dtype=np.uint8)
+    seen: list[tuple[str, str]] = []
+    for _ in range(5):
+        seen.extend(list(f(frame)))
+
+    assert {cls for _, cls in seen} == {"car", "motorcyclist"}
+    for tid, cls in seen:
+        assert tid.startswith(f"{cls}-")
+
+
+def test_unknown_model_class_name_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A model class name with no alias entry (here ``tram``) fails at build
+    time instead of being dropped or counted under the wrong class."""
+    from src.camina.service import detect_track
+
+    names = [n if n != "truck" else "tram" for n in TRA2026_MODEL_NAMES]
+    monkeypatch.setattr(
+        detect_track, "YOLO", _fake_yolo_factory([_FakeBoxes([], [], [])], names)
+    )
+    with pytest.raises(ValueError, match=r"tram.*class_mapping"):
+        detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES)
+
+
+def test_imgsz_mismatch_with_export_metadata_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Running an NCNN export at a size other than the one recorded in its
+    ``metadata.yaml`` produces garbage boxes, so the factory refuses it."""
+    from src.camina.service import detect_track
+
+    (tmp_path / "metadata.yaml").write_text("imgsz:\n- 640\n- 640\n")
+    monkeypatch.setattr(
+        detect_track, "YOLO", _fake_yolo_factory([_FakeBoxes([], [], [])])
+    )
+    with pytest.raises(ValueError, match="imgsz"):
+        detect_track.make_detect_and_track(
+            ncnn_model_path=tmp_path, classes=CLASSES, imgsz=480
         )

@@ -26,7 +26,14 @@ publish_interval_seconds: 900      # 15 min
 heartbeat_interval_seconds: 600    # 10 min
 outbox_max_rows: 10000             # ~10 days of 15-min windows + heartbeats
 
-# NCNN inference (added in Plan 01-01).
-ncnn_model_path: /opt/camina/models/20250629_warmup_best_ncnn_model
-imgsz: 480
+# NCNN inference: CAMINAv1 (TRA 2026 YOLO11n). imgsz must equal the export
+# size (see models/camina_v1_yolo11n_ncnn_model/PROVENANCE.md). Ultralytics only
+# recognises an NCNN export by the `_ncnn_model` directory suffix.
+#
+# The committed model is FP32. Its FP16 sibling (half the .bin, same
+# detections; useful on a memory-constrained board such as a Pi 4) is
+# models/camina_v1_yolo11n_fp16_ncnn_model/ — point this path at it to deploy
+# it. Provenance and parity: that directory's PROVENANCE.md.
+ncnn_model_path: /opt/camina/models/camina_v1_yolo11n_ncnn_model
+imgsz: 640
 conf_threshold: 0.3
