@@ -37,11 +37,12 @@ D1 LoRa → dropped from the code 2026-09-24 (restore from git history if taken 
 implement (S7b) · D3 → screenline + direction · D4 → M2 = 5–10 units · D5 → full admin console
 (S11) · D6 → OAuth before first deploy (S5) · D7 → publish BOM · D8 → Dublin; dataset merge
 with Roboflow v3 reference · D9 → DPIA-lite + statement + signage · D10 → SD card · D11 → not
-funded · D12 → 2026-12-31 · D13 → fix in next paper.
+funded · D12 → 2026-12-31 · D13 → fix in next paper · D14 → YOLO26n as S13 candidate.
 
 ## Next action
 - S2 (CI) ∥ S3 (config handshake) ∥ S4 (live data path).
-- S7 remainder: publish direction; hand-count `videos/test.mov` to measure count error.
-- Training workflow review (S13 prep): see `training/PLAN.md`.
+- S7 remainder: hand-count `videos/test.mov` (`scripts/hand_count.py`, one class per pass), then
+  `python -m training.count_eval`; publish direction.
+- Training workflow review (S13 prep): see `training/PLAN.md`. Base model: YOLO26n vs YOLO11n (D14).
 - This week, in parallel: contact UCD DPO/ethics, identify a host site, file the UCD Google
   OAuth app request.
