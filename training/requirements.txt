@@ -1,0 +1,13 @@
+# GPU training environment (YOLO26), separate from the sensor/test environment.
+#
+#     uv venv -p 3.12 .venv-train
+#     uv pip install --python .venv-train/bin/python -r training/requirements.txt
+#
+# PyPI's Linux torch wheels include CUDA 13.0 (NVIDIA driver >= 580). Evaluation
+# runs the exported NCNN models through the sensor code, so the Pi runtime is
+# included.
+
+-r ../requirements-pi.txt
+torch==2.14.0
+torchvision==0.29.0
+ultralytics==8.4.162

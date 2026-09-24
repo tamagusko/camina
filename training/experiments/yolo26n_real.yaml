@@ -1,0 +1,5 @@
+# Baseline: real images only.
+name: yolo26n_real
+base: training/configs/yolo26n.yaml
+data:
+  real: training/dataset

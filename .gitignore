@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-train/
 venv/
 *.egg-info/
 build/
@@ -37,3 +38,6 @@ dashboard/CLAUDE.md
 .claude/
 .playwright-mcp/
 mpv-shot*.jpg
+runs/
+/*.pt
+/weights/

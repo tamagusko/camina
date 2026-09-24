@@ -1,0 +1,10 @@
+# Real images plus synthetic ones in train; val and test stay real, so the two
+# experiments are scored on the same images. Put the synthetic YOLO dataset
+# (data.yaml + images/ + labels/, any class names in configs/class_mapping.yaml)
+# at `synthetic`.
+name: yolo26n_real_synthetic
+base: training/configs/yolo26n.yaml
+data:
+  real: training/dataset
+  synthetic: data/synthetic
+  syn_fraction: 1.0    # at most as many synthetic as real training images
