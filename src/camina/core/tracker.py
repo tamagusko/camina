@@ -1,3 +1,9 @@
+"""
+Object tracking module using the SORT algorithm with Kalman filtering.
+
+Provides tracking of detected objects across frames, including position
+prediction and speed estimation.
+"""
 from __future__ import annotations
 
 import numpy as np
@@ -10,9 +16,22 @@ CONFIG = load_config()
 
 
 class KalmanBoxTracker:
+    """
+    Represents a single tracked object using a Kalman filter.
+
+    Maintains state across frames and supports position prediction,
+    updates from detections, and speed estimation.
+    """
+    
     count = 0
 
     def __init__(self, bbox: np.ndarray):
+        """
+        Initialize a new tracker with an initial bounding box.
+
+        Args:
+            bbox (np.ndarray): Initial bounding box [x1, y1, x2, y2].
+        """
         self.kf = KalmanFilter(dim_x=7, dim_z=4)
         self.kf.F = np.array(
             [[1, 0, 0, 0, 1, 0, 0],
@@ -50,12 +69,27 @@ class KalmanBoxTracker:
         self.speeds = []   # Store calculated speeds for averaging
 
     def update(self, bbox: np.ndarray) -> None:
+        """
+        Update the tracker with a new detection.
+
+        Args:
+            bbox (np.ndarray): Detected bounding box.
+
+        Returns:
+            None
+        """
         self.time_since_update = 0
         self.hits += 1
         self.hit_streak += 1
         self.kf.update(self._bbox_to_z(bbox))
 
     def predict(self) -> np.ndarray:
+        """
+        Predict the next state of the tracker.
+
+        Returns:
+            np.ndarray: Predicted bounding box.
+        """
         if (self.kf.x[6] + self.kf.x[2]) <= 0:
             self.kf.x[6] = 0.0
         self.kf.predict()
@@ -80,10 +114,24 @@ class KalmanBoxTracker:
         return pred_bbox
 
     def get_state(self) -> np.ndarray:
+        """
+        Get the current estimated bounding box.
+
+        Returns:
+            np.ndarray: Current bounding box.
+        """
         return self._x_to_bbox(self.kf.x)
     
     def calculate_speed_kmh(self, object_class: str = "person") -> float:
-        """Calculate speed in km/h based on position history."""
+        """
+        Calculate object speed in km/h based on position history.
+
+        Args:
+            object_class (str): Object class used to apply speed thresholds.
+
+        Returns:
+            float: Estimated speed in km/h.
+        """
         if len(self.history) < 2:
             return 0.0
             
@@ -128,13 +176,26 @@ class KalmanBoxTracker:
         return speed_kmh
     
     def get_average_speed(self) -> float:
-        """Get the average speed from stored speed calculations."""
+        """
+        Compute the average speed from stored measurements.
+
+        Returns:
+            float: Average speed in km/h.
+        """
         if not self.speeds:
             return 0.0
         return sum(self.speeds) / len(self.speeds)
     
     def add_speed_measurement(self, speed: float) -> None:
-        """Add a speed measurement to the running average."""
+        """
+        Add a speed measurement to the tracker.
+
+        Args:
+            speed (float): Speed value in km/h.
+
+        Returns:
+            None
+        """
         if speed > 0:  # Only add valid speeds
             self.speeds.append(speed)
             # Keep only recent measurements (last 10)
@@ -156,7 +217,19 @@ class KalmanBoxTracker:
 
 
 class Sort:
+    """
+    SORT tracker for managing multiple object trackers.
+
+    Handles detection-to-tracker association and lifecycle management.
+    """
+    
     def __init__(self, min_hits: int = 3):
+        """
+        Initialize the SORT tracker.
+
+        Args:
+            min_hits (int): Minimum detections before confirming a track.
+        """
         self.max_age = CONFIG.get("sort_max_age")
         self.min_hits = min_hits
         self.iou_threshold = CONFIG.get("sort_iou_threshold")
@@ -164,6 +237,15 @@ class Sort:
         self.frame_count = 0
 
     def update(self, dets: np.ndarray = np.empty((0, 5))) -> np.ndarray:
+        """
+        Update trackers with new detections.
+
+        Args:
+            dets (np.ndarray): Array of detections.
+
+        Returns:
+            np.ndarray: Active tracked objects with IDs.
+        """
         self.frame_count += 1
 
         predictions, dead_idx = [], []
@@ -199,7 +281,15 @@ class Sort:
         return np.concatenate(ret) if ret else np.empty((0, 5))
     
     def get_tracker_by_id(self, track_id: int) -> KalmanBoxTracker:
-        """Get tracker by ID for speed calculation."""
+        """
+        Retrieve a tracker by its ID.
+
+        Args:
+            track_id (int): Tracker ID.
+
+        Returns:
+            KalmanBoxTracker: Matching tracker, or None if not found.
+        """
         for tracker in self.trackers:
             if tracker.id == track_id:
                 return tracker

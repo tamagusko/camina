@@ -110,7 +110,6 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet, onMet
         el = el.parentElement;
       }
       parts.push(`window:${window.innerHeight}`);
-      console.info("[CAMINA] ancestor heights:", parts.join(" > "));
     }
     const map = new maplibregl.Map({
       container: containerRef.current,
