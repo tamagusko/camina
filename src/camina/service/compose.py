@@ -21,6 +21,7 @@ from typing import Callable, Iterable, Iterator
 
 import numpy as np
 
+from src.camina.core.counting import CountGate, Screenline
 from src.camina.service.camera import picamera2_frame_source
 from src.camina.service.detect_track import make_detect_and_track
 from src.camina.service.sensor_daemon import DaemonConfig, SensorDaemon
@@ -55,8 +56,8 @@ def compose(
             default ``picamera2_frame_source`` is Pi-only; CI tests inject
             in-memory generators.
         detect_factory: Callable building the ``detect_and_track`` closure.
-            Receives ``ncnn_model_path``, ``classes``, ``imgsz``, ``conf``
-            as kwargs. CI tests inject a no-op returning ``[]`` per frame.
+            Receives ``ncnn_model_path``, ``classes``, ``imgsz``, ``conf`` and
+            ``gate`` (a ``CountGate`` built from ``cfg``) as kwargs. CI tests inject a no-op returning ``[]`` per frame.
 
     Returns:
         A configured ``SensorDaemon``. The caller is responsible for
@@ -72,6 +73,10 @@ def compose(
         classes=cfg.classes,
         imgsz=imgsz,
         conf=conf,
+        gate=CountGate(
+            screenline=Screenline(*cfg.screenline) if cfg.screenline else None,
+            min_move=cfg.min_move,
+        ),
     )
     return SensorDaemon(
         config=cfg,

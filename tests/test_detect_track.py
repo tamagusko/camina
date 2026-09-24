@@ -247,3 +247,41 @@ def test_imgsz_mismatch_with_export_metadata_raises(
         detect_track.make_detect_and_track(
             ncnn_model_path=tmp_path, classes=CLASSES, imgsz=480
         )
+
+
+# ---------- Count gate ----------
+
+
+def _run(monkeypatch: pytest.MonkeyPatch, frames: list[_FakeBoxes], gate) -> list[tuple[str, str]]:
+    from src.camina.service import detect_track
+
+    monkeypatch.setattr(detect_track, "NcnnDetector", _fake_detector_factory(frames))
+    f = detect_track.make_detect_and_track(
+        ncnn_model_path="ignored", classes=CLASSES, imgsz=480, conf=0.3, gate=gate
+    )
+    frame = np.zeros((480, 480, 3), dtype=np.uint8)
+    seen: list[tuple[str, str]] = []
+    for _ in frames:
+        seen.extend(list(f(frame)))
+    return seen
+
+
+def _car_at(x: float) -> _FakeBoxes:
+    return _FakeBoxes(cls=[CLASSES.index("car")], conf=[0.9], xyxy=[[x, 200.0, x + 60.0, 240.0]])
+
+
+def test_with_a_gate_a_parked_car_is_never_yielded(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.camina.core.counting import CountGate
+
+    assert _run(monkeypatch, [_car_at(100.0)] * 20, CountGate(min_move=1.0)) == []
+
+
+def test_with_a_gate_a_moving_car_is_yielded_exactly_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.camina.core.counting import CountGate, Screenline
+
+    frames = [_car_at(20.0 * i) for i in range(20)]  # drives left to right across x = 240
+    gate = CountGate(screenline=Screenline((0.5, 0.0), (0.5, 1.0)))
+
+    seen = _run(monkeypatch, frames, gate)
+
+    assert len(seen) == 1 and seen[0][1] == "car" and seen[0][0].startswith("car-")

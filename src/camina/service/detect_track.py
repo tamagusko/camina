@@ -39,6 +39,7 @@ from typing import Callable, Iterable
 
 import numpy as np
 import yaml
+from src.camina.core.counting import CountGate
 from src.camina.core.tracker import Sort
 from src.camina.service.ncnn_detector import NcnnDetector
 from src.camina.utils.taxonomy import load_class_aliases
@@ -55,6 +56,7 @@ def make_detect_and_track(
     classes: list[str],
     imgsz: int = 640,
     conf: float = 0.3,
+    gate: CountGate | None = None,
 ) -> Callable[[np.ndarray], Iterable[tuple[str, str]]]:
     """Build a ``detect_and_track(frame)`` closure wiring YOLO NCNN -> Sort.
 
@@ -67,12 +69,15 @@ def make_detect_and_track(
         imgsz: Square YOLO inference size. Must match the NCNN export.
         conf: Confidence threshold; detections below this are dropped before
             the tracker.
+        gate: When set, yield each track once, on the frame it crosses the
+            screenline or has moved far enough (``CountGate``). When ``None``,
+            yield every confirmed track on every frame.
 
     Returns:
         A closure ``detect_and_track(frame)`` that runs YOLO inference,
         feeds boxes into per-class ``Sort`` trackers, and yields
         ``(track_id_str, class_name)`` tuples for each confirmed track on
-        the current frame.
+        the current frame, or only for the tracks ``gate`` counts.
 
     Raises:
         ValueError: when ``imgsz`` differs from the export's recorded size, or
@@ -91,14 +96,23 @@ def make_detect_and_track(
     def detect_and_track(frame: np.ndarray) -> Iterable[tuple[str, str]]:
         per_class_dets = _split_detections_by_class(detector(frame), n_model_classes, conf)
 
+        tracks: list[tuple[str, str, tuple[float, float, float, float]]] = []
         for model_idx, dets in per_class_dets.items():
             cls_idx = model_to_class[model_idx]
             class_name = classes[cls_idx]
             tracker = trackers[cls_idx]
             tracked = tracker.update(dets) if dets.size else tracker.update()
-            for row in tracked:
-                track_id_int = int(row[4])
-                yield (f"{class_name}-{track_id_int}", class_name)
+            for x1, y1, x2, y2, track_id in tracked:
+                tracks.append((f"{class_name}-{int(track_id)}", class_name, (x1, y1, x2, y2)))
+
+        if gate is None:
+            yield from ((key, class_name) for key, class_name, _ in tracks)
+            return
+        class_of = {key: class_name for key, class_name, _ in tracks}
+        size = (frame.shape[1], frame.shape[0])
+        for event in gate.step(((key, box) for key, _, box in tracks), size):
+            logger.debug("counted %s direction=%s", event.key, event.direction)
+            yield (event.key, class_of[event.key])
 
     return detect_and_track
 
