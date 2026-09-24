@@ -45,7 +45,7 @@ conf_threshold: 0.3
 #   a line drawn top to bottom, side A is the left. Draw it across the whole
 #   flow (road and pavements) and clear of parked cars; check it with
 #   scripts/view_detections.py --screenline.
-# - min_move: without a screenline, count a track once it has moved this many
-#   of its own box heights from where it was first seen.
+# - min_move: a track must also have moved this many of its own box heights
+#   from where it was first seen (both modes), so jitter on the line never counts.
 # screenline: [[0.65, 0.15], [0.65, 0.85]]
 min_move: 1.0
