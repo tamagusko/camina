@@ -45,7 +45,7 @@ uv venv && uv pip install -r requirements.txt pytest
 uv run pytest
 ```
 
-Running the daemon on a Pi: [docs/sensor_deployment.md](docs/sensor_deployment.md).
+Running the sensor on a Raspberry Pi 5: [docs/raspberry_pi_5.md](docs/raspberry_pi_5.md).
 
 Dashboard, with mock data (Node 20.11+):
 
@@ -67,7 +67,7 @@ scripts/run_dashboard.sh    # → http://localhost:3000/dublin
 
 ## Docs
 
-- [Deploying a sensor](docs/sensor_deployment.md)
+- [Raspberry Pi 5 setup](docs/raspberry_pi_5.md) and [sensor deployment details](docs/sensor_deployment.md)
 - [Simulation mode](docs/simulation.md)
 - [Training](docs/training_plan.md) and [evaluation](docs/evaluation_plan.md)
 - [Contributing and branches](CONTRIBUTING.md)

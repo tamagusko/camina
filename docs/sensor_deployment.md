@@ -4,70 +4,11 @@ Reproducible steps to bring a fresh Raspberry Pi 5 online as a CAMINA edge
 sensor. The daemon implements plan 01 (HTTPS ingest, windowed counting,
 offline buffer, remote config).
 
-## 1. Prerequisites
+## 1–5. Setting up a Pi
 
-- Raspberry Pi 5 (8 GB) running Raspberry Pi OS Bookworm 64-bit.
-- Camera connected via CSI or USB (tested with Camera Module 3 and
-  standard USB webcams).
-- Network (Ethernet or Wi-Fi) reachable to the CAMINA API host.
-- NTP enabled (`timedatectl` should show `NTP service: active`).
-
-## 2. Install
-
-```bash
-sudo adduser --system --group --home /opt/camina camina
-sudo -u camina git clone https://github.com/tamagusko/camina.git /opt/camina
-cd /opt/camina
-sudo -u camina python3 -m venv venv
-sudo -u camina ./venv/bin/pip install -r requirements.txt
-```
-
-## 3. Provision
-
-Per-device secrets and identifiers. Replace placeholders from the admin UI.
-
-```bash
-sudo install -m 0750 -o camina -g camina -d /etc/camina /var/lib/camina
-sudo -u camina cp configs/sensor.yaml /etc/camina/sensor.yaml
-sudo -u camina sed -i \
-    -e 's/^sensor_id:.*/sensor_id: cam-dub-01/' \
-    -e "s|^api_base_url:.*|api_base_url: https://camina.ucd.ie/api/ingest|" \
-    -e 's/^api_token:.*/api_token: <paste-from-admin-ui>/' \
-    -e 's|^state_db_path:.*|state_db_path: /var/lib/camina/state.db|' \
-    /etc/camina/sensor.yaml
-```
-
-`sensor.yaml` contains the per-device `api_token` — restrict it to `chmod 640`,
-owned by the `camina` service user, so it isn't world-readable:
-
-```bash
-sudo chmod 640 /etc/camina/sensor.yaml
-sudo chown camina:camina /etc/camina/sensor.yaml
-```
-
-## 4. Enable the service
-
-```bash
-sudo cp deploy/systemd/camina-sensor.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now camina-sensor.service
-journalctl -u camina-sensor.service -f
-```
-
-Expected first-boot log lines:
-
-    Sensor daemon starting for cam-dub-01
-    Applied new config version <hash> to sensor cam-dub-01
-    HTTPS POST /v1/sensors/cam-dub-01/heartbeat -> 200
-
-## 5. Verify from the admin UI
-
-Within a minute of starting the service, the sensor should:
-
-- Appear in `/admin/sensors` with a green "online" badge.
-- Receive a heartbeat record visible in the sensor detail page.
-- Accept an interval change from the admin form and reflect the new
-  `config_version` in its next heartbeat within one publish interval.
+Step-by-step install, configuration and service setup for a Raspberry Pi 5:
+[`raspberry_pi_5.md`](raspberry_pi_5.md). It uses the lightweight runtime profile
+(`requirements-pi.txt`: no PyTorch, no Ultralytics).
 
 ## 6. NCNN model export
 
