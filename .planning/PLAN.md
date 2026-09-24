@@ -62,6 +62,7 @@ Bar: TRA 2026 paper + slides (audit-2026-09-15/AUDIT.md Appendix, claims §4). R
 | **D11** | Funding wording | **Not funded** (PI, 2026-09-24; supersedes "REALLOCATE (EU grant 101103924)" of 2026-09-15) | No funding line in any live doc or deliverable; INTERREG and REALLOCATE claims removed from live docs; dated research snapshots and archives unchanged |
 | **D12** | M1 date | 2026-12-31 | TRL-6 2026-05-31 recorded as missed in STATE.md |
 | **D13** | Paper errata | Fix in the next paper, no erratum | Report corrected Table 1 mean/percentages and the v10n run there; not a code stage |
+| **D14** | Base model for the S13 retrain | YOLO26n as the default candidate, trained alongside YOLO11n on the same data (2026-09-24) | COCO test on `videos/test.mov`: 44 vs 169 static-prone person tracks, cars equal, ~9 % faster in NCNN; exports to NCNN with the default toolchain and runs in `NcnnDetector` unchanged. Pick the winner on held-out per-class AP, count error (`training/count_eval.py`) and Pi FPS |
 
 ## 4. Closed on 2026-09-15 (PI decision)
 
