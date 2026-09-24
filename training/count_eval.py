@@ -64,7 +64,7 @@ def write_header(path: Path, line: Screenline) -> None:
 def write_event(path: Path, frame: int, cls: str, direction: str) -> None:
     """Append one crossing."""
     with path.open("a", newline="") as f:
-        csv.writer(f).writerow([frame, cls, direction])
+        csv.writer(f, lineterminator="\n").writerow([frame, cls, direction])
 
 
 def start_pass(path: Path, cls: str) -> None:
@@ -101,7 +101,7 @@ def _read(path: Path) -> tuple[str, set[str], list[list[str]]]:
 def _write(path: Path, line: str, complete: set[str], rows: list[list[str]]) -> None:
     with path.open("w", newline="") as f:
         f.write(f"# screenline: {line}\n# complete: {' '.join(sorted(complete))}\n")
-        writer = csv.writer(f)
+        writer = csv.writer(f, lineterminator="\n")
         writer.writerow(["frame", "class", "direction"])
         writer.writerows(rows)
 

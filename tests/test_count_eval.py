@@ -40,6 +40,7 @@ def test_a_hand_count_file_round_trips(tmp_path: Path) -> None:
     assert line == LINE
     assert counts == Counter({("person", "AB"): 1, ("car", "BA"): 2})
     assert complete == {"car"}
+    assert b"\r" not in path.read_bytes()  # plain \n line endings, easy to edit by hand
 
 
 def test_starting_a_pass_replaces_that_class_only(tmp_path: Path) -> None:
