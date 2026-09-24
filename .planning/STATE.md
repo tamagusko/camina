@@ -1,18 +1,18 @@
 # STATE
-Version: 2.1 — 2026-09-15 — decisions D1–D13 recorded; 2.0 superseded old/2026-09-15-gsd/STATE.md
-Last verified: 2026-09-15 (audit: audit-2026-09-15/AUDIT.md)
+Version: 2.2 — 2026-09-24 — S1 merged to main (#21), open PRs #20–#27 merged, branch model main/dev/TRA2026; 2.1 (2026-09-15) recorded D1–D13
+Last verified: 2026-09-24 (merge of #20–#27; audit baseline: audit-2026-09-15/AUDIT.md)
 
 ## Current stage
-M1 / S1 — Paper model on main. Not started.
+M1 / S1 — **done** 2026-09-24 (#21): TRA 2026 9-class model on main at 640 (FP32 + FP16, byte-identical rebuild from the TRA2026 TorchScript). Next: S2 (CI) ∥ S3 ∥ S4.
 
 ## Verified working (dev host, 2026-09-15)
-- Edge: 144 pytest green; tracker → counter → daily → offline buffer → HTTPS publisher chain runs on tests/test.mov; payloads accepted by dashboard zod.
-- Dashboard: 89 vitest (after generating data/mock fixtures), tsc clean, mock build green (28 routes).
+- Edge (2026-09-24): 165 pytest green; daemon dry-run composes on the 9-class model (FP32 and FP16); tracker → counter → daily → offline buffer → HTTPS publisher chain runs on tests/test.mov; payloads accepted by dashboard zod.
+- Dashboard (2026-09-24): 94 vitest (after generating data/mock fixtures), tsc and ESLint clean, mock build green; street click → side panel verified in a WebGL browser.
 - systemd unit: Type=notify + WatchdogSec=300 + time-sync gate (never run on a Pi).
 - LoRa codec Python↔TS parity (not wired to the daemon).
 
 ## Blockers (in order)
-1. No loadable 9-class model on main (dry-run exits 1). Paper's NCNN model is on origin/TRA2026 — S1.
+1. ~~No loadable 9-class model on main~~ — resolved by S1 (#21, 2026-09-24).
 2. Live read path is a stub (streets-live.ts) and nothing provisions sensors/tokens — S4.
 3. Config handshake dead (routes echo client version) — S3.
 4. No CI — S2.

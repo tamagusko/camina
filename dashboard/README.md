@@ -5,6 +5,8 @@ Follows `../plan/02-dashboard-vercel.md` and `../DESIGN.md`.
 
 ## Quick start (mock data, no database)
 
+One command from the repo root does all of the below: `scripts/run_dashboard.sh`.
+
 ### 1. Install dependencies
 ```bash
 cd dashboard
@@ -12,19 +14,13 @@ pnpm install
 ```
 This installs all Node.js packages needed by Next.js 16 and the dashboard.
 
-### 2. Download map tiles
-```bash
-pnpm exec node scripts/download-dublin-tiles.mjs
-```
-Downloads ~60 MB of offline map tiles for Dublin (one-time setup). The tiles are cached in `dashboard/public/tiles/` so subsequent runs skip this step.
-
-### 3. Configure environment
+### 2. Configure environment
 ```bash
 cp .env.example .env.local
 ```
 Creates your local environment file. For local dev with **mock data**, the defaults in `.env.example` work as-is. Skip editing unless you're connecting to a live Postgres database.
 
-### 4. Start the dev server
+### 3. Start the dev server
 ```bash
 pnpm dev
 ```
@@ -34,7 +30,7 @@ Launches the Next.js dev server on `http://localhost:3000`, which redirects to `
 
 | Issue | Solution |
 |---|---|
-| **Map shows grey/blank** | Re-run `pnpm exec node scripts/download-dublin-tiles.mjs` and verify `dashboard/public/tiles/` contains `.mbtiles` files. |
+| **Map shows grey/blank** | The basemap is OpenFreeMap's Positron style, fetched live — check that `https://tiles.openfreemap.org` is reachable. Do not run `scripts/download-dublin-tiles.mjs` (deprecated: Carto now watermarks keyless tiles). |
 | **Port 3000 already in use** | `pnpm dev -- -p 3001` to use a different port. |
 | **Command not found: `pnpm`** | Install pnpm: `npm install -g pnpm` (or follow https://pnpm.io/installation). |
 

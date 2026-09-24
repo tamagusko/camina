@@ -19,7 +19,6 @@ uv run pytest tests/                              # 60 tests should pass
 # Dashboard (./dashboard)
 cd dashboard
 pnpm install
-pnpm exec node scripts/download-dublin-tiles.mjs  # one-time, ~60 MB
 cp .env.example .env.local
 pnpm dev                                          # → http://localhost:3000/dublin
 ```
@@ -55,7 +54,18 @@ One person per task. If you want to pair, coordinate first.
 
 ## Branches & commits
 
-- Branch from `main`: `feat/<short>`, `fix/<short>`, `docs/<short>`, `test/<short>`, `chore/<short>`.
+| Branch | Role | Rules |
+|---|---|---|
+| `main` | Stable. What deployments and citations point at. | Changes arrive only as a PR from `dev` (a release) or from a `hotfix/*` branch. Tagged `vX.Y.Z` on release. |
+| `dev` | Integration. Where work lands first. | Feature branches start here and come back here by PR. |
+| `TRA2026` | Frozen snapshot of the code behind the TRA 2026 paper. | Never merged, never rewritten. |
+| `feat/*`, `fix/*`, `docs/*`, `test/*`, `chore/*` | One piece of work. | Branch **from `dev`**, PR **into `dev`**; deleted automatically on merge. |
+| `hotfix/*` | An urgent fix to `main`. | Branch from `main`, PR into `main`, then merge `main` back into `dev`. |
+
+- Keep your branch current with `git rebase dev`; PRs merge with a merge commit (no squash), so the
+  branch history stays readable.
+- Data does not enter `dev` or `main` until it has been audited (label check, licence, privacy).
+
 - **Conventional Commits** — scope is optional but helpful:
   - `feat(dashboard): add keyboard shortcuts to map`
   - `fix(edge): guard WindowedCounter against DST rollover`
@@ -136,6 +146,7 @@ pnpm exec playwright test --ui        # E2E with browser
 pnpm lint                             # eslint + tsc
 
 # Git
+git switch dev && git pull
 git switch -c feat/<name>
 git commit -m "feat(scope): message"
 git push -u origin feat/<name>
