@@ -1,0 +1,33 @@
+# screenline: 0.5 0.0 0.5 1.0
+# complete: SUV bus car cyclist delivery_van e-scooter motorcyclist person truck
+frame,class,direction
+257,person,BA
+295,person,BA
+332,person,BA
+362,person,BA
+2464,person,BA
+3062,person,AB
+3163,person,AB
+5184,cyclist,AB
+300,car,AB
+392,car,AB
+2360,car,AB
+2546,car,AB
+2739,car,AB
+2857,car,AB
+3005,car,AB
+3035,car,BA
+3094,SUV,BA
+3156,car,AB
+3558,car,BA
+3602,car,AB
+3776,car,AB
+3985,car,BA
+4070,car,BA
+4162,car,BA
+4726,car,BA
+5131,car,AB
+3396,SUV,BA
+4444,SUV,BA
+3692,delivery_van,BA
+4308,delivery_van,BA
