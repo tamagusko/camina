@@ -20,7 +20,7 @@ uv venv && uv pip install -r requirements.txt          # dev: tests, training, e
 .venv/bin/ruff check . && .venv/bin/ruff format .      # PEP 8 (config in pyproject.toml)
 .venv/bin/python -m camina --config configs/sensor.yaml --dry-run   # the sensor entry point
 scripts/view_detections.py --video videos/test.mov --out /tmp/o.mp4 --screenline 0.65 0.15 0.65 0.72
-scripts/hand_count.py --video videos/test.mov --class person --out videos/test.counts.csv   # ground truth, one class per pass
+scripts/hand_count.py --video videos/test.mov --screenline 0.65 0.15 0.65 0.72 --out videos/test.counts.csv   # ground truth: every class left, one pass each
 .venv/bin/python -m training.count_eval --video videos/test.mov --truth videos/test.counts.csv   # count error (S7)
 
 # Pi runtime profile — what the device installs (docs/raspberry_pi_5.md)

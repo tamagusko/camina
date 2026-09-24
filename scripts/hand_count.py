@@ -3,18 +3,25 @@
 
 Plays the clip with the screenline and its A and B sides drawn. Watch one class
 only; each time one crosses the line, press ``a`` if it went from A to B, ``b``
-if from B to A. Crossings are saved as you press. The pass is marked complete
-only when the clip plays to the end; running a class again replaces its earlier
-crossings. Do one pass per class, into the same file.
+if from B to A. Crossings are saved as you press. A pass is marked complete only
+when the clip plays to the end; redoing a class replaces its earlier crossings.
+
+Without ``--class`` it runs one pass for every class not yet complete, in
+``configs/classes.yaml`` order; each pass starts paused. ``q`` stops the session,
+and the next run picks up at the first class left.
 
     a  A -> B      b  B -> A      u  undo last
     space  pause/play      , .  step back/forward (paused)
-    [ ]  slower/faster     q    quit (the pass stays incomplete)
+    [ ]  slower/faster     q    quit (this pass stays incomplete)
 
 Usage::
 
-    python scripts/hand_count.py --video videos/test.mov --class person \\
+    # every class left, one after another
+    python scripts/hand_count.py --video videos/test.mov \\
         --screenline 0.65 0.15 0.65 0.72 --out videos/test.counts.csv
+
+    # redo one class
+    python scripts/hand_count.py --video videos/test.mov --class car --out videos/test.counts.csv
 
 ``--screenline`` is needed only for a new file. Then compare the sensor with
 it: ``python -m training.count_eval --video videos/test.mov --truth videos/test.counts.csv``.
@@ -69,51 +76,38 @@ def _draw(frame: np.ndarray, line: Screenline, top: str, bottom: str) -> np.ndar
     return img
 
 
-def main() -> int:
-    """Run one counting pass for one class."""
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--video", type=Path, required=True)
-    ap.add_argument("--class", dest="cls", required=True, choices=load_canonical_classes())
-    ap.add_argument("--screenline", type=float, nargs=4, metavar=("X1", "Y1", "X2", "Y2"))
-    ap.add_argument("--out", type=Path, required=True, help="hand-count CSV (created or extended)")
-    args = ap.parse_args()
-
-    if not args.out.exists():
-        if not args.screenline:
-            ap.error("--screenline is required for a new file")
-        write_header(args.out, Screenline(tuple(args.screenline[:2]), tuple(args.screenline[2:])))
-    start_pass(args.out, args.cls)
-    line, _, _ = read_truth(args.out)
-    logger.info("Counting %s. Keys: %s", args.cls, LEGEND)
-
-    cap = cv2.VideoCapture(str(args.video))
+def _count_pass(video: Path, out: Path, cls: str, line: Screenline, header: str) -> bool:
+    """One pass over the whole clip for ``cls``; True if it reached the end."""
+    start_pass(out, cls)
+    logger.info("%s: counting %s. Keys: %s", header, cls, LEGEND)
+    cap = cv2.VideoCapture(str(video))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    n, speed, paused, last = 0, 1.0, False, ""
+    n, speed, paused, last = 0, 1.0, True, "press space to start"
     ab = ba = 0
     ok, frame = cap.read()
     while ok:
-        top = f"{args.cls}:  A to B {ab}   B to A {ba}   {last}"
+        top = f"{header}  {cls}:  A to B {ab}   B to A {ba}   {last}"
         bottom = f"{n}/{total}  {n / fps:5.1f}s  x{speed:g}{'  PAUSED' if paused else ''}"
         cv2.imshow("hand count", _draw(frame, line, top, bottom))
         key = cv2.waitKey(0 if paused else max(1, int(1000 / (fps * speed)))) & 0xFF
         ch = chr(key) if key < 128 else ""
 
         if ch == "q" or key == 27:
-            break
+            logger.info("%s stopped at frame %d: pass incomplete", cls, n)
+            return False
         if ch in ("a", "b"):
             direction = "AB" if ch == "a" else "BA"
-            write_event(args.out, n, args.cls, direction)
+            write_event(out, n, cls, direction)
             ab, ba = ab + (ch == "a"), ba + (ch == "b")
             last = f"+ {direction} @ {n}"
         elif ch == "u" and ab + ba:
-            *_, direction = args.out.read_text().splitlines()[-1].split(",")
-            _undo_last(args.out)
+            *_, direction = out.read_text().splitlines()[-1].split(",")
+            _undo_last(out)
             ab, ba = ab - (direction == "AB"), ba - (direction == "BA")
             last = f"undid {direction}"
         elif ch == " ":
-            paused = not paused
+            paused, last = not paused, ""
         elif ch == "[":
             speed = max(0.125, speed / 2)
         elif ch == "]":
@@ -126,13 +120,39 @@ def main() -> int:
         elif not paused:
             ok, frame = cap.read()
             n += 1
-    cv2.destroyAllWindows()
 
-    if not ok:
-        mark_complete(args.out, args.cls)
-        logger.info("%s complete: A to B %d, B to A %d -> %s", args.cls, ab, ba, args.out)
-    else:
-        logger.info("%s stopped at frame %d: pass incomplete, run it again", args.cls, n)
+    mark_complete(out, cls)
+    logger.info("%s complete: A to B %d, B to A %d", cls, ab, ba)
+    return True
+
+
+def main() -> int:
+    """Count one class, or every class not yet complete, one pass each."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    classes = load_canonical_classes()
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--video", type=Path, required=True)
+    ap.add_argument(
+        "--class", dest="cls", choices=classes, help="count (or redo) one class; default: all left"
+    )
+    ap.add_argument("--screenline", type=float, nargs=4, metavar=("X1", "Y1", "X2", "Y2"))
+    ap.add_argument("--out", type=Path, required=True, help="hand-count CSV (created or extended)")
+    args = ap.parse_args()
+
+    if not args.out.exists():
+        if not args.screenline:
+            ap.error("--screenline is required for a new file")
+        write_header(args.out, Screenline(tuple(args.screenline[:2]), tuple(args.screenline[2:])))
+    line, _, complete = read_truth(args.out)
+    todo = [args.cls] if args.cls else [c for c in classes if c not in complete]
+    if not todo:
+        logger.info("Every class in %s is complete; use --class to redo one", args.out)
+    for i, cls in enumerate(todo, 1):
+        if not _count_pass(args.video, args.out, cls, line, f"[{i}/{len(todo)}]"):
+            break
+    cv2.destroyAllWindows()
+    _, _, complete = read_truth(args.out)
+    logger.info("Complete: %s", ", ".join(c for c in classes if c in complete) or "none")
     return 0
 
 
