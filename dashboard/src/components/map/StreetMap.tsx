@@ -25,6 +25,10 @@ import { useMapQuery, type Viewport } from "./useMapQuery";
 // the production path this component's `pmtilesUrl` prop is reserved for.
 const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 
+// MapLibre GL 6 cannot locate its worker once bundled; the worker is served
+// from public/ (scripts/copy-maplibre-worker.mjs runs before dev and build).
+const MAPLIBRE_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
+
 
 interface Props {
   city: string;
@@ -111,6 +115,7 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet, onMet
       }
       parts.push(`window:${window.innerHeight}`);
     }
+    maplibregl.setWorkerUrl(MAPLIBRE_WORKER_URL);
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: BASEMAP_STYLE_URL,

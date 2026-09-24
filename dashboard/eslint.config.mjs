@@ -13,6 +13,7 @@ const config = [
       "playwright-report/**",
       "test-results/**",
       "next-env.d.ts",
+      "public/maplibre/**", // vendored MapLibre worker, copied from node_modules
     ],
   },
   ...coreWebVitals,
