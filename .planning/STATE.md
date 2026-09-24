@@ -26,7 +26,7 @@ M1 / S1 — **done** 2026-09-24 (#21): TRA 2026 9-class model on main at 640 (FP
 - Slides roadmap Apr/May/Jun/Sep 2026: none met. Fleet re-baselined to 5–10 units in M2 (D4).
 
 ## Decisions (2026-09-15, PLAN.md §3)
-D1 LoRa → M2 optional · D2 speed → implement (S7b) · D3 → screenline + direction · D4 → M2 = 5–10 units · D5 → full admin console (S11) · D6 → OAuth before first deploy (S5) · D7 → publish BOM · D8 → Dublin; dataset merge with Roboflow v3 reference · D9 → DPIA-lite + statement + signage · D10 → SD card · D11 → REALLOCATE (EU grant 101103924) · D12 → 2026-12-31 · D13 → fix in next paper.
+D1 LoRa → M2 optional · D2 speed → implement (S7b) · D3 → screenline + direction · D4 → M2 = 5–10 units · D5 → full admin console (S11) · D6 → OAuth before first deploy (S5) · D7 → publish BOM · D8 → Dublin; dataset merge with Roboflow v3 reference · D9 → DPIA-lite + statement + signage · D10 → SD card · D11 → not funded (revised 2026-09-24) · D12 → 2026-12-31 · D13 → fix in next paper.
 Closed items: PLAN.md §4.
 
 ## Next action

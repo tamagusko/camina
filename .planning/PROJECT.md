@@ -4,7 +4,7 @@ Version: 2.1 — 2026-09-15 — decisions D1–D13 recorded; 2.0 superseded old/
 
 ## What This Is
 
-CAMINA is a privacy-first traffic-sensor network: a fine-tuned 9-class YOLO11n detector (the TRA 2026 model, currently on `origin/TRA2026`, brought to `main` in PLAN.md S1) designed to run on Raspberry Pi 5 8GB at street level, tracking road users with a custom Kalman + Hungarian-assignment tracker, accumulating windowed counts on-device, and publishing aggregates to a Next.js dashboard where streets are colour-coded by count or speed. Built for academic research at UCD Dublin, funded by REALLOCATE (EU grant 101103924), as a TRL-6 demonstration of edge ML for urban mobility, with strict GDPR-aligned privacy guarantees (no exact sensor GPS ever exposed publicly).
+CAMINA is a privacy-first traffic-sensor network: a fine-tuned 9-class YOLO11n detector (the TRA 2026 model, currently on `origin/TRA2026`, brought to `main` in PLAN.md S1) designed to run on Raspberry Pi 5 8GB at street level, tracking road users with a custom Kalman + Hungarian-assignment tracker, accumulating windowed counts on-device, and publishing aggregates to a Next.js dashboard where streets are colour-coded by count or speed. Built for academic research at UCD Dublin (not funded) as a TRL-6 demonstration of edge ML for urban mobility, with strict GDPR-aligned privacy guarantees (no exact sensor GPS ever exposed publicly).
 
 ## Core Value
 
@@ -35,7 +35,7 @@ The requirement lists that used to live here (Validated / Active / by milestone)
 
 ## Context
 
-- **Funding:** REALLOCATE (EU grant 101103924), as credited in the TRA 2026 paper and slides; confirmed by the PI on 2026-09-15 (D11). Earlier project docs said INTERREG and were corrected. Audience: researchers and municipal collaborators, not the general public or industry.
+- **Funding:** none — the project is not funded (PI, 2026-09-24, D11 revised). Earlier docs credited INTERREG, then REALLOCATE (EU grant 101103924); both removed from live docs.
 - **Solo developer**: one researcher (Tiago Tamagusko) driving implementation. Planning pace and review depth must accommodate solo cognitive load.
 - **Hardware on hand** (as recorded 2026-04-23; re-confirm for S6): Raspberry Pi 5 8GB + camera. No Pi run has been recorded yet (AUDIT.md §1, "Field / soak evidence — MISSING"). LoRa module and region/frequency not yet confirmed — see D1.
 - **LoRaWAN network**: Assumes The Things Network coverage in Dublin or a self-hosted gateway near the deployment site; needs verification if D1 keeps LoRa.

@@ -1,105 +1,63 @@
-# CAMINA – Citizen-led Automated Modal INfrastructure Analytics
+# CAMINA
 
-**CAMINA** is a lightweight, privacy-first, edge-deployable traffic-sensor network. A Raspberry Pi 5 is designed to run the fine-tuned 9-class YOLO11n detector (**CAMINAv1**, NCNN — the TRA 2026 model) with a custom Kalman + Hungarian tracker, aggregating counts into 15-minute windows **on-device** (no image or video ever stored or uploaded), and publishing them over HTTPS to a public dashboard that colour-codes Dublin streets by count and speed. Bringing CAMINAv1 to `main` is `.planning/PLAN.md` S1.
+**Citizen-led Automated Modal INfrastructure Analytics** — a privacy-first traffic sensor.
+A Raspberry Pi counts nine road-user classes on-device and publishes only the counts to a
+public map of Dublin. No image or video is stored or uploaded.
 
-Research at UCD Spatial Dynamics Lab, funded by REALLOCATE (EU grant 101103924). Status and targets: `.planning/STATE.md` (M1 target 2026-12-31).
-
----
+Research prototype, UCD Spatial Dynamics Lab. No unit is deployed on a street yet; the plan
+is in [`.planning/PLAN.md`](.planning/PLAN.md), current status in
+[`.planning/STATE.md`](.planning/STATE.md).
 
 ## How it works
 
 ```
-Pi Camera 3 → YOLO11 NCNN → per-class Kalman/Hungarian tracker
-   → WindowedCounter (15-min UTC windows) → DailyAccumulator (SQLite)
-   → HttpsPublisher (+ SQLite offline outbox) → dashboard ingest API
-   → Neon Postgres → Next.js public map (Dublin)
+Pi camera → YOLO11n (NCNN) → tracker → 15-min counts → HTTPS → dashboard
 ```
 
-- **Transports:** Wi-Fi/HTTPS (primary). LoRaWAN via TTN exists as a tested prototype (20-byte schema-v2 binary uplink + webhook ingest, `docs/lora.md`) but is not deployed — optional in M2 (`.planning/PLAN.md` D1). Cellular works as HTTPS over a cellular bearer — the edge code is bearer-agnostic, no code change needed.
-- **Privacy:** fully edge-processed, counts only; public UI never exposes sensor GPS; k-anonymity floor; right-to-erasure via DB cascade. GDPR-first by design.
+- **Detector:** the 9-class YOLO11n from the TRA 2026 paper — person, cyclist, car,
+  e-scooter, SUV, motorcyclist, bus, delivery van, truck. FP32 and FP16 NCNN exports in
+  [`models/`](models/), provenance in each folder's `PROVENANCE.md`.
+- **Privacy:** counts only; the public map never shows sensor locations; counts below 5
+  are suppressed.
 
-## 📁 Directory structure
+## Quick start
 
-```
-camina/
-├── scripts/
-│   ├── run_sensor.py           # Production entry point (edge daemon CLI)
-│   ├── generate_mock_dublin.py # 8-sensor Dublin simulation fixtures
-│   ├── calibrate_camera.py     # Camera calibration (pixels_per_meter)
-│   ├── train/                  # Fine-tuning scripts + configs
-│   └── data_processing/        # Dataset utilities
-├── src/
-│   ├── camina/
-│   │   ├── core/               # WindowedCounter, DailyAccumulator, tracker
-│   │   ├── io/                 # HttpClient, HttpsPublisher, OfflineBuffer, ConfigPoller
-│   │   ├── service/            # SensorDaemon, camera, detect_track, compose
-│   │   └── utils/              # Config loader, depth calibration
-│   └── utils/                  # NCNN export CLI (export_ncnn.py)
-├── configs/                    # sensor.yaml (daemon), classes.yaml, main_config.yaml
-├── dashboard/                  # Next.js 16 dashboard (pnpm; see dashboard/)
-├── deploy/systemd/             # camina-sensor.service unit
-├── models/                     # Model weights + NCNN exports (6-class warm-up today; CAMINAv1 in PLAN.md S1)
-├── custom_model_train/         # Training pipeline (labeling, training, evaluation)
-├── docs/                       # Deployment, simulation, training/eval plans, protocol
-├── tests/                      # pytest suite (edge)
-├── archive/                    # Legacy code kept for reference (not maintained)
-└── .planning/                  # Staged plan, project state, audit
-```
-
-## 🔧 Installation (edge)
-
-Python 3.10+, [`uv`](https://docs.astral.sh/uv/) preferred:
+Edge (Python 3.10+):
 
 ```bash
-git clone https://github.com/your-username/camina.git
-cd camina
-uv pip install -r requirements.txt   # or: pip install -r requirements.txt
-uv run pytest                        # verify: all tests green
+git clone https://github.com/tamagusko/camina.git && cd camina
+uv venv && uv pip install -r requirements.txt pytest
+uv run pytest
 ```
 
-### Models
+Running the daemon on a Pi: [docs/sensor_deployment.md](docs/sensor_deployment.md).
 
-- `models/20250629_warmup_best.pt` (+ NCNN export `models/20250629_warmup_best_ncnn_model/`) is a 6-class warm-up model, not CAMINAv1. The 9-class CAMINAv1 NCNN export (TRA 2026) lives on `origin/TRA2026` until it is brought to `main` (`.planning/PLAN.md` S1).
-- Re-export for Pi: `uv run python -m src.utils.export_ncnn --help` (validates the class taxonomy; see `docs/sensor_deployment.md`)
-- Base YOLO11n for comparison: `wget -O models/yolo11n.pt https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt`
-
-## 🚀 Usage
-
-Edge daemon (production):
+Dashboard, with mock data (Node 20.11+):
 
 ```bash
-uv run python scripts/run_sensor.py --config /etc/camina/sensor.yaml   # --dry-run to validate
+scripts/run_dashboard.sh    # → http://localhost:3000/dublin
 ```
 
-Configuration lives in `configs/sensor.yaml` (sensor ID, API base URL, token, publish interval — dynamic settings are meant to hot-reload via the config poller; the server-side fix is pending, `.planning/PLAN.md` S3). Deployment via systemd: `deploy/systemd/camina-sensor.service`.
+## Repository
 
-Dashboard (see `dashboard/`):
+| Path | Contents |
+|---|---|
+| `src/camina/` | Edge daemon: tracker, counters, offline buffer, publisher |
+| `dashboard/` | Next.js dashboard and ingest API |
+| `models/` | CAMINAv1 NCNN models |
+| `custom_model_train/` | Training pipeline |
+| `configs/` | Sensor and class configuration |
+| `deploy/` | systemd unit |
+| `docs/` | Deployment, protocol, simulation, training |
 
-```bash
-pnpm -C dashboard install
-pnpm -C dashboard dev   # mock mode by default (CAMINA_DATA_SOURCE=live for live)
-```
+## Docs
 
-Simulation fixtures (8 Dublin sensors: UCD + city-centre corridor, LoRa/WiFi/cellular mix):
-
-```bash
-python scripts/generate_mock_dublin.py   # regenerates data/mock/dublin/; see docs/simulation.md
-```
-
-## 🧪 Tests
-
-- Edge: `uv run pytest` (pytest)
-- Dashboard: `pnpm -C dashboard exec vitest run` (unit incl. binding privacy-regression test) + Playwright e2e
-
-## 📚 Documentation
-
-- `docs/sensor_deployment.md` — Pi deployment + NCNN export
-- `docs/simulation.md` — 8-sensor Dublin simulation mode
-- `docs/training_plan.md` / `docs/evaluation_plan.md` — model retraining + per-class evaluation
-- `docs/RECONCILIATION.md`, `docs/PROTOCOL.md` — data-integrity design
-- `.planning/` — staged plan (`PLAN.md`), project state (`STATE.md`), 2026-09-15 audit
-- `archive/` — legacy single-app counter and experiments (unmaintained, kept for reference)
+- [Deploying a sensor](docs/sensor_deployment.md)
+- [Simulation mode](docs/simulation.md)
+- [Training](docs/training_plan.md) and [evaluation](docs/evaluation_plan.md)
+- [Contributing and branches](CONTRIBUTING.md)
 
 ## License
 
-See `LICENSE`.
+Code: [MIT](LICENSE). The models in `models/` were trained and exported with
+Ultralytics YOLO and carry its AGPL-3.0 licence (see each `metadata.yaml`).

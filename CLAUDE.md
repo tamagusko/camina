@@ -2,7 +2,7 @@
 
 ## Project — CAMINA
 
-Privacy-first traffic-sensor network. Fine-tuned 9-class YOLO11n (NCNN) on Raspberry Pi 5 8GB — the TRA 2026 model lives on `origin/TRA2026` and is being brought to `main` (PLAN.md S1). Research at UCD Spatial Dynamics Lab, funded by REALLOCATE (EU grant 101103924). TRL-6 target 2026-05-31 was missed; M1 re-baselined to 2026-12-31 (PLAN.md D12).
+Privacy-first traffic-sensor network. Fine-tuned 9-class YOLO11n (NCNN) on Raspberry Pi 5 8GB — the TRA 2026 model, on `main` since S1 (FP32 + FP16 in `models/`). Research at UCD Spatial Dynamics Lab; the project is not funded. TRL-6 target 2026-05-31 was missed; M1 re-baselined to 2026-12-31 (PLAN.md D12).
 
 **Core value:** one Pi on one real Dublin street, counting nine road-user classes, feeding a live public dashboard — demonstrably privacy-preserving, lightweight, reproducible.
 

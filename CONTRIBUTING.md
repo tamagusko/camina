@@ -1,6 +1,6 @@
 # Contributing to CAMINA
 
-Welcome. CAMINA is a privacy-first traffic-sensor network — Raspberry Pi sensors feeding a Next.js dashboard that colour-codes Dublin streets by count and speed. TRL-6 demo target: **2026-05-31**.
+Welcome. CAMINA is a privacy-first traffic-sensor network — Raspberry Pi sensors feeding a Next.js dashboard that colour-codes Dublin streets by count and speed. Status and milestones: [`.planning/STATE.md`](./.planning/STATE.md).
 
 This doc is the ground rules. Pair it with [`TODO.md`](./TODO.md) to pick up work.
 
