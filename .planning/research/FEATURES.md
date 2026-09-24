@@ -1,5 +1,7 @@
 # Feature Research
 
+> Status 2026-09-15: kept from the 2026-04-23 GSD research; dates/phase references are stale — PRIV gaps carried into PLAN.md S8.
+
 **Domain:** Privacy-first edge-CV traffic-sensor network for academic research (TRL-6, single-sensor Dublin deployment)
 **Researched:** 2026-04-23
 **Confidence:** HIGH for competitor/table-stakes items (multiple independent sources: Telraam, Vivacity, Numina, Miovision, Helsinki Open Data, TU Delft UMO, ICO ANPR guidance). MEDIUM for GDPR-interpretation and INTERREG-specific academic norms (primarily official ICO + smart-city literature, not CAMINA-specific legal review).

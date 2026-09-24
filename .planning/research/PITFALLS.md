@@ -1,5 +1,7 @@
 # Pitfalls Research
 
+> Status 2026-09-15: kept from the 2026-04-23 GSD research; dates/phase references are stale — pitfalls now map to PLAN.md S6/S8/S9.
+
 **Domain:** Privacy-first edge-CV + LoRaWAN + serverless dashboard (academic TRL-6 demo)
 **Researched:** 2026-04-23
 **Confidence:** HIGH (verified against current Raspberry Pi, TTN, Neon, and Vercel docs; 3 pitfalls pulled directly from `.planning/codebase/CONCERNS.md`)

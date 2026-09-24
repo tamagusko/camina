@@ -1,5 +1,7 @@
 # Coding Conventions
 
+> Status 2026-09-15: kept from the 2026-04-23 GSD research; dates/phase references are stale — layout references may be stale; see audit-2026-09-15/AUDIT.md.
+
 **Analysis Date:** 2026-04-23
 
 CAMINA has two code surfaces with different conventions:
