@@ -60,6 +60,7 @@ def test_canonical_is_nine_classes_no_dupes_contiguous() -> None:
 
 def test_canonical_matches_export_constant() -> None:
     """The YAML SSOT must not drift from the in-code mirror in export_ncnn."""
+    pytest.importorskip("ultralytics")  # export_ncnn is a dev-only tool
     from src.utils import export_ncnn
 
     assert export_ncnn.CAMINAV1_CLASSES == ct.load_canonical_classes()
@@ -112,12 +113,14 @@ def test_assert_raises_for_legacy_six_class_with_missing_list() -> None:
 
 
 def test_export_guard_accepts_canonical_names() -> None:
+    pytest.importorskip("ultralytics")  # export_ncnn is a dev-only tool
     from src.utils import export_ncnn
 
     export_ncnn._verify_canonical_taxonomy(CANONICAL)  # no raise
 
 
 def test_export_guard_rejects_legacy_six_class() -> None:
+    pytest.importorskip("ultralytics")  # export_ncnn is a dev-only tool
     from src.utils import export_ncnn
 
     legacy = ["bus", "car", "cyclist", "motorcycle", "person", "truck"]
@@ -127,6 +130,7 @@ def test_export_guard_rejects_legacy_six_class() -> None:
 
 
 def test_export_guard_rejects_unmapped_name() -> None:
+    pytest.importorskip("ultralytics")  # export_ncnn is a dev-only tool
     from src.utils import export_ncnn
 
     with pytest.raises(SystemExit) as exc:

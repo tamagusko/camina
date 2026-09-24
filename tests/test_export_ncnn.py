@@ -13,6 +13,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# The export CLI needs Ultralytics; the Pi runtime profile (requirements-pi.txt)
+# does not install it, so this module only runs on a dev machine.
+pytest.importorskip("ultralytics")
+
 
 @pytest.fixture(autouse=True)
 def _smoke_passes(monkeypatch: pytest.MonkeyPatch) -> None:
