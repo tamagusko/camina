@@ -285,3 +285,25 @@ def test_with_a_gate_a_moving_car_is_yielded_exactly_once(monkeypatch: pytest.Mo
     seen = _run(monkeypatch, frames, gate)
 
     assert len(seen) == 1 and seen[0][1] == "car" and seen[0][0].startswith("car-")
+
+
+def test_a_vehicle_flickering_between_car_and_suv_is_counted_once_as_its_majority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One vehicle, detected as car on 2 of 3 frames and SUV on the rest, is one
+    track: counted once, as car. With a tracker per class it was counted twice."""
+    from src.camina.core.counting import CountGate, Screenline
+
+    frames = [
+        _FakeBoxes(
+            cls=[CLASSES.index("SUV") if i % 3 == 0 else CLASSES.index("car")],
+            conf=[0.9],
+            xyxy=[[20.0 * i, 200.0, 20.0 * i + 60.0, 240.0]],
+        )
+        for i in range(20)
+    ]
+    gate = CountGate(screenline=Screenline((0.5, 0.0), (0.5, 1.0)))
+
+    seen = _run(monkeypatch, frames, gate)
+
+    assert [cls for _, cls in seen] == ["car"]

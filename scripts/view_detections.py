@@ -35,7 +35,7 @@ from src.camina.core.counting import CountGate, Screenline
 from src.camina.core.tracker import Sort
 from src.camina.service.detect_track import (
     _map_model_classes,
-    _split_detections_by_class,
+    _to_canonical,
 )
 from src.camina.service.ncnn_detector import NcnnDetector
 from src.camina.utils.taxonomy import load_canonical_classes
@@ -102,10 +102,10 @@ def main() -> int:
     detector = NcnnDetector(args.model, imgsz=640, conf=args.conf)
     model_names = [detector.names[i] for i in sorted(detector.names)]
     to_class = _map_model_classes(model_names, classes)
-    trackers = {i: Sort() for i in range(len(classes))}
+    tracker = Sort()  # one tracker, class by majority vote, as in the daemon
     line = Screenline(tuple(args.screenline[:2]), tuple(args.screenline[2:])) if args.screenline else None
     gate = CountGate(screenline=line, min_move=args.min_move)
-    seen: dict[int, set[int]] = {i: set() for i in range(len(classes))}   # every confirmed track (old rule)
+    seen: dict[int, int] = {}  # every confirmed track -> its latest class (old rule: count all)
     counted: dict[int, dict[str, int]] = {i: {} for i in range(len(classes))}  # direction -> n
     counted_keys: set[str] = set()
 
@@ -128,13 +128,12 @@ def main() -> int:
             break
         dets = detector(frame)
         tracks = []
-        for m_idx, d in _split_detections_by_class(dets, len(model_names), args.conf).items():
-            c = to_class[m_idx]
-            for x1, y1, x2, y2, tid in (trackers[c].update(d) if d.size else trackers[c].update()):
-                seen[c].add(int(tid))
-                tracks.append((c, int(tid), (x1, y1, x2, y2)))
-        for ev in gate.step(((f"{c}-{tid}", box) for c, tid, box in tracks), (w, h)):
-            c = int(ev.key.split("-")[0])
+        for x1, y1, x2, y2, tid, c in tracker.update(_to_canonical(dets, to_class, len(model_names), args.conf)):
+            seen[int(tid)] = int(c)
+            tracks.append((int(c), int(tid), (x1, y1, x2, y2)))
+        class_of = {str(tid): c for c, tid, _ in tracks}
+        for ev in gate.step(((str(tid), box) for _, tid, box in tracks), (w, h)):
+            c = class_of[ev.key]
             direction = ev.direction or "moved"
             counted[c][direction] = counted[c].get(direction, 0) + 1
             counted_keys.add(ev.key)
@@ -150,7 +149,7 @@ def main() -> int:
             _screenline(draw, line, W, H, label_font, width=lw)
         for c, tid, (x1, y1, x2, y2) in tracks:
             box = (x1 * k, y1 * k, x2 * k, y2 * k)
-            if f"{c}-{tid}" in counted_keys:
+            if str(tid) in counted_keys:
                 draw.rounded_rectangle(box, radius=3 * k, outline=COLOURS[c] + (255,), width=lw)
                 _pill(draw, (box[0], box[1]), f"{classes[c]} {tid}", label_font, pad=4 * k)
             else:
@@ -179,7 +178,7 @@ def main() -> int:
     elapsed = time.perf_counter() - started
     logger.info("Wrote %s: %d frames in %.0f s", args.out, n, elapsed)
     logger.info("Confirmed tracks (every track counted): %s",
-                {classes[c]: len(ids) for c, ids in seen.items() if ids})
+                {classes[c]: n for c in range(len(classes)) if (n := sum(v == c for v in seen.values()))})
     logger.info("Counted (%s): %s", "screenline" if line else f"moved >= {args.min_move} box heights",
                 {classes[c]: d for c, d in counted.items() if d})
     if args.play:

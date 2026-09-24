@@ -7,12 +7,12 @@ PyPI package) into a single ``detect_and_track(frame)`` callable that yields
 
 Design notes:
 
-- One ``Sort`` instance per class. Each ``Sort`` only tracks bboxes that came
-  from one detector class, so its integer track-ids are class-scoped. We
-  prefix the emitted track-id string with the class name (``"car-7"``) so two
-  classes can never collide on the same string key in ``WindowedCounter``.
-- Confidence is filtered before the tracker (Test 2). ``Sort`` itself does
-  not consult confidence.
+- One ``Sort`` for all classes. Association ignores the class, so a detector
+  that flips a vehicle between car and SUV keeps one track (it used to be
+  counted once per class); the track's class is its confidence-weighted
+  majority vote. The emitted id is ``"<class>-<int>"`` (``"car-7"``).
+- Confidence is filtered before the tracker; ``Sort`` uses it only to
+  weight class votes.
 - Class indices outside the model's ``0..len(names)-1`` raise ``ValueError``
   (Test 3) — this catches the "wrong model loaded" failure mode loudly.
 - ``model.names`` is mapped onto the configured ``classes`` BY NAME through
@@ -75,7 +75,7 @@ def make_detect_and_track(
 
     Returns:
         A closure ``detect_and_track(frame)`` that runs YOLO inference,
-        feeds boxes into per-class ``Sort`` trackers, and yields
+        feeds boxes into one ``Sort`` tracker, and yields
         ``(track_id_str, class_name)`` tuples for each confirmed track on
         the current frame, or only for the tracks ``gate`` counts.
 
@@ -89,30 +89,26 @@ def make_detect_and_track(
     model_names = [detector.names[i] for i in sorted(detector.names.keys())]
     model_to_class = _map_model_classes(model_names, classes)
 
-    # One tracker per class so each Sort's integer ids stay class-scoped.
-    trackers: dict[int, Sort] = {i: Sort() for i in range(len(classes))}
+    # One tracker for all classes: a class flicker (car/SUV) stays one track,
+    # and the track's class is its confidence-weighted majority vote.
+    tracker = Sort()
     n_model_classes = len(model_names)
 
     def detect_and_track(frame: np.ndarray) -> Iterable[tuple[str, str]]:
-        per_class_dets = _split_detections_by_class(detector(frame), n_model_classes, conf)
-
-        tracks: list[tuple[str, str, tuple[float, float, float, float]]] = []
-        for model_idx, dets in per_class_dets.items():
-            cls_idx = model_to_class[model_idx]
-            class_name = classes[cls_idx]
-            tracker = trackers[cls_idx]
-            tracked = tracker.update(dets) if dets.size else tracker.update()
-            for x1, y1, x2, y2, track_id in tracked:
-                tracks.append((f"{class_name}-{int(track_id)}", class_name, (x1, y1, x2, y2)))
-
+        dets = _to_canonical(detector(frame), model_to_class, n_model_classes, conf)
+        tracks = [
+            (int(track_id), classes[int(cls)], (x1, y1, x2, y2))
+            for x1, y1, x2, y2, track_id, cls in tracker.update(dets)
+        ]
         if gate is None:
-            yield from ((key, class_name) for key, class_name, _ in tracks)
+            yield from ((f"{name}-{tid}", name) for tid, name, _ in tracks)
             return
-        class_of = {key: class_name for key, class_name, _ in tracks}
+        class_of = {str(tid): name for tid, name, _ in tracks}
         size = (frame.shape[1], frame.shape[0])
-        for event in gate.step(((key, box) for key, _, box in tracks), size):
-            logger.debug("counted %s direction=%s", event.key, event.direction)
-            yield (event.key, class_of[event.key])
+        for event in gate.step(((str(tid), box) for tid, _, box in tracks), size):
+            name = class_of[event.key]
+            logger.debug("counted %s-%s direction=%s", name, event.key, event.direction)
+            yield (f"{name}-{event.key}", name)
 
     return detect_and_track
 
@@ -178,44 +174,30 @@ def _map_model_classes(model_names: list[str], classes: list[str]) -> dict[int, 
     return {i: classes.index(name) for i, name in enumerate(mapped)}
 
 
-def _split_detections_by_class(
-    dets: np.ndarray, n_classes: int, conf_threshold: float
-) -> dict[int, np.ndarray]:
-    """Group detections by class index.
+def _to_canonical(
+    dets: np.ndarray, model_to_class: dict[int, int], n_model_classes: int, conf: float
+) -> np.ndarray:
+    """Drop low-confidence detections and relabel model classes as canonical indices.
 
     Args:
-        dets: ``(N, 6)`` rows ``[x1, y1, x2, y2, score, class]`` from
-            ``NcnnDetector``.
-        n_classes: Length of the class taxonomy; class indices outside
-            ``0..n_classes-1`` raise ``ValueError``.
-        conf_threshold: Confidence floor; detections below are dropped.
+        dets: ``(N, 6)`` rows ``[x1, y1, x2, y2, score, class]`` from ``NcnnDetector``.
+        model_to_class: ``{model_idx: canonical_idx}`` from ``_map_model_classes``.
+        n_model_classes: Number of model classes; other indices are an error.
+        conf: Confidence floor; detections below it are dropped.
 
     Returns:
-        ``{class_idx: np.ndarray of shape (N, 5)}`` where each row is
-        ``[x1, y1, x2, y2, conf]``. Classes with no detections still get
-        an empty entry so the per-class tracker still gets ``predict()``
-        called via ``update()`` on the next frame.
+        ``(M, 6)`` rows with the class column in canonical indices.
 
     Raises:
-        ValueError: when any detection has class index outside the valid
-            range.
+        ValueError: when a detection's class index is outside the model's range.
     """
-    grouped: dict[int, list[list[float]]] = {i: [] for i in range(n_classes)}
-
-    for x1, y1, x2, y2, c, cls in np.asarray(dets, dtype=float).reshape(-1, 6):
-        cls_idx = int(cls)
-        if not (0 <= cls_idx < n_classes):
-            raise ValueError(
-                f"Unknown class index {cls_idx}, expected 0..{n_classes - 1}"
-            )
-        if c < conf_threshold:
-            continue
-        grouped[cls_idx].append([x1, y1, x2, y2, c])
-
-    return {
-        i: (np.asarray(rows, dtype=float) if rows else np.empty((0, 5)))
-        for i, rows in grouped.items()
-    }
+    dets = np.asarray(dets, dtype=float).reshape(-1, 6)
+    bad = [int(c) for c in dets[:, 5] if not 0 <= int(c) < n_model_classes]
+    if bad:
+        raise ValueError(f"Unknown class index {bad[0]}, expected 0..{n_model_classes - 1}")
+    dets = dets[dets[:, 4] >= conf].copy()
+    dets[:, 5] = [model_to_class[int(c)] for c in dets[:, 5]]
+    return dets
 
 
 __all__ = ["make_detect_and_track"]
