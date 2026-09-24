@@ -15,8 +15,11 @@ streets. Research prototype, UCD Spatial Dynamics Lab; not funded; no unit on a 
 
 ```bash
 # Edge (Python 3.10+)
-uv venv && uv pip install -r requirements.txt pytest    # dev toolchain (training, export)
+uv venv && uv pip install -r requirements.txt          # dev: tests, training, export, viewer
 .venv/bin/python -m pytest                              # all edge tests
+.venv/bin/ruff check . && .venv/bin/ruff format .      # PEP 8 (config in pyproject.toml)
+.venv/bin/python -m camina --config configs/sensor.yaml --dry-run   # the sensor entry point
+scripts/view_detections.py --video videos/test.mov --out /tmp/o.mp4 --screenline 0.65 0.15 0.65 0.72
 
 # Pi runtime profile — what the device installs (docs/raspberry_pi_5.md)
 pip install --no-deps -r requirements-pi.txt
@@ -33,12 +36,13 @@ makes them) and `CAMINA_DATA_SOURCE` unset — a test checks the production fail
 
 | Path | What |
 |---|---|
-| `src/camina/core/` | Windowed counting and daily totals (`counter.py`), SORT-style Kalman + Hungarian tracker (`tracker.py`) |
-| `src/camina/io/` | HTTPS publisher, offline buffer (SQLite outbox), config poller, payload schemas, LoRa codec (not wired) |
-| `src/camina/service/` | Daemon (`sensor_daemon.py`), `compose.py`, `detect_track.py`, `ncnn_detector.py` |
-| `src/utils/` | Dev tools (`export_ncnn.py`, `pnnx_export.py`); may import Ultralytics/PyTorch |
+| `camina/core/` | `tracker.py` (SORT, one tracker for all classes, majority-vote class), `counting.py` (count gate: screenline or movement), `counter.py` (15-min windows, daily totals) |
+| `camina/io/` | HTTPS publisher, offline buffer (SQLite outbox), config poller, payload schemas |
+| `camina/service/` | Daemon (`sensor_daemon.py`), `compose.py`, `detect_track.py`, `ncnn_detector.py`; entry point `camina/__main__.py` |
+| `training/` | Dataset, training, NCNN export (`python -m training.<tool>`); may import Ultralytics/PyTorch |
 | `models/` | CAMINAv1 NCNN, FP32 and FP16; `PROVENANCE.md` in each folder |
-| `configs/` | `classes.yaml` (class IDs), `sensor.yaml` (per device) |
+| `configs/` | `classes.yaml` (class IDs), `class_mapping.yaml` (label aliases), `sensor.yaml` (per device) |
+| `videos/` | Test videos for `scripts/view_detections.py` |
 | `dashboard/` | Next.js 16, MapLibre 6, Drizzle + Neon, Auth.js |
 | `deploy/systemd/` | Sensor service unit |
 
@@ -47,7 +51,7 @@ makes them) and `CAMINA_DATA_SOURCE` unset — a test checks the production fail
 - **Privacy:** counts only, never frames. Public UI and API never expose sensor locations. Counts
   and speeds below 5 are suppressed (k_min = 5). Keep `dashboard/tests/unit/privacy-regression.test.ts` green.
 - **Class IDs are a wire contract.** Never reorder `configs/classes.yaml`. The model's own class
-  order is mapped by name through `custom_model_train/class_mapping.yaml`.
+  order is mapped by name through `configs/class_mapping.yaml`.
 - **The daemon must not import PyTorch or Ultralytics** (`tests/test_pi_runtime.py`).
 - **`imgsz` is 640** and must equal the NCNN export's `metadata.yaml`; a mismatch gives garbage boxes.
 - **`NEXT_PUBLIC_CAMINA_DEV_ADMIN` never ships to production** (guard in `dashboard/next.config.mjs`).

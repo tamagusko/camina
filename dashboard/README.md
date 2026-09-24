@@ -1,7 +1,7 @@
 # CAMINA Dashboard
 
-Next.js 16 App Router dashboard for the CAMINA urban-mobility counter.
-Follows `../plan/02-dashboard-vercel.md` and `../DESIGN.md`.
+Next.js 16 App Router dashboard for the CAMINA traffic sensors. Visual design:
+[`DESIGN.md`](DESIGN.md).
 
 ## Quick start (mock data, no database)
 
@@ -30,7 +30,7 @@ Launches the Next.js dev server on `http://localhost:3000`, which redirects to `
 
 | Issue | Solution |
 |---|---|
-| **Map shows grey/blank** | The basemap is OpenFreeMap's Positron style, fetched live — check that `https://tiles.openfreemap.org` is reachable. Do not run `scripts/download-dublin-tiles.mjs` (deprecated: Carto now watermarks keyless tiles). |
+| **Map shows grey/blank** | The basemap is OpenFreeMap's Positron style, fetched live — check that `https://tiles.openfreemap.org` is reachable. |
 | **Port 3000 already in use** | `pnpm dev -- -p 3001` to use a different port. |
 | **Command not found: `pnpm`** | Install pnpm: `npm install -g pnpm` (or follow https://pnpm.io/installation). |
 
@@ -88,12 +88,11 @@ Data
 ## Privacy guarantees
 
 - Public API bodies never contain `sensor_id`, `latitude`, or `longitude`.
-- `tests/unit/privacy-regression.test.ts` enforces this in CI; add new public
+- `tests/unit/privacy-regression.test.ts` enforces this (`pnpm test`); add new public
   routes to that test before shipping.
-- `DESIGN.md` + `plan/02-dashboard-vercel.md` §7 capture the full privacy
-  model.
+- Counts and speeds below 5 are suppressed (k-anonymity, `K_MIN = 5`).
 
-## Deployment (later, Step D14)
+## Deployment (stage S5)
 
 - Not deployed yet. When ready:
   1. `vercel link` (user-owned action).
@@ -109,4 +108,3 @@ Data
 - `proxy.ts` (not `middleware.ts`) for network-boundary concerns; auth
   lives in server-component layouts.
 - Tailwind tokens from `tailwind.config.ts` match `DESIGN.md` §2–§6.
-- Cache with `use cache` + `cacheTag()` + `revalidateTag()`.

@@ -1,4 +1,5 @@
 """Unit tests for WindowedCounter."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -6,8 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.camina.core.counter import DEFAULT_ANCHOR, WindowedCounter, WindowSnapshot
-
+from camina.core.counter import DEFAULT_ANCHOR, WindowedCounter, WindowSnapshot
 
 CLASSES = ["person", "cyclist", "car", "e-scooter"]
 UTC = timezone.utc
@@ -16,7 +16,7 @@ UTC = timezone.utc
 def _start_counter(start: datetime, window_seconds: int = 900) -> WindowedCounter:
     """Create a counter whose internal "started_at" is `start`."""
     with patch(
-        "src.camina.core.counter.datetime",
+        "camina.core.counter.datetime",
         wraps=datetime,
     ) as dt:
         dt.now.return_value = start

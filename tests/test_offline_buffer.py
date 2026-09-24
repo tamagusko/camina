@@ -1,13 +1,14 @@
 """Unit tests for OfflineBuffer."""
+
 from __future__ import annotations
 
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Iterator
 
 import pytest
 
-from src.camina.io.offline_buffer import OfflineBuffer, OutboxItem, SendOutcome
+from camina.io.offline_buffer import OfflineBuffer, OutboxItem, SendOutcome
 
 
 @pytest.fixture()
@@ -143,8 +144,8 @@ def test_drain_retry_preserves_fifo_order(buf: OfflineBuffer) -> None:
     assert sent == 0
     assert buf.stats().pending == 3  # nothing lost on transient failure
     [head] = buf.peek(1)
-    assert head.payload == b"0"      # order preserved
-    assert head.attempts == 1        # only the head was charged an attempt
+    assert head.payload == b"0"  # order preserved
+    assert head.attempts == 1  # only the head was charged an attempt
 
 
 def test_drain_safety_valve_drops_after_max_attempts(buf: OfflineBuffer) -> None:

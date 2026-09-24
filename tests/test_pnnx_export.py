@@ -1,4 +1,4 @@
-"""Unit tests for `src.utils.pnnx_export` (TorchScript -> NCNN via pnnx, runtime smoke test).
+"""Unit tests for `training.pnnx_export` (TorchScript -> NCNN via pnnx, runtime smoke test).
 
 Why this module exists: the 9-class CAMINAv1 weights survive only as the
 TorchScript intermediate on `origin/TRA2026` (no `.pt`), and pnnx releases are
@@ -6,6 +6,7 @@ not interchangeable — the pnnx bundled with the installed Ultralytics emits a
 graph that segfaults inside NCNN's forward pass, while pnnx 20250924
 reproduces the shipped FP32 export byte for byte (2026-09-24).
 """
+
 from __future__ import annotations
 
 import json
@@ -16,7 +17,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.utils import pnnx_export
+from training import pnnx_export
 
 TRA2026_METADATA = {
     "description": "Ultralytics YOLO11n model trained on datasetV3_stratified",
@@ -26,8 +27,17 @@ TRA2026_METADATA = {
     "task": "detect",
     "batch": 1,
     "imgsz": [640, 640],
-    "names": {"0": "SUV", "1": "bus", "2": "car", "3": "cyclist", "4": "delivery_van",
-              "5": "e-scooter", "6": "motorcycle", "7": "person", "8": "truck"},
+    "names": {
+        "0": "SUV",
+        "1": "bus",
+        "2": "car",
+        "3": "cyclist",
+        "4": "delivery_van",
+        "5": "e-scooter",
+        "6": "motorcycle",
+        "7": "person",
+        "8": "truck",
+    },
     "args": {"batch": 1, "half": False},
 }
 
@@ -57,6 +67,7 @@ def _fake_pnnx(returncode: int = 0):
 
 # ---------- read_torchscript_metadata ----------
 
+
 def test_reads_the_metadata_ultralytics_embeds(tmp_path: Path) -> None:
     meta = pnnx_export.read_torchscript_metadata(_fake_torchscript(tmp_path / "best.torchscript"))
 
@@ -69,18 +80,25 @@ def test_a_torchscript_without_metadata_is_rejected(tmp_path: Path) -> None:
     with zipfile.ZipFile(bare, "w") as z:
         z.writestr("bare/data.pkl", b"")
 
-    with pytest.raises(ValueError, match="config.txt"):
+    with pytest.raises(ValueError, match=r"config\.txt"):
         pnnx_export.read_torchscript_metadata(bare)
 
 
 # ---------- export_torchscript ----------
 
+
 def test_fp16_export_passes_fp16_and_the_input_shape_to_pnnx(tmp_path: Path) -> None:
     ts = _fake_torchscript(tmp_path / "best.torchscript")
     run, calls = _fake_pnnx()
 
-    pnnx_export.export_torchscript(ts, tmp_path / "out_fp16_ncnn_model", imgsz=640, half=True,
-                                   pnnx=Path("/opt/pnnx"), runner=run)
+    pnnx_export.export_torchscript(
+        ts,
+        tmp_path / "out_fp16_ncnn_model",
+        imgsz=640,
+        half=True,
+        pnnx=Path("/opt/pnnx"),
+        runner=run,
+    )
 
     cmd = calls[0]
     assert cmd[0] == "/opt/pnnx" and cmd[1] == str(ts)
@@ -93,13 +111,19 @@ def test_metadata_records_half_and_integer_class_keys(tmp_path: Path) -> None:
     run, _ = _fake_pnnx()
     target = tmp_path / "out_fp16_ncnn_model"
 
-    pnnx_export.export_torchscript(ts, target, imgsz=640, half=True, pnnx=Path("/opt/pnnx"), runner=run)
+    pnnx_export.export_torchscript(
+        ts, target, imgsz=640, half=True, pnnx=Path("/opt/pnnx"), runner=run
+    )
 
     meta = yaml.safe_load((target / "metadata.yaml").read_text())
     assert meta["args"]["half"] is True
-    assert meta["names"][6] == "motorcycle"          # int keys, as Ultralytics writes them
+    assert meta["names"][6] == "motorcycle"  # int keys, as Ultralytics writes them
     assert meta["date"] == TRA2026_METADATA["date"]  # provenance survives
-    assert sorted(p.name for p in target.iterdir()) == ["metadata.yaml", "model.ncnn.bin", "model.ncnn.param"]
+    assert sorted(p.name for p in target.iterdir()) == [
+        "metadata.yaml",
+        "model.ncnn.bin",
+        "model.ncnn.param",
+    ]
 
 
 def test_pnnx_failure_is_raised_not_swallowed(tmp_path: Path) -> None:
@@ -107,11 +131,13 @@ def test_pnnx_failure_is_raised_not_swallowed(tmp_path: Path) -> None:
     run, _ = _fake_pnnx(returncode=1)
 
     with pytest.raises(RuntimeError, match="pnnx"):
-        pnnx_export.export_torchscript(ts, tmp_path / "x_ncnn_model", imgsz=640, half=True,
-                                       pnnx=Path("/opt/pnnx"), runner=run)
+        pnnx_export.export_torchscript(
+            ts, tmp_path / "x_ncnn_model", imgsz=640, half=True, pnnx=Path("/opt/pnnx"), runner=run
+        )
 
 
 # ---------- smoke_test ----------
+
 
 def _model_dir(tmp_path: Path) -> Path:
     d = tmp_path / "m_ncnn_model"

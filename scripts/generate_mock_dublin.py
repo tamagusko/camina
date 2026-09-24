@@ -1,32 +1,26 @@
-"""Generate deterministic mock Dublin data for dashboard dev.
+"""Generate deterministic mock Dublin data for the dashboard's mock mode.
 
-Outputs JSON fixtures under ``data/mock/dublin/`` that mirror the database
-schema defined in ``plan/02-dashboard-vercel.md`` §8. The dashboard reads them
-directly when ``DATA_SOURCE=mock`` and ignores the database, or they can be
-loaded into Postgres via the (future) ``scripts/seed_mock.py`` when the
-dashboard is live.
+Writes JSON fixtures to ``data/mock/dublin/``, shaped like the database tables;
+the dashboard reads them when ``CAMINA_DATA_SOURCE=mock``.
 
-Eight sensors are placed on real Dublin streets across two zones — the UCD
-Belfield campus and the city-centre -> UCD access corridor — with 14 days of
-15-min windows, plausible diurnal patterns, per-transport reporting behaviour
-(WiFi / cellular / LoRaWAN), heartbeats, and daily rollups. See
-``docs/simulation.md`` for the full simulation description.
+Eight sensors on real Dublin streets in two zones (UCD Belfield campus and the
+city-centre -> UCD corridor), 14 days of 15-min windows with diurnal patterns,
+per-transport window loss (WiFi / cellular), heartbeats and daily rollups.
+See ``docs/simulation.md``.
 
 Usage:
     python scripts/generate_mock_dublin.py
 """
+
 from __future__ import annotations
 
-import base64
+import json
 import logging
 import math
 import random
-import struct
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +31,7 @@ WINDOW_MINUTES = 15
 HEARTBEAT_MINUTES = 5
 
 # Canonical 9-class taxonomy. Kept in sync with the dashboard's
-# ``ROAD_USER_CLASSES`` (dashboard/src/lib/types.ts). The LoRa reference codec
-# packs one uint8 per class in exactly this order.
+# ``ROAD_USER_CLASSES`` (dashboard/src/lib/types.ts).
 CLASSES = [
     "person",
     "cyclist",
@@ -53,11 +46,10 @@ CLASSES = [
 
 # Transport reporting model ------------------------------------------------
 # Fraction of 15-min windows dropped per transport (brief outages / uplink
-# loss). LoRa additionally drops occasional 1-2 window bursts (TTN loss).
+# loss).
 MISSING_RATE: dict[str, float] = {
-    "wifi": 0.005,       # brief WiFi/HTTPS outages
-    "cellular": 0.015,   # cellular bearer, slightly less reliable
-    "lora": 0.040,       # TTN uplink loss, with bursts
+    "wifi": 0.005,  # brief WiFi/HTTPS outages
+    "cellular": 0.015,  # cellular bearer, slightly less reliable
 }
 
 # Max cellular ingest latency (seconds). Cellular is HTTPS over a cellular
@@ -67,10 +59,6 @@ MISSING_RATE: dict[str, float] = {
 # countsPayload), so this jitter is documented but not materialised here.
 CELLULAR_LATENCY_MAX_S = 90
 
-# LoRa reference codec -----------------------------------------------------
-LORA_SCHEMA_VERSION = 1
-LORA_MAX_CHARS = 200  # LoRaWAN base64 payload cap (see CLAUDE.md constraint)
-
 # Eight real Dublin streets across two zones. Each LineString is a compact
 # 2-point approximation of the segment covered by a single sensor (for
 # visualization only — precise OSM geometry will come from the admin draw tool
@@ -78,14 +66,14 @@ LORA_MAX_CHARS = 200  # LoRaWAN base64 payload cap (see CLAUDE.md constraint)
 # reporting behaviour; ``transport`` is also surfaced in sensors.json metadata.
 # Coordinates are [lon, lat] (GeoJSON order); the sensor sits at the midpoint.
 STREETS: list[dict[str, Any]] = [
-    # --- UCD Belfield campus: 2 LoRa, 1 WiFi, 1 cellular ---
+    # --- UCD Belfield campus: 1 WiFi, 3 cellular ---
     {
         "id": "ucd-stillorgan-rd-entrance",
         "display_name": "UCD Stillorgan Road Entrance",
         "osm_way_ids": [4254201],
         "coords": [[-6.22520, 53.30630], [-6.22320, 53.30710]],
         "zone": "ucd",
-        "transport": "lora",
+        "transport": "cellular",
     },
     {
         "id": "ucd-clonskeagh-wynnsward",
@@ -93,7 +81,7 @@ STREETS: list[dict[str, Any]] = [
         "osm_way_ids": [4254202],
         "coords": [[-6.22900, 53.30940], [-6.22700, 53.31020]],
         "zone": "ucd",
-        "transport": "lora",
+        "transport": "cellular",
     },
     {
         "id": "ucd-n11-belfield-flyover",
@@ -111,14 +99,14 @@ STREETS: list[dict[str, Any]] = [
         "zone": "ucd",
         "transport": "cellular",
     },
-    # --- City-centre -> UCD access corridor: 2 LoRa, 1 WiFi, 1 cellular ---
+    # --- City-centre -> UCD access corridor: 1 WiFi, 3 cellular ---
     {
         "id": "leeson-st-lower",
         "display_name": "Leeson Street Lower",
         "osm_way_ids": [4254205],
         "coords": [[-6.25330, 53.33280], [-6.25130, 53.33360]],
         "zone": "corridor",
-        "transport": "lora",
+        "transport": "cellular",
     },
     {
         "id": "morehampton-rd-donnybrook",
@@ -126,7 +114,7 @@ STREETS: list[dict[str, Any]] = [
         "osm_way_ids": [4254206],
         "coords": [[-6.23950, 53.32490], [-6.23750, 53.32570]],
         "zone": "corridor",
-        "transport": "lora",
+        "transport": "cellular",
     },
     {
         "id": "n11-stillorgan-rd-montrose",
@@ -159,13 +147,15 @@ def _bbox(coords: list[list[float]]) -> dict:
     pad = 0.0005
     return {
         "type": "Polygon",
-        "coordinates": [[
-            [min(lons) - pad, min(lats) - pad],
-            [max(lons) + pad, min(lats) - pad],
-            [max(lons) + pad, max(lats) + pad],
-            [min(lons) - pad, max(lats) + pad],
-            [min(lons) - pad, min(lats) - pad],
-        ]],
+        "coordinates": [
+            [
+                [min(lons) - pad, min(lats) - pad],
+                [max(lons) + pad, min(lats) - pad],
+                [max(lons) + pad, max(lats) + pad],
+                [min(lons) - pad, max(lats) + pad],
+                [min(lons) - pad, min(lats) - pad],
+            ]
+        ],
     }
 
 
@@ -257,8 +247,7 @@ def _sensor_character(idx: int) -> dict[str, float]:
 def _missing_window_set(idx: int, n_windows: int, transport: str) -> set[int]:
     """Deterministic set of dropped window indices for a sensor.
 
-    WiFi/cellular drop isolated windows; LoRa additionally drops occasional
-    1-2 window bursts to model TTN uplink loss.
+    Each transport drops isolated windows at its ``MISSING_RATE``.
     """
     rng = random.Random(SEED + 1000 + idx)
     rate = MISSING_RATE[transport]
@@ -267,43 +256,8 @@ def _missing_window_set(idx: int, n_windows: int, transport: str) -> set[int]:
     while w < n_windows:
         if rng.random() < rate:
             missing.add(w)
-            if transport == "lora" and rng.random() < 0.35:
-                extra = rng.randint(1, 2)
-                for k in range(1, extra + 1):
-                    if w + k < n_windows:
-                        missing.add(w + k)
-                w += extra
         w += 1
     return missing
-
-
-def pack_lora_reference(counts: dict[str, int], sensor_num: int,
-                        epoch: int) -> bytes:
-    """Reference implementation of the planned Phase-4 LoRaWAN 17-byte codec.
-
-    NOTE: REFERENCE codec for fixture verification only. The production encoder
-    will live in the edge ``LoRaPublisher`` (Phase 4); this function exists so
-    the mock generator can assert the codec fits the LoRa payload cap. Layout:
-
-        3B  camera id  ascii  "LNN"   (e.g. sensor_num=1 -> b"L01")
-        4B  epoch      uint32 big-endian (UTC seconds)
-        9B  counts     uint8  per class, CLASSES order, clamped to 255
-        1B  schema     uint8  version (=1)
-
-    Total = 17 bytes. base64 of 17 bytes is 24 chars, far under the 200-char
-    LoRa cap. Counts > 255 are clamped in the PACKED BYTES ONLY; the fixture
-    JSON always keeps the true (unclamped) counts.
-    """
-    cam_id = f"L{sensor_num:02d}".encode("ascii")
-    if len(cam_id) != 3:
-        raise ValueError(f"camera id must be 3 ascii bytes, got {cam_id!r}")
-    payload = bytearray()
-    payload += cam_id
-    payload += struct.pack(">I", epoch)
-    for cls in CLASSES:
-        payload.append(min(255, max(0, int(counts.get(cls, 0)))))
-    payload.append(LORA_SCHEMA_VERSION)
-    return bytes(payload)
 
 
 def generate() -> dict:
@@ -312,18 +266,20 @@ def generate() -> dict:
     # ------- streets (public) -------
     streets = []
     for s in STREETS:
-        streets.append({
-            "id": s["id"],
-            "display_name": s["display_name"],
-            "osm_way_ids": s["osm_way_ids"],
-            "geom": {
-                "type": "MultiLineString",
-                "coordinates": [s["coords"]],
-            },
-            "bbox": _bbox(s["coords"]),
-            "city": CITY,
-            "active": True,
-        })
+        streets.append(
+            {
+                "id": s["id"],
+                "display_name": s["display_name"],
+                "osm_way_ids": s["osm_way_ids"],
+                "geom": {
+                    "type": "MultiLineString",
+                    "coordinates": [s["coords"]],
+                },
+                "bbox": _bbox(s["coords"]),
+                "city": CITY,
+                "active": True,
+            }
+        )
 
     # ------- sensors (admin-only) -------
     sensors = []
@@ -333,34 +289,38 @@ def generate() -> dict:
     for i, street in enumerate(STREETS):
         lon, lat = _midpoint(street["coords"])
         sensor_id = f"cam-dub-{i + 1:02d}"
-        sensors.append({
-            "id": sensor_id,
-            "display_name": f"Dublin #{i + 1} ({street['display_name']})",
-            "latitude": lat,
-            "longitude": lon,
-            "install_date": start_date.isoformat(),
-            "active": True,
-            # Transport is dashboard-internal sensor metadata only. It is NOT a
-            # field on any ingest payload validated by dashboard schemas.ts.
-            "transport": street["transport"],
-            "config_json": {
-                "publish_interval_minutes": 15,
-                "heartbeat_interval_minutes": 5,
-                "frame_skip": 5,
-                "daily_publish_time_utc": "00:00",
-                "min_track_hits": 3,
-            },
-            "config_version": f"mock-v1-{i:02x}",
-            "last_heartbeat": None,    # filled in heartbeat fixture (WiFi/cell)
-            "fw_version": "0.2.0",
-            "notes": "MOCK data — generated by scripts/generate_mock_dublin.py",
-        })
+        sensors.append(
+            {
+                "id": sensor_id,
+                "display_name": f"Dublin #{i + 1} ({street['display_name']})",
+                "latitude": lat,
+                "longitude": lon,
+                "install_date": start_date.isoformat(),
+                "active": True,
+                # Transport is dashboard-internal sensor metadata only. It is NOT a
+                # field on any ingest payload validated by dashboard schemas.ts.
+                "transport": street["transport"],
+                "config_json": {
+                    "publish_interval_minutes": 15,
+                    "heartbeat_interval_minutes": 5,
+                    "frame_skip": 5,
+                    "daily_publish_time_utc": "00:00",
+                    "min_track_hits": 3,
+                },
+                "config_version": f"mock-v1-{i:02x}",
+                "last_heartbeat": None,  # filled in heartbeat fixture (WiFi/cell)
+                "fw_version": "0.2.0",
+                "notes": "MOCK data — generated by scripts/generate_mock_dublin.py",
+            }
+        )
         sensor_zone.append(street["zone"])
-        coverage.append({
-            "sensor_id": sensor_id,
-            "street_id": street["id"],
-            "weight": 1.0,
-        })
+        coverage.append(
+            {
+                "sensor_id": sensor_id,
+                "street_id": street["id"],
+                "weight": 1.0,
+            }
+        )
 
     # ------- readings (time-series) -------
     readings = []
@@ -370,12 +330,6 @@ def generate() -> dict:
 
     gap_stats: dict[str, dict[str, int]] = {
         t: {"sensors": 0, "windows_missing": 0} for t in MISSING_RATE
-    }
-    lora_stats = {
-        "windows_packed": 0,
-        "max_b64_len": 0,
-        "saturated_windows": 0,
-        "saturated_class_hits": 0,
     }
 
     for sensor_idx, sensor in enumerate(sensors):
@@ -406,74 +360,48 @@ def generate() -> dict:
                     * character[cls]
                     * ZONE_CLASS_WEIGHTS[zone][cls]
                 )
-                full_counts[cls] = max(
-                    0, int(rng.gauss(mean, max(mean * 0.3, 1.5)))
-                )
-
-            # LoRa reference-codec verification: pack every LoRa window and
-            # assert it fits the 200-char cap; record saturation (count > 255).
-            if transport == "lora":
-                epoch = int(window_start.timestamp())
-                packed = pack_lora_reference(full_counts, sensor_idx + 1, epoch)
-                b64 = base64.b64encode(packed).decode("ascii")
-                assert len(b64) <= LORA_MAX_CHARS, (
-                    f"LoRa payload {len(b64)} chars exceeds {LORA_MAX_CHARS} "
-                    f"for {sensor['id']} at {window_start.isoformat()}"
-                )
-                lora_stats["windows_packed"] += 1
-                lora_stats["max_b64_len"] = max(
-                    lora_stats["max_b64_len"], len(b64)
-                )
-                over = [c for c, v in full_counts.items() if v > 255]
-                if over:
-                    lora_stats["saturated_windows"] += 1
-                    lora_stats["saturated_class_hits"] += len(over)
-                    logger.warning(
-                        "LoRa count saturation: %s at %s clamped %s to 255",
-                        sensor["id"], window_start.isoformat(),
-                        ", ".join(f"{c}={full_counts[c]}" for c in over),
-                    )
+                full_counts[cls] = max(0, int(rng.gauss(mean, max(mean * 0.3, 1.5))))
 
             for cls in CLASSES:
                 count = full_counts[cls]
                 if count <= 0:
                     continue
                 speed = SPEED_BASELINE[cls] * rng.uniform(0.85, 1.15)
-                readings.append({
-                    "sensor_id": sensor["id"],
-                    "window_start": window_start.isoformat(),
-                    "window_end": (
-                        window_start + timedelta(minutes=WINDOW_MINUTES)
-                    ).isoformat(),
-                    "class_name": cls,
-                    "count": count,
-                    "avg_speed_kmh": round(speed, 1),
-                    "partial": False,
-                })
+                readings.append(
+                    {
+                        "sensor_id": sensor["id"],
+                        "window_start": window_start.isoformat(),
+                        "window_end": (
+                            window_start + timedelta(minutes=WINDOW_MINUTES)
+                        ).isoformat(),
+                        "class_name": cls,
+                        "count": count,
+                        "avg_speed_kmh": round(speed, 1),
+                        "partial": False,
+                    }
+                )
 
-    # ------- heartbeats (last 24 h only; WiFi + cellular sensors only) -------
-    # LoRa sensors emit counts only (no heartbeat uplink), so they are skipped
-    # here and keep last_heartbeat = None.
+    # ------- heartbeats (last 24 h only) -------
     heartbeats = []
     hb_start = end - timedelta(hours=24)
     hb_windows = int(24 * 60 / HEARTBEAT_MINUTES)
     for sensor in sensors:
-        if sensor["transport"] == "lora":
-            continue
         for h in range(hb_windows):
             ts = hb_start + timedelta(minutes=HEARTBEAT_MINUTES * h)
-            heartbeats.append({
-                "sensor_id": sensor["id"],
-                "ts": ts.isoformat(),
-                "uptime_s": int(3600 * 24 * 3 + HEARTBEAT_MINUTES * 60 * h),
-                "cpu_temp_c": round(rng.uniform(45.0, 58.0), 1),
-                "last_window_end": (
-                    ts.replace(second=0, microsecond=0)
-                    - timedelta(minutes=ts.minute % WINDOW_MINUTES)
-                ).isoformat(),
-                "config_version": sensor["config_version"],
-            })
-    # Update sensors.last_heartbeat to match (None for LoRa — no rows).
+            heartbeats.append(
+                {
+                    "sensor_id": sensor["id"],
+                    "ts": ts.isoformat(),
+                    "uptime_s": int(3600 * 24 * 3 + HEARTBEAT_MINUTES * 60 * h),
+                    "cpu_temp_c": round(rng.uniform(45.0, 58.0), 1),
+                    "last_window_end": (
+                        ts.replace(second=0, microsecond=0)
+                        - timedelta(minutes=ts.minute % WINDOW_MINUTES)
+                    ).isoformat(),
+                    "config_version": sensor["config_version"],
+                }
+            )
+    # Update sensors.last_heartbeat to match.
     for sensor in sensors:
         latest = max(
             (hb["ts"] for hb in heartbeats if hb["sensor_id"] == sensor["id"]),
@@ -487,21 +415,23 @@ def generate() -> dict:
         for day_offset in range(DAYS):
             day = (start + timedelta(days=day_offset)).date()
             day_readings = [
-                r for r in readings
-                if r["sensor_id"] == sensor["id"]
-                and r["window_start"].startswith(day.isoformat())
+                r
+                for r in readings
+                if r["sensor_id"] == sensor["id"] and r["window_start"].startswith(day.isoformat())
             ]
             totals: dict[str, int] = {cls: 0 for cls in CLASSES}
             for r in day_readings:
                 totals[r["class_name"]] += r["count"]
-            daily.append({
-                "sensor_id": sensor["id"],
-                "day": day.isoformat(),
-                "totals_json": totals,
-                "window_count": len({r["window_start"] for r in day_readings}),
-                "late": False,
-                "reconciled": True,
-            })
+            daily.append(
+                {
+                    "sensor_id": sensor["id"],
+                    "day": day.isoformat(),
+                    "totals_json": totals,
+                    "window_count": len({r["window_start"] for r in day_readings}),
+                    "late": False,
+                    "reconciled": True,
+                }
+            )
 
     return {
         "streets": streets,
@@ -520,11 +450,9 @@ def generate() -> dict:
             "street_count": len(streets),
             "reading_count": len(readings),
             "transport_counts": {
-                t: sum(1 for s in sensors if s["transport"] == t)
-                for t in MISSING_RATE
+                t: sum(1 for s in sensors if s["transport"] == t) for t in MISSING_RATE
             },
             "gap_stats": gap_stats,
-            "lora_reference": lora_stats,
         },
     }
 
@@ -541,8 +469,11 @@ def main() -> None:
         path = out_dir / f"{key}.json"
         with path.open("w", encoding="utf-8") as f:
             json.dump(value, f, indent=2, ensure_ascii=False)
-        logger.info("wrote %s (%s)", path.relative_to(root),
-                    len(value) if isinstance(value, list) else "meta")
+        logger.info(
+            "wrote %s (%s)",
+            path.relative_to(root),
+            len(value) if isinstance(value, list) else "meta",
+        )
 
     # Also write a single combined GeoJSON for quick map preview.
     geojson = {
@@ -562,21 +493,17 @@ def main() -> None:
     geo_path = out_dir / "streets.geojson"
     with geo_path.open("w", encoding="utf-8") as f:
         json.dump(geojson, f, indent=2, ensure_ascii=False)
-    logger.info("wrote %s (%s features)", geo_path.relative_to(root),
-                len(geojson["features"]))
+    logger.info("wrote %s (%s features)", geo_path.relative_to(root), len(geojson["features"]))
 
     meta = data["meta"]
     logger.info("Total rows generated:")
     logger.info("  streets:            %d", len(data["streets"]))
-    logger.info("  sensors:            %d  %s", len(data["sensors"]),
-                meta["transport_counts"])
+    logger.info("  sensors:            %d  %s", len(data["sensors"]), meta["transport_counts"])
     logger.info("  coverage:           %d", len(data["sensor_street_coverage"]))
     logger.info("  readings:           %d", len(data["sensor_readings"]))
     logger.info("  heartbeats:         %d", len(data["sensor_heartbeats"]))
     logger.info("  daily totals:       %d", len(data["sensor_daily_totals"]))
-    logger.info("Gap stats (windows dropped per transport): %s",
-                meta["gap_stats"])
-    logger.info("LoRa reference codec: %s", meta["lora_reference"])
+    logger.info("Gap stats (windows dropped per transport): %s", meta["gap_stats"])
 
 
 if __name__ == "__main__":

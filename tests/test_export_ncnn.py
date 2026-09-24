@@ -1,10 +1,11 @@
-"""Unit tests for the NCNN export CLI (`src.utils.export_ncnn`).
+"""Unit tests for the NCNN export CLI (`training.export_ncnn`).
 
 The script is a thin wrapper around Ultralytics' `model.export(format="ncnn")`,
 plus an idempotency guard, a class-name assertion against the 9-class CAMINAv1
 list, and an argparse CLI surface. We exercise the surface here without
 actually running an export (which would need GPU + several seconds).
 """
+
 from __future__ import annotations
 
 import importlib
@@ -21,7 +22,7 @@ pytest.importorskip("ultralytics")
 @pytest.fixture(autouse=True)
 def _smoke_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     """The fakes write placeholder bytes, so stub the runtime smoke test."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     monkeypatch.setattr(mod, "smoke_test", lambda model_dir: None)
 
 
@@ -39,15 +40,15 @@ CAMINAV1_CLASSES = [
 
 
 def test_module_is_importable_and_exposes_main() -> None:
-    """`python -m src.utils.export_ncnn` requires the module to import cleanly."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    """`python -m training.export_ncnn` requires the module to import cleanly."""
+    mod = importlib.import_module("training.export_ncnn")
     assert hasattr(mod, "main"), "export_ncnn must expose a main() entry point"
     assert mod.CAMINAV1_CLASSES == CAMINAV1_CLASSES
 
 
 def test_help_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
     """Argparse `--help` must exit 0 with the documented flags listed."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     with pytest.raises(SystemExit) as exc:
         mod.main(["--help"])
     assert exc.value.code == 0
@@ -58,18 +59,16 @@ def test_help_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_missing_source_exits_two() -> None:
     """argparse exits 2 when a required arg is missing."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     with pytest.raises(SystemExit) as exc:
         mod.main([])
     assert exc.value.code == 2
 
 
-def test_idempotent_when_target_exists(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_idempotent_when_target_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """If the NCNN model directory already exists and `--force` is absent,
     the script logs a skip message and exits 0 without invoking YOLO export."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     # Pre-create a fake source weight + target NCNN dir to simulate "already exported".
     source = tmp_path / "weights.pt"
     source.write_bytes(b"")
@@ -84,12 +83,10 @@ def test_idempotent_when_target_exists(
     sentinel.assert_not_called()
 
 
-def test_class_mismatch_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_class_mismatch_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """If the exported model's `names` does not equal CAMINAV1_CLASSES, the
     script exits non-zero so we never ship a wrong-taxonomy model."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     source = tmp_path / "weights.pt"
     source.write_bytes(b"")
 
@@ -150,7 +147,7 @@ def _fake_yolo(names: list[str]):
 
 def test_no_half_exports_fp32(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """`--no-half` must be expressible so the FP32 reference model stays reproducible."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     source = tmp_path / "weights.pt"
     source.write_bytes(b"")
     fake_yolo, fake_model = _fake_yolo(TRA2026_MODEL_NAMES)
@@ -164,7 +161,7 @@ def test_no_half_exports_fp32(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 def test_half_is_the_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """FP16 is the deployment default; it halves the .bin for the Pi."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     source = tmp_path / "weights.pt"
     source.write_bytes(b"")
     fake_yolo, fake_model = _fake_yolo(TRA2026_MODEL_NAMES)
@@ -180,7 +177,7 @@ def test_default_imgsz_is_the_deployment_size(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The export default must be the 640 contract enforced by detect_track.py."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     source = tmp_path / "weights.pt"
     source.write_bytes(b"")
     fake_yolo, fake_model = _fake_yolo(TRA2026_MODEL_NAMES)
@@ -191,11 +188,9 @@ def test_default_imgsz_is_the_deployment_size(
     assert fake_model.export.call_args.kwargs["imgsz"] == 640
 
 
-def test_fp16_lands_beside_the_fp32_model(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_fp16_lands_beside_the_fp32_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """An FP16 export must not overwrite the FP32 model; both ship side by side."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     source = tmp_path / "weights.pt"
     source.write_bytes(b"")
     fp32_dir = tmp_path / "weights_ncnn_model"
@@ -217,7 +212,7 @@ def test_alphabetical_export_order_is_accepted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The shipped TRA 2026 name order must pass the guard: the runtime remaps by name."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     source = tmp_path / "weights.pt"
     source.write_bytes(b"")
     fake_yolo, _ = _fake_yolo(TRA2026_MODEL_NAMES)
@@ -230,11 +225,12 @@ def test_alphabetical_export_order_is_accepted(
 
 # ---------- Runtime smoke test and TorchScript sources (2026-09-24) ----------
 
+
 def test_a_model_that_crashes_at_runtime_fails_the_export(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Size and taxonomy checks passed on models that segfault; only running them catches it."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     source = tmp_path / "weights.pt"
     source.write_bytes(b"")
     fake_yolo, _ = _fake_yolo(TRA2026_MODEL_NAMES)
@@ -254,8 +250,11 @@ def _torchscript(tmp_path: Path, imgsz: int = 640) -> Path:
     import zipfile
 
     ts = tmp_path / "best.torchscript"
-    meta = {"imgsz": [imgsz, imgsz], "names": {str(i): n for i, n in enumerate(TRA2026_MODEL_NAMES)},
-            "args": {"batch": 1, "half": False}}
+    meta = {
+        "imgsz": [imgsz, imgsz],
+        "names": {str(i): n for i, n in enumerate(TRA2026_MODEL_NAMES)},
+        "args": {"batch": 1, "half": False},
+    }
     with zipfile.ZipFile(ts, "w") as z:
         z.writestr("best/extra/config.txt", json.dumps(meta))
     return ts
@@ -263,24 +262,35 @@ def _torchscript(tmp_path: Path, imgsz: int = 640) -> Path:
 
 def test_torchscript_source_requires_an_explicit_pnnx(tmp_path: Path) -> None:
     """pnnx releases are not interchangeable, so there is no silent default."""
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
 
     with pytest.raises(SystemExit, match="--pnnx"):
         mod.main(["--source", str(_torchscript(tmp_path)), "--out-dir", str(tmp_path)])
 
 
 def test_torchscript_source_enforces_its_embedded_imgsz(tmp_path: Path) -> None:
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     ts = _torchscript(tmp_path, imgsz=640)
 
     with pytest.raises(SystemExit, match="imgsz"):
-        mod.main(["--source", str(ts), "--out-dir", str(tmp_path), "--pnnx", "/opt/pnnx", "--imgsz", "480"])
+        mod.main(
+            [
+                "--source",
+                str(ts),
+                "--out-dir",
+                str(tmp_path),
+                "--pnnx",
+                "/opt/pnnx",
+                "--imgsz",
+                "480",
+            ]
+        )
 
 
 def test_torchscript_source_exports_through_pnnx_not_ultralytics(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    mod = importlib.import_module("src.utils.export_ncnn")
+    mod = importlib.import_module("training.export_ncnn")
     ts = _torchscript(tmp_path)
     seen = {}
 

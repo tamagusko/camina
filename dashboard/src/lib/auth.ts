@@ -19,7 +19,7 @@ const devAdminList = (process.env.CAMINA_DEV_ADMIN_EMAILS ?? "")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn } = NextAuth({
   providers: [Google],
   pages: {
     signIn: "/sign-in",

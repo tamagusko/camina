@@ -18,7 +18,7 @@ Group=camina
 SupplementaryGroups=video
 WorkingDirectory=/opt/camina
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/camina/venv/bin/python -m src.camina.service.sensor_daemon --config /etc/camina/sensor.yaml
+ExecStart=/opt/camina/venv/bin/python -m camina --config /etc/camina/sensor.yaml
 Restart=on-failure
 RestartSec=5s
 StartLimitIntervalSec=300

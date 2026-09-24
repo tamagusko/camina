@@ -1,20 +1,20 @@
 """Unit tests for HttpClient and HttpsPublisher (mocked transport)."""
+
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterator
 
 import httpx
 import pytest
 
-from src.camina.core.counter import DailySnapshot, WindowSnapshot
-from src.camina.io.http_client import HttpClient, RetryPolicy
-from src.camina.io.https_publisher import HttpsPublisher
-from src.camina.io.offline_buffer import OfflineBuffer
-from src.camina.io.schemas import HeartbeatPayload
-
+from camina.core.counter import DailySnapshot, WindowSnapshot
+from camina.io.http_client import HttpClient, RetryPolicy
+from camina.io.https_publisher import HttpsPublisher
+from camina.io.offline_buffer import OfflineBuffer
+from camina.io.schemas import HeartbeatPayload
 
 UTC = timezone.utc
 CLASSES = ["person", "cyclist", "car"]
@@ -87,9 +87,11 @@ def test_client_raises_after_exhausting_retries() -> None:
         return httpx.Response(503, text="still down")
 
     transport = httpx.MockTransport(handler)
-    with HttpClient("https://api.test", token="t", retry=_fast_retry(), transport=transport) as c:
-        with pytest.raises(httpx.HTTPStatusError):
-            c.request("POST", "/v1/sensors/1/counts", content=b"{}")
+    with (
+        HttpClient("https://api.test", token="t", retry=_fast_retry(), transport=transport) as c,
+        pytest.raises(httpx.HTTPStatusError),
+    ):
+        c.request("POST", "/v1/sensors/1/counts", content=b"{}")
 
 
 def test_client_does_not_retry_on_400() -> None:
@@ -100,9 +102,11 @@ def test_client_does_not_retry_on_400() -> None:
         return httpx.Response(400, text="bad payload")
 
     transport = httpx.MockTransport(handler)
-    with HttpClient("https://api.test", token="t", retry=_fast_retry(), transport=transport) as c:
-        with pytest.raises(httpx.HTTPStatusError):
-            c.request("POST", "/v1/sensors/1/counts", content=b"{}")
+    with (
+        HttpClient("https://api.test", token="t", retry=_fast_retry(), transport=transport) as c,
+        pytest.raises(httpx.HTTPStatusError),
+    ):
+        c.request("POST", "/v1/sensors/1/counts", content=b"{}")
     assert len(attempts) == 1
 
 
@@ -114,9 +118,11 @@ def test_client_does_not_retry_on_401() -> None:
         return httpx.Response(401, text="bad token")
 
     transport = httpx.MockTransport(handler)
-    with HttpClient("https://api.test", token="t", retry=_fast_retry(), transport=transport) as c:
-        with pytest.raises(httpx.HTTPStatusError):
-            c.request("POST", "/v1/sensors/1/counts", content=b"{}")
+    with (
+        HttpClient("https://api.test", token="t", retry=_fast_retry(), transport=transport) as c,
+        pytest.raises(httpx.HTTPStatusError),
+    ):
+        c.request("POST", "/v1/sensors/1/counts", content=b"{}")
     assert len(attempts) == 1
 
 
@@ -293,9 +299,7 @@ def test_failed_heartbeat_is_not_enqueued(outbox: OfflineBuffer) -> None:
     client = HttpClient("https://api.test", token="t", retry=_fast_retry(), transport=transport)
     publisher = HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
 
-    hb = HeartbeatPayload(
-        sensor_id="cam-01", uptime_s=10, config_version="v1", fw_version="0.2.0"
-    )
+    hb = HeartbeatPayload(sensor_id="cam-01", uptime_s=10, config_version="v1", fw_version="0.2.0")
     result = publisher.post_heartbeat(hb)
 
     assert result.delivered is False
@@ -318,7 +322,7 @@ def test_outbox_item_4xx_is_dropped_as_poison(outbox: OfflineBuffer) -> None:
 
     drained = publisher.drain_outbox()
     assert drained == 0
-    assert outbox.stats().pending == 0     # poison row removed, no longer wedges FIFO
+    assert outbox.stats().pending == 0  # poison row removed, no longer wedges FIFO
     assert outbox.stats().poisoned == 1
     client.close()
 
@@ -336,7 +340,7 @@ def test_outbox_item_5xx_is_retried_not_dropped(outbox: OfflineBuffer) -> None:
 
     drained = publisher.drain_outbox()
     assert drained == 0
-    assert outbox.stats().pending == 1     # kept for retry
+    assert outbox.stats().pending == 1  # kept for retry
     assert outbox.stats().poisoned == 0
     client.close()
 

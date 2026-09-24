@@ -89,7 +89,7 @@ nothing appears on the map yet.
 
 ```bash
 cd /opt/camina
-sudo -u camina ./venv/bin/python scripts/run_sensor.py --config /etc/camina/sensor.yaml --dry-run
+sudo -u camina ./venv/bin/python -m camina --config /etc/camina/sensor.yaml --dry-run
 ```
 
 Expect `Loaded NCNN model … (9 classes, imgsz 640)` and `Dry run OK`.

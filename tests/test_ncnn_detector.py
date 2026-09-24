@@ -5,6 +5,7 @@ same letterbox, same BGR->RGB/255 input, same best-class NMS (IoU 0.7, class
 offset 7680, max 300), same rescaling to frame pixels. The parity tests run only
 where Ultralytics is installed (dev machines); the Pi profile does not ship it.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,15 +13,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.camina.service.ncnn_detector import NcnnDetector, letterbox, postprocess
+from camina.service.ncnn_detector import NcnnDetector, letterbox, postprocess
 
 REPO = Path(__file__).resolve().parents[1]
 MODEL = REPO / "models" / "camina_v1_yolo11n_ncnn_model"
-IMAGES = sorted((REPO / "custom_model_train" / "test_images").glob("*.jpg"))
+IMAGES = sorted((REPO / "training" / "test_images").glob("*.jpg"))
 NC = 9
 
 
 # ---------- letterbox ----------
+
 
 def test_letterbox_pads_a_landscape_frame_top_and_bottom() -> None:
     frame = np.full((480, 640, 3), 200, dtype=np.uint8)
@@ -29,9 +31,9 @@ def test_letterbox_pads_a_landscape_frame_top_and_bottom() -> None:
 
     assert x.shape == (3, 640, 640) and x.dtype == np.float32
     assert gain == 1.0 and pad == (0, 80)
-    assert np.allclose(x[:, :80, :], 114 / 255)       # grey bar above
-    assert np.allclose(x[:, 80:560, :], 200 / 255)    # frame
-    assert np.allclose(x[:, 560:, :], 114 / 255)      # grey bar below
+    assert np.allclose(x[:, :80, :], 114 / 255)  # grey bar above
+    assert np.allclose(x[:, 80:560, :], 200 / 255)  # frame
+    assert np.allclose(x[:, 560:, :], 114 / 255)  # grey bar below
 
 
 def test_letterbox_leaves_a_square_camera_frame_untouched() -> None:
@@ -57,6 +59,7 @@ def test_letterbox_matches_ultralytics_pixel_for_pixel(shape: tuple[int, int]) -
 
 
 # ---------- postprocess ----------
+
 
 def _raw(*anchors: tuple[float, float, float, float, int, float]) -> np.ndarray:
     """Raw model output (4 + NC, 8400): one column per (cx, cy, w, h, cls, score)."""
@@ -98,7 +101,7 @@ def test_boxes_are_mapped_back_to_frame_pixels_and_clipped() -> None:
     dets = _post(_raw((10, 90, 40, 40, 0, 0.9)), pad=(0, 80), frame_shape=(480, 640))
 
     x1, y1, x2, y2 = dets[0, :4]
-    assert (x1, y1) == (0.0, 0.0)               # clipped at the frame edge
+    assert (x1, y1) == (0.0, 0.0)  # clipped at the frame edge
     assert (x2, y2) == pytest.approx((30.0, 30.0))
 
 
@@ -126,7 +129,7 @@ def test_detections_match_ultralytics_on_the_test_images() -> None:
     ultralytics = pytest.importorskip("ultralytics")
     cv2 = pytest.importorskip("cv2")
     if not IMAGES:
-        pytest.skip("custom_model_train/test_images not present")
+        pytest.skip("training/test_images not present")
 
     ours = NcnnDetector(MODEL, imgsz=640, conf=0.3)
     ref = ultralytics.YOLO(str(MODEL), task="detect")

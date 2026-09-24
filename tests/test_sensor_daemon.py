@@ -1,4 +1,5 @@
 """Integration test: SensorDaemon composes end-to-end against a mock backend."""
+
 from __future__ import annotations
 
 import json
@@ -7,16 +8,14 @@ from pathlib import Path
 from threading import Thread
 
 import httpx
-import pytest
 
-from src.camina.io.http_client import HttpClient, RetryPolicy
-from src.camina.io.https_publisher import HttpsPublisher
-from src.camina.io.offline_buffer import OfflineBuffer
-from src.camina.io.config_poller import ConfigPoller
-from src.camina.core.counter import WindowedCounter, WindowSnapshot
-from src.camina.service import sensor_daemon as sd
-from src.camina.service.sensor_daemon import DaemonConfig, SensorDaemon
-
+from camina.core.counter import WindowedCounter, WindowSnapshot
+from camina.io.config_poller import ConfigPoller
+from camina.io.http_client import HttpClient, RetryPolicy
+from camina.io.https_publisher import HttpsPublisher
+from camina.io.offline_buffer import OfflineBuffer
+from camina.service import sensor_daemon as sd
+from camina.service.sensor_daemon import DaemonConfig, SensorDaemon
 
 CLASSES = ["person", "cyclist", "car"]
 UTC = timezone.utc
@@ -35,9 +34,7 @@ def _make_daemon(tmp_path: Path, transport: httpx.MockTransport) -> SensorDaemon
         publish_interval_seconds=900,
         heartbeat_interval_seconds=300,
     )
-    daemon = SensorDaemon(
-        config=cfg, frame_source=iter([]), detect_and_track=lambda _f: []
-    )
+    daemon = SensorDaemon(config=cfg, frame_source=iter([]), detect_and_track=lambda _f: [])
     client = HttpClient(
         "https://api.test",
         token="t",
@@ -96,7 +93,7 @@ def test_config_poller_reconfigures_counter(tmp_path: Path) -> None:
     # First GET returns a config with a 30 s window (we start at 60 s).
     new_config = {
         "config_version": "v2",
-        "publish_interval_minutes": 1,      # 1 min = 60 s — unchanged for simplicity
+        "publish_interval_minutes": 1,  # 1 min = 60 s — unchanged for simplicity
         "heartbeat_interval_minutes": 5,
         "daily_publish_time_utc": "00:00",
         "detection_zone": None,
@@ -215,7 +212,9 @@ def test_daemon_wires_fast_fail_inline_retry(tmp_path: Path) -> None:
     outage cannot stall the detection loop (the outbox owns durable retries)."""
     daemon = _make_daemon(
         tmp_path,
-        httpx.MockTransport(lambda _r: httpx.Response(200, json={"ok": True, "latest_config_version": ""})),
+        httpx.MockTransport(
+            lambda _r: httpx.Response(200, json={"ok": True, "latest_config_version": ""})
+        ),
     )
     try:
         assert daemon._http._retry is sd._INLINE_RETRY
@@ -262,9 +261,7 @@ def test_publish_worker_drains_enqueued_counts_on_stop(tmp_path: Path) -> None:
 
     daemon = _make_daemon(tmp_path, httpx.MockTransport(handler))
     daemon._publish_jitter_s = 0.0  # deterministic: no first-attempt delay
-    daemon._worker_thread = Thread(
-        target=daemon._publish_worker, name="test-publish", daemon=True
-    )
+    daemon._worker_thread = Thread(target=daemon._publish_worker, name="test-publish", daemon=True)
     daemon._worker_thread.start()
     try:
         snap = WindowSnapshot(
@@ -273,8 +270,8 @@ def test_publish_worker_drains_enqueued_counts_on_stop(tmp_path: Path) -> None:
             counts={"person": 4, "cyclist": 0, "car": 0},
             partial=False,
         )
-        daemon._daily.add_window(snap)      # local bookkeeping (producer thread)
-        daemon._enqueue(("counts", snap))   # network POST → worker thread
+        daemon._daily.add_window(snap)  # local bookkeeping (producer thread)
+        daemon._enqueue(("counts", snap))  # network POST → worker thread
 
         daemon.stop()  # sentinel drains the queue and joins the worker
 

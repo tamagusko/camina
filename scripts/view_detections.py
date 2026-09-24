@@ -13,9 +13,10 @@ writes an MP4:
 
 Usage::
 
-    python scripts/view_detections.py --video tests/test.mov --out /tmp/annotated.mp4 \
+    python scripts/view_detections.py --video videos/test.mov --out /tmp/annotated.mp4 \
         --screenline 0.65 0.15 0.65 0.72 --play
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,21 +32,28 @@ from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.camina.core.counting import CountGate, Screenline
-from src.camina.core.tracker import Sort
-from src.camina.service.detect_track import (
+from camina.core.counting import CountGate, Screenline
+from camina.core.tracker import Sort
+from camina.service.detect_track import (
     _map_model_classes,
     _to_canonical,
 )
-from src.camina.service.ncnn_detector import NcnnDetector
-from src.camina.utils.taxonomy import load_canonical_classes
+from camina.service.ncnn_detector import NcnnDetector
+from camina.utils.taxonomy import load_canonical_classes
 
 logger = logging.getLogger(__name__)
 
 # One restrained colour per class, in configs/classes.yaml order (RGB).
 COLOURS = [
-    (255, 255, 255), (52, 199, 89), (10, 132, 255), (191, 90, 242), (255, 159, 10),
-    (255, 69, 58), (255, 214, 10), (100, 210, 255), (172, 142, 104),
+    (255, 255, 255),
+    (52, 199, 89),
+    (10, 132, 255),
+    (191, 90, 242),
+    (255, 159, 10),
+    (255, 69, 58),
+    (255, 214, 10),
+    (100, 210, 255),
+    (172, 142, 104),
 ]
 FONT = "/usr/share/fonts/noto/NotoSans-Medium.ttf"
 
@@ -57,17 +65,23 @@ def _font(size: int) -> ImageFont.ImageFont:
         return ImageFont.load_default(size)
 
 
+def _mmss(seconds: float) -> str:
+    return f"{int(seconds) // 60:02d}:{int(seconds) % 60:02d}"
+
+
 def _pill(draw: ImageDraw.ImageDraw, xy: tuple[float, float], text: str, font, pad: int) -> None:
     """A black capsule label with white text, top-left at ``xy``."""
     x, y = xy
-    l, t, r, b = draw.textbbox((0, 0), text, font=font)
-    w, h = r - l + 2 * pad, b - t + pad
+    left, t, r, b = draw.textbbox((0, 0), text, font=font)
+    w, h = r - left + 2 * pad, b - t + pad
     y = max(0, y - h - 2)
     draw.rounded_rectangle((x, y, x + w, y + h), radius=h // 2, fill=(0, 0, 0, 200))
-    draw.text((x + pad - l, y + pad / 2 - t), text, font=font, fill=(255, 255, 255, 255))
+    draw.text((x + pad - left, y + pad / 2 - t), text, font=font, fill=(255, 255, 255, 255))
 
 
-def _screenline(draw: ImageDraw.ImageDraw, line: Screenline, W: int, H: int, font, width: int) -> None:
+def _screenline(
+    draw: ImageDraw.ImageDraw, line: Screenline, W: int, H: int, font, width: int
+) -> None:
     """The counting line, with an A and a B badge on each side of its midpoint."""
     (x1, y1), (x2, y2) = (line.start[0] * W, line.start[1] * H), (line.end[0] * W, line.end[1] * H)
     draw.line((x1, y1, x2, y2), fill=(255, 255, 255, 200), width=width)
@@ -79,8 +93,13 @@ def _screenline(draw: ImageDraw.ImageDraw, line: Screenline, W: int, H: int, fon
         cx, cy = mx + sign * nx * off, my + sign * ny * off
         r = 7 * width
         draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(0, 0, 0, 200))
-        l, t, rr, b = draw.textbbox((0, 0), label, font=font)
-        draw.text((cx - (rr - l) / 2 - l, cy - (b - t) / 2 - t), label, font=font, fill=(255, 255, 255, 255))
+        left, t, rr, b = draw.textbbox((0, 0), label, font=font)
+        draw.text(
+            (cx - (rr - left) / 2 - left, cy - (b - t) / 2 - t),
+            label,
+            font=font,
+            fill=(255, 255, 255, 255),
+        )
 
 
 def main() -> int:
@@ -90,9 +109,16 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True, help="annotated .mp4 to write")
     ap.add_argument("--model", type=Path, default=Path("models/camina_v1_yolo11n_ncnn_model"))
     ap.add_argument("--conf", type=float, default=0.3)
-    ap.add_argument("--screenline", type=float, nargs=4, metavar=("X1", "Y1", "X2", "Y2"),
-                    help="count on crossing this line (fractions of the frame); default: on movement")
-    ap.add_argument("--min-move", type=float, default=1.0, help="movement threshold, in box heights")
+    ap.add_argument(
+        "--screenline",
+        type=float,
+        nargs=4,
+        metavar=("X1", "Y1", "X2", "Y2"),
+        help="count on crossing this line (fractions of the frame); default: on movement",
+    )
+    ap.add_argument(
+        "--min-move", type=float, default=1.0, help="movement threshold, in box heights"
+    )
     ap.add_argument("--max-frames", type=int, default=0, help="0 = whole video")
     ap.add_argument("--play", action="store_true", help="open the result in mpv when done")
     args = ap.parse_args()
@@ -103,7 +129,11 @@ def main() -> int:
     model_names = [detector.names[i] for i in sorted(detector.names)]
     to_class = _map_model_classes(model_names, classes)
     tracker = Sort()  # one tracker, class by majority vote, as in the daemon
-    line = Screenline(tuple(args.screenline[:2]), tuple(args.screenline[2:])) if args.screenline else None
+    line = (
+        Screenline(tuple(args.screenline[:2]), tuple(args.screenline[2:]))
+        if args.screenline
+        else None
+    )
     gate = CountGate(screenline=line, min_move=args.min_move)
     seen: dict[int, int] = {}  # every confirmed track -> its latest class (old rule: count all)
     counted: dict[int, dict[str, int]] = {i: {} for i in range(len(classes))}  # direction -> n
@@ -114,7 +144,7 @@ def main() -> int:
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     total = min(total, args.max_frames) if args.max_frames else total
     w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    k = max(1, round(800 / min(w, h)))            # render small videos at 2x, crisply
+    k = max(1, round(800 / min(w, h)))  # render small videos at 2x, crisply
     W, H = w * k, h * k
     label_font, bar_font = _font(11 * k // 2 + 6), _font(12 * k // 2 + 7)
     lw = max(2, k)
@@ -128,7 +158,9 @@ def main() -> int:
             break
         dets = detector(frame)
         tracks = []
-        for x1, y1, x2, y2, tid, c in tracker.update(_to_canonical(dets, to_class, len(model_names), args.conf)):
+        for x1, y1, x2, y2, tid, c in tracker.update(
+            _to_canonical(dets, to_class, len(model_names), args.conf)
+        ):
             seen[int(tid)] = int(c)
             tracks.append((int(c), int(tid), (x1, y1, x2, y2)))
         class_of = {str(tid): c for c, tid, _ in tracks}
@@ -143,7 +175,7 @@ def main() -> int:
         layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(layer)
 
-        for x1, y1, x2, y2, _score, m_idx in dets:  # quiet outline: detected, not confirmed
+        for x1, y1, x2, y2, _score, _m_idx in dets:  # quiet outline: detected, not confirmed
             draw.rectangle((x1 * k, y1 * k, x2 * k, y2 * k), outline=(255, 255, 255, 90), width=1)
         if line is not None:
             _screenline(draw, line, W, H, label_font, width=lw)
@@ -157,12 +189,15 @@ def main() -> int:
 
         bar_h = 22 * k
         draw.rectangle((0, H - bar_h, W, H), fill=(0, 0, 0, 170))
-        counts = "   ".join(f"{classes[c]} {sum(d.values())}" for c, d in counted.items() if d) or "nothing counted yet"
+        counts = (
+            "   ".join(f"{classes[c]} {sum(d.values())}" for c, d in counted.items() if d)
+            or "nothing counted yet"
+        )
         if line is not None:
             ab = sum(d.get("AB", 0) for d in counted.values())
             ba = sum(d.get("BA", 0) for d in counted.values())
             counts += f"      A to B {ab}   B to A {ba}"
-        clock = f"{int(n / fps) // 60:02d}:{int(n / fps) % 60:02d} / {int(total / fps) // 60:02d}:{int(total / fps) % 60:02d}"
+        clock = f"{_mmss(n / fps)} / {_mmss(total / fps)}"
         _, t, _, b = draw.textbbox((0, 0), counts, font=bar_font)
         ty = H - bar_h + (bar_h - (b - t)) / 2 - t
         draw.text((8 * k, ty), counts, font=bar_font, fill=(255, 255, 255, 255))
@@ -177,13 +212,22 @@ def main() -> int:
     out.release()
     elapsed = time.perf_counter() - started
     logger.info("Wrote %s: %d frames in %.0f s", args.out, n, elapsed)
-    logger.info("Confirmed tracks (every track counted): %s",
-                {classes[c]: n for c in range(len(classes)) if (n := sum(v == c for v in seen.values()))})
-    logger.info("Counted (%s): %s", "screenline" if line else f"moved >= {args.min_move} box heights",
-                {classes[c]: d for c, d in counted.items() if d})
+    logger.info(
+        "Confirmed tracks (every track counted): %s",
+        {classes[c]: n for c in range(len(classes)) if (n := sum(v == c for v in seen.values()))},
+    )
+    logger.info(
+        "Counted (%s): %s",
+        "screenline" if line else f"moved >= {args.min_move} box heights",
+        {classes[c]: d for c, d in counted.items() if d},
+    )
     if args.play:
-        subprocess.Popen(["mpv", "--keep-open=yes", str(args.out)], start_new_session=True,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(
+            ["mpv", "--keep-open=yes", str(args.out)],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     return 0
 
 

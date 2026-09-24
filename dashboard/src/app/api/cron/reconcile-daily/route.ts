@@ -9,6 +9,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, note: "mock mode — reconciliation skipped" });
   }
   // Live mode: compare sum(sensor_readings) vs sensor_daily_totals for yesterday
-  // and flag mismatches per docs/RECONCILIATION.md.
+  // and flag mismatches per docs/operations.md (Daily reconciliation).
   return NextResponse.json({ error: "live_mode_not_implemented" }, { status: 501 });
 }
