@@ -39,6 +39,7 @@ from training.count_eval import mark_complete, read_truth, start_pass, write_eve
 logger = logging.getLogger(__name__)
 
 WHITE, GREY = (255, 255, 255), (170, 170, 170)
+LEGEND = "a: A to B   b: B to A   u: undo   space: pause   , .: step   [ ]: speed   q: quit"
 
 
 def _undo_last(path: Path) -> None:
@@ -61,9 +62,10 @@ def _draw(frame: np.ndarray, line: Screenline, top: str, bottom: str) -> np.ndar
         x, y = int(mid[0] - sign * 30 * dy / norm), int(mid[1] + sign * 30 * dx / norm)
         cv2.circle(img, (x, y), 13, (0, 0, 0), -1, cv2.LINE_AA)
         cv2.putText(img, label, (x - 6, y + 6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, WHITE, 2)
-    cv2.rectangle(img, (0, H - 54), (W, H), (0, 0, 0), -1)
-    cv2.putText(img, top, (10, H - 32), cv2.FONT_HERSHEY_SIMPLEX, 0.55, WHITE, 1, cv2.LINE_AA)
-    cv2.putText(img, bottom, (10, H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, GREY, 1, cv2.LINE_AA)
+    cv2.rectangle(img, (0, H - 76), (W, H), (0, 0, 0), -1)
+    cv2.putText(img, top, (10, H - 54), cv2.FONT_HERSHEY_SIMPLEX, 0.55, WHITE, 1, cv2.LINE_AA)
+    cv2.putText(img, bottom, (10, H - 32), cv2.FONT_HERSHEY_SIMPLEX, 0.5, GREY, 1, cv2.LINE_AA)
+    cv2.putText(img, LEGEND, (10, H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.45, GREY, 1, cv2.LINE_AA)
     return img
 
 
@@ -83,6 +85,7 @@ def main() -> int:
         write_header(args.out, Screenline(tuple(args.screenline[:2]), tuple(args.screenline[2:])))
     start_pass(args.out, args.cls)
     line, _, _ = read_truth(args.out)
+    logger.info("Counting %s. Keys: %s", args.cls, LEGEND)
 
     cap = cv2.VideoCapture(str(args.video))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
