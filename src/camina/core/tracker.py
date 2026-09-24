@@ -63,6 +63,9 @@ class KalmanBoxTracker:
         self.hits = 0
         self.hit_streak = 0
         self.age = 0
+        # Confidence-weighted class votes, when detections carry a class.
+        self.votes: dict[int, float] = {}
+        self._vote(bbox)
         
         # Speed tracking
         self.history = []  # Store center positions and timestamps
@@ -82,6 +85,17 @@ class KalmanBoxTracker:
         self.hits += 1
         self.hit_streak += 1
         self.kf.update(self._bbox_to_z(bbox))
+        self._vote(bbox)
+
+    def _vote(self, det: np.ndarray) -> None:
+        if len(det) >= 6:
+            cls = int(det[5])
+            self.votes[cls] = self.votes.get(cls, 0.0) + float(det[4])
+
+    @property
+    def cls(self) -> int:
+        """The class with the highest summed confidence so far (-1 without classes)."""
+        return max(self.votes, key=self.votes.get) if self.votes else -1
 
     def predict(self) -> np.ndarray:
         """
@@ -220,7 +234,10 @@ class Sort:
     """
     SORT tracker for managing multiple object trackers.
 
-    Handles detection-to-tracker association and lifecycle management.
+    Handles detection-to-tracker association and lifecycle management. One
+    tracker serves every class: association ignores the class, so a detector
+    that flips an object between two classes (car/SUV) keeps one track, and
+    the track's class is its confidence-weighted majority vote.
     """
     
     def __init__(self, min_hits: int = 3):
@@ -236,15 +253,16 @@ class Sort:
         self.trackers: list[KalmanBoxTracker] = []
         self.frame_count = 0
 
-    def update(self, dets: np.ndarray = np.empty((0, 5))) -> np.ndarray:
+    def update(self, dets: np.ndarray = np.empty((0, 6))) -> np.ndarray:
         """
         Update trackers with new detections.
 
         Args:
-            dets (np.ndarray): Array of detections.
+            dets (np.ndarray): ``(N, 6)`` rows ``[x1, y1, x2, y2, score, class]``.
 
         Returns:
-            np.ndarray: Active tracked objects with IDs.
+            np.ndarray: ``(M, 6)`` rows ``[x1, y1, x2, y2, track_id, class]`` for
+            the confirmed tracks updated on this frame; ``class`` is the vote.
         """
         self.frame_count += 1
 
@@ -274,11 +292,11 @@ class Sort:
             d = trk.get_state()
             if (trk.time_since_update < 1
                     and (trk.hits >= self.min_hits or self.frame_count <= self.min_hits)):
-                ret.append(np.concatenate((d, [trk.id])).reshape(1, -1))
+                ret.append(np.concatenate((d, [trk.id, trk.cls])).reshape(1, -1))
             if trk.time_since_update > self.max_age:
                 self.trackers.remove(trk)
 
-        return np.concatenate(ret) if ret else np.empty((0, 5))
+        return np.concatenate(ret) if ret else np.empty((0, 6))
     
     def get_tracker_by_id(self, track_id: int) -> KalmanBoxTracker:
         """

@@ -192,3 +192,62 @@ def test_daemon_config_defaults_to_canonical_model_at_640(tmp_path: Path) -> Non
     # Ultralytics only recognises an NCNN export by the ``_ncnn_model`` suffix.
     assert cfg.ncnn_model_path == Path("models/camina_v1_yolo11n_ncnn_model")
     assert cfg.imgsz == 640
+
+
+_MINIMAL_YAML = (
+    "sensor_id: cam-yaml-03\napi_base_url: https://api.test\napi_token: t\n"
+    "classes: [person, cyclist, car, e-scooter, SUV, motorcyclist, bus, "
+    "delivery_van, truck]\n"
+)
+
+
+def test_daemon_config_reads_the_screenline(tmp_path: Path) -> None:
+    from src.camina.service.sensor_daemon import DaemonConfig
+
+    yaml_path = tmp_path / "sensor.yaml"
+    yaml_path.write_text(_MINIMAL_YAML + "screenline: [[0.65, 0.1], [0.65, 0.9]]\nmin_move: 2\n")
+    cfg = DaemonConfig.from_yaml(yaml_path)
+
+    assert cfg.screenline == ((0.65, 0.1), (0.65, 0.9))
+    assert cfg.min_move == pytest.approx(2.0)
+
+
+def test_daemon_config_counts_on_movement_by_default(tmp_path: Path) -> None:
+    from src.camina.service.sensor_daemon import DaemonConfig
+
+    yaml_path = tmp_path / "sensor.yaml"
+    yaml_path.write_text(_MINIMAL_YAML)
+    cfg = DaemonConfig.from_yaml(yaml_path)
+
+    assert cfg.screenline is None and cfg.min_move == pytest.approx(1.0)
+
+
+def test_compose_gives_the_detector_a_count_gate_from_config(tmp_path: Path) -> None:
+    """The daemon always counts through a gate: static tracks never reach the counter."""
+    from dataclasses import replace
+
+    from src.camina.core.counting import CountGate, Screenline
+    from src.camina.service.compose import compose
+
+    cfg = replace(_make_cfg(tmp_path), screenline=((0.5, 0.0), (0.5, 1.0)), min_move=1.5)
+    captured: dict = {}
+
+    def _capturing_detect_factory(**kwargs):
+        captured.update(kwargs)
+        return lambda _f: []
+
+    daemon = compose(
+        cfg,
+        ncnn_model_path=tmp_path / "the_ncnn_dir",
+        camera_factory=_fake_camera_factory,
+        detect_factory=_capturing_detect_factory,
+    )
+    try:
+        gate = captured["gate"]
+        assert isinstance(gate, CountGate)
+        assert gate.screenline == Screenline((0.5, 0.0), (0.5, 1.0))
+        assert gate.min_move == pytest.approx(1.5)
+    finally:
+        daemon._outbox.close()
+        daemon._daily.close()
+        daemon._http.close()

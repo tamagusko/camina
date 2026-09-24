@@ -105,6 +105,11 @@ class DaemonConfig:
     ncnn_model_path: Path = Path("models/camina_v1_yolo11n_ncnn_model")
     imgsz: int = 640
     conf_threshold: float = 0.3
+    # Counting (src/camina/core/counting.py): count a track when it crosses
+    # the screenline, given as two (x, y) points in fractions of the frame;
+    # with no screenline, when it has moved ``min_move`` box heights.
+    screenline: Optional[tuple[tuple[float, float], tuple[float, float]]] = None
+    min_move: float = 1.0
 
     @classmethod
     def from_yaml(cls, path: Path) -> "DaemonConfig":
@@ -125,7 +130,19 @@ class DaemonConfig:
             ),
             imgsz=int(data.get("imgsz", 640)),
             conf_threshold=float(data.get("conf_threshold", 0.3)),
+            screenline=_parse_screenline(data.get("screenline")),
+            min_move=float(data.get("min_move", 1.0)),
         )
+
+
+def _parse_screenline(
+    raw: Optional[list],
+) -> Optional[tuple[tuple[float, float], tuple[float, float]]]:
+    """``[[x1, y1], [x2, y2]]`` from YAML -> a tuple of two float points, or ``None``."""
+    if raw is None:
+        return None
+    (x1, y1), (x2, y2) = raw
+    return ((float(x1), float(y1)), (float(x2), float(y2)))
 
 
 class SensorDaemon:
