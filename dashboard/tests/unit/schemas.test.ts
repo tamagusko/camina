@@ -25,7 +25,7 @@ describe("countsPayloadSchema", () => {
   });
 
   it("accepts an edge-shaped payload (pydantic model_dump_json wire format)", () => {
-    // Mirrors src/camina/io/schemas.py CountsPayload serialization.
+    // Mirrors camina/io/schemas.py CountsPayload serialization.
     const edge = {
       schema_version: "1.0",
       sensor_id: "s",

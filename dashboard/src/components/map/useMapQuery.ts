@@ -17,7 +17,7 @@ export interface Viewport {
 
 const KEYS = { zoom: "zoom", lat: "lat", lon: "lon" } as const;
 
-export function parseSearch(search: string): Viewport | null {
+function parseSearch(search: string): Viewport | null {
   if (!search) return null;
   const params = new URLSearchParams(search.replace(/^\?/, ""));
   const zoom = Number(params.get(KEYS.zoom));
@@ -27,7 +27,7 @@ export function parseSearch(search: string): Viewport | null {
   return { zoom, center: [lon, lat] };
 }
 
-export function formatSearch(v: Viewport, existing?: string): string {
+function formatSearch(v: Viewport, existing?: string): string {
   const params = new URLSearchParams((existing ?? "").replace(/^\?/, ""));
   params.set(KEYS.zoom, v.zoom.toFixed(1));
   params.set(KEYS.lat, v.center[1].toFixed(4));

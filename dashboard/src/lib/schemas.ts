@@ -14,7 +14,7 @@ export const readingsQuerySchema = z.object({
   bucket: z.coerce.number().int().positive().default(15),
 });
 
-// Ingest POST bodies — mirror src/camina/io/schemas.py on the device side.
+// Ingest POST bodies — mirror camina/io/schemas.py on the device side.
 // Wire-format bounds.
 const MAX_COUNT = 65535; // uint16 ceiling per class per window/day
 const MAX_WINDOW_S = 3600; // windows are 900 s; partials may be shorter, never longer
@@ -94,7 +94,6 @@ export const heartbeatPayloadSchema = z
   })
   .strict();
 
-export type ReadingsQuery = z.infer<typeof readingsQuerySchema>;
 export type CountsPayload = z.infer<typeof countsPayloadSchema>;
 export type DailyPayload = z.infer<typeof dailyPayloadSchema>;
 export type HeartbeatPayload = z.infer<typeof heartbeatPayloadSchema>;

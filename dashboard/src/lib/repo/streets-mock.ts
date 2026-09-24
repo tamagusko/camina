@@ -45,9 +45,9 @@ function nullBreakdown(): Record<RoadUserClass, number | null> {
 // k-anonymity floor: a published count identifies K_MIN or more individuals.
 // Counts of 1..(K_MIN-1) are re-identifiable, so they are suppressed to null.
 // 0 is safe to publish — there is no counted individual to re-identify.
-export const K_MIN = 5;
+const K_MIN = 5;
 
-export function suppressCount(n: number | null): number | null {
+function suppressCount(n: number | null): number | null {
   if (n === null) return null;
   return n > 0 && n < K_MIN ? null : n;
 }

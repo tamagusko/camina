@@ -1,5 +1,5 @@
 // Fail-closed production gates + timing-safe token compares.
-// Covers docs/production_readiness.md findings H6, H7, H8, M3.
+// Production fails closed: no mock default, no admin bypass, no empty allowlist, cron secret required.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 

@@ -12,17 +12,9 @@ import { MetricToggle } from "./MetricToggle";
 import { TimeWindowPicker } from "./TimeWindowPicker";
 import { useMapQuery, type Viewport } from "./useMapQuery";
 
-// Basemap: OpenFreeMap's Positron style — the same pure grey/white OpenMapTiles
-// look DESIGN.md asks for, served as vector tiles with no API key, no account
-// and no request quota.
-//
-// This replaced Carto's raster CDN on 2026-09-22: Carto now requires an API key
-// and stamps "API KEY REQUIRED" across every unauthenticated tile, including the
-// ones `scripts/download-dublin-tiles.mjs` had cached into `public/tiles/`.
-//
-// Trade-off: the basemap is fetched from the network, so the map needs internet.
-// For an offline demo, self-host a Protomaps PMTiles extract instead — that is
-// the production path this component's `pmtilesUrl` prop is reserved for.
+// Basemap: OpenFreeMap's Positron style (vector tiles, no API key, no quota).
+// It is fetched live, so the map needs internet. Carto was dropped on
+// 2026-09-22: it watermarks every keyless tile.
 const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 
 // MapLibre GL 6 cannot locate its worker once bundled; the worker is served
@@ -34,7 +26,6 @@ interface Props {
   city: string;
   streets: StreetSummary[];
   initialMetrics: MetricValue[];
-  pmtilesUrl?: string;
   onSelectStreet?: (streetId: string) => void;
   onMetricsChange?: (metrics: MetricValue[]) => void;
 }

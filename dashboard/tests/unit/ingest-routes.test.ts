@@ -1,5 +1,4 @@
 // Ingest route-handler + persistence-logic tests.
-// Covers docs/production_readiness.md findings H2, H5, H6, M17.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 

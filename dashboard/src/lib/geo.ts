@@ -14,7 +14,7 @@ export const CITY_VIEWS: Record<
 };
 
 // Compute bbox union of an array of streets. Useful for `fitBounds`.
-export function unionBbox(streets: StreetSummary[]):
+function unionBbox(streets: StreetSummary[]):
   | [[number, number], [number, number]]
   | null {
   if (streets.length === 0) return null;
