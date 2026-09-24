@@ -98,6 +98,21 @@ def test_a_centre_landing_exactly_on_the_line_still_counts_the_crossing() -> Non
     assert _walk(gate, "car-1", [400, 500, 600]) == [CountEvent("car-1", "AB")]
 
 
+def test_a_static_object_jittering_across_the_line_is_not_counted() -> None:
+    """A bollard on the line: its box centre wobbles a few pixels either side."""
+    gate = CountGate(screenline=Screenline((0.5, 0.0), (0.5, 1.0)), min_move=1.0)
+
+    assert _walk(gate, "person-453", [495, 505, 497, 503] * 10) == []
+
+
+def test_a_crossing_counts_once_the_track_has_also_moved_far_enough() -> None:
+    gate = CountGate(screenline=Screenline((0.5, 0.0), (0.5, 1.0)), min_move=1.0)
+
+    # Crosses at 480 -> 520, but has travelled only 80 px (< 1 box height) by 560.
+    assert _walk(gate, "car-1", [480, 520, 560]) == []
+    assert _walk(gate, "car-1", [590]) == [CountEvent("car-1", "AB")]
+
+
 def test_a_track_that_moves_but_never_crosses_is_not_counted() -> None:
     gate = CountGate(screenline=Screenline((0.5, 0.0), (0.5, 1.0)))
 

@@ -6,8 +6,10 @@ Counting every confirmed track therefore counts street furniture (on the test
 clip, 287 of 325 ``person`` tracks never moved more than half a box height).
 The gate counts a track at most once, and only when it has travelled:
 
-- **Screenline mode** (``screenline`` set): when the track's centre crosses the
-  line segment. The event carries the direction, ``"AB"`` or ``"BA"``.
+- **Screenline mode** (``screenline`` set): when the track's centre has crossed
+  the line segment *and* moved ``min_move`` box heights, so a bollard whose
+  box jitters across the line never counts. The event carries the direction,
+  ``"AB"`` or ``"BA"``.
 - **Movement mode** (no screenline): when the centre is ``min_move`` of the
   track's own mean box heights away from where it was first seen. Measuring in
   box heights makes one threshold work for near and far objects.
@@ -86,6 +88,7 @@ class _Track:
     n: int
     last_frame: int
     counted: bool = False
+    crossed: str | None = None  # latest screenline crossing direction
 
 
 class CountGate:
@@ -93,7 +96,8 @@ class CountGate:
 
     Args:
         screenline: Count on crossing this line; ``None`` counts on movement.
-        min_move: Movement mode threshold, in mean box heights. Must be > 0.
+        min_move: Distance a track must travel to count, in its mean box
+            heights; applies in both modes. Must be > 0.
         forget_after: Drop a track's state after this many frames unseen.
     """
 
@@ -150,11 +154,12 @@ class CountGate:
 
     def _qualifies(self, t: _Track, centre: Point, frame_size: tuple[int, int]) -> tuple[bool, str | None]:
         """Whether ``t`` counts on this frame, and its direction (``None`` in movement mode)."""
-        if self.screenline is not None:
-            direction = self.screenline.crossing(t.last, centre, frame_size)
-            return direction is not None, direction
         dx, dy = centre[0] - t.first[0], centre[1] - t.first[1]
-        return (dx * dx + dy * dy) ** 0.5 >= self.min_move * t.height_sum / t.n, None
+        moved = (dx * dx + dy * dy) ** 0.5 >= self.min_move * t.height_sum / t.n
+        if self.screenline is None:
+            return moved, None
+        t.crossed = self.screenline.crossing(t.last, centre, frame_size) or t.crossed
+        return moved and t.crossed is not None, t.crossed
 
     def _on_line(self, p: Point, frame_size: tuple[int, int]) -> bool:
         if self.screenline is None:
