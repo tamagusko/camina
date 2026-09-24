@@ -95,6 +95,14 @@ motorcyclist↔e-scooter).
 - This is the metric closest to the deliverable and the one to weight most heavily for the
   minority classes.
 
+**Ground truth, in practice.** One pass per class with `scripts/hand_count.py`: play the clip
+with the screenline drawn and press `a` (A→B) or `b` (B→A) at each crossing of that class. A
+pass counts only if it played the whole clip. The CSV sits next to the video
+(`videos/<clip>.counts.csv`) and records its screenline, so the comparison always uses the
+same line. `python -m training.count_eval --video … --truth …` then prints truth, counted and
+error per class and direction, with the S7 verdict (within 20 % for ≥ 20 true crossings,
+else within 5).
+
 ---
 
 ## 3. Comparability across versions
