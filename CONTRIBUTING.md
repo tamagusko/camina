@@ -42,11 +42,9 @@ Green `pytest` and a working `/dublin` map = you're set up.
 
 ## Claiming a task
 
-1. Open [`TODO.md`](./TODO.md).
-2. Pick a task tagged at your comfort level (★ / ★★ / ★★★).
-3. Edit TODO.md: change `[ ]` → `[x]` and add your name in **Claimed by:** — commit that on the same branch as your work (`chore(todo): claim <task>`).
-4. Open a **draft PR early**. Small is better than done.
-5. Mark ready for review when tests pass locally.
+1. Pick a task in [`TODO.md`](./TODO.md) and put your name after it.
+2. Branch from `dev` and open a **draft PR into `dev`** early. Small is better than done.
+3. Mark it ready for review when tests pass locally, and delete the task from `TODO.md` in that PR.
 
 One person per task. If you want to pair, coordinate first.
 

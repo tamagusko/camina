@@ -1,227 +1,67 @@
-# CAMINA — Contributor Tasks
+# CAMINA — tasks
 
-Authoritative project roadmap: [`.planning/ROADMAP.md`](./.planning/ROADMAP.md). This file is the **work queue** — modular, well-defined tasks you can pick up without needing to touch the load-bearing core.
+Two lists: the maintainer's next stages (from [`.planning/PLAN.md`](.planning/PLAN.md)), and
+self-contained tasks anyone can pick up. **Difficulty:** ★ under half a day · ★★ 1–2 days ·
+★★★ 2–5 days.
 
----
+**To claim a task:** put your name after it, open a draft PR into `dev` early (see
+[`CONTRIBUTING.md`](CONTRIBUTING.md)), and delete the task from this file in the PR that finishes it.
 
-## 🔜 Next up (maintainer)
+## Maintainer — next
 
-Maintainer work is now tracked in [`.planning/PLAN.md`](./.planning/PLAN.md) (stages S1–S14) and [`.planning/STATE.md`](./.planning/STATE.md). The 2026-07-10 audit checklist that previously lived here is preserved in git history — see commit `ca5f126`, the last commit that touched this file before the 2026-09-15 planning rebuild.
+- [ ] **S2 — CI.** pytest, ESLint, `tsc`, vitest (with generated fixtures), mock build, on every PR.
+- [ ] **S3 — Config handshake.** The server returns its own `config_version`; the sensor applies it.
+- [ ] **S4 — Live data path.** Migrations, `streets-live.ts`, a `provision-sensor` script; counts and
+  speeds below 5 suppressed.
+- [ ] **S5 — Deploy.** Vercel + Neon in live mode, Google OAuth on `/admin`.
+- [ ] **S6 — Pi bench.** Follow [`docs/raspberry_pi_5.md`](docs/raspberry_pi_5.md) on real hardware; then
+  promote `dev` → `main`.
+- [ ] **Start now (long lead times):** UCD DPO/ethics approval, a host site, the UCD Google OAuth app.
+- [ ] **Before any retraining (S13):** audit `dev_expanded_dataset`.
 
-### Maintainer — next (M1 unblockers)
+## Open tasks
 
-- [ ] **S1** — bring the TRA2026 9-class NCNN model to `main`: name-based class remap, `imgsz: 640`, `ncnn` dependency
-- [ ] **S2** — CI gate: pytest, vitest (with generated fixtures), tsc, mock build
-- [ ] **S3** — config handshake server fix
-- [ ] **S4** — live read path (`streets-live.ts`) + `provision-sensor` CLI + migrations journal, speed suppressed with counts below k_min
-- [ ] Start S8 prerequisites now: UCD DPO/ethics contact, host site, UCD Google OAuth app request
+### Documentation
 
-### Open — v2-class relabel (tracked as PLAN.md S13)
+- **Hardware list and assembly guide** ★★ — new `docs/HARDWARE.md`: parts with prices, wiring,
+  enclosure, Active Cooler (state on the SD card, no SSD). The only unit cost the project will quote.
+  *Needs an assembled unit to photograph — ask @tamagusko.*
+- **Operations runbook** ★★ — new `dashboard/docs/RUNBOOK.md`: deploy, rollback, "sensor went
+  silent", "map not loading", "database spike", each as symptom / check / fix.
 
-Dataset decision (D8b): merge with Roboflow v3 as the reference corpus.
+### Dashboard
 
-- [ ] **Scarcity check first (~20 min):** eyeball ~50 random images from `custom_model_train/datasets/camina_v1_9class/` — if e-scooter/delivery_van barely appear, extra Dublin footage is needed before any labelling effort
-- [ ] Labelling guide: SUV-vs-car and e-scooter boundary rules with example crops (Opus-assisted, ~1 h)
-- [ ] Manual seed pass: ~100–200 instances per class (2–4 h)
-- [ ] Assisted proposals: SAM2 boxes + cheap-vision-model classification over car/truck/person crops (Sonnet/Haiku tier — per-crop cost dominates; pipeline per `docs/training_plan.md §2`)
-- [ ] **Mandatory human QA gate:** accept/reject every proposal + car→SUV disambiguation pass over all 1,296 images incl. the frozen held-out 192 (~6–9 h with CVAT/Label Studio hotkeys; good intern task once the guide exists). Log per-class accept/reject counts against the dataset version
-- [ ] Re-run `validate_labels.py` + re-freeze the held-out manifest after relabel
+- **Street page summary** ★★ — `dashboard/src/app/[city]/street/[slug]/page.tsx`: show the same
+  totals, average speed and per-class rows as the map side panel.
+- **Time range on the street page** ★★ — same page: `1h / 24h / 7d / 30d`, kept in `?range=`.
+- **Swipe for the mobile panel** ★★ — `dashboard/src/components/panels/StreetSidePanel.tsx` is
+  already a bottom sheet on small screens; add drag with peek / half / full snap points.
+- **Keyboard shortcuts** ★★ — `M` metric, `C` classes, `T` time window, `Esc` close panel, `?` help
+  (`dashboard/src/components/map/`).
+- **Screen-reader announcements** ★ — announce metric, class and time-window changes in an
+  `aria-live="polite"` region.
+- **Tap targets** ★ — every control at least 44×44 px on a 390×844 viewport.
 
----
+### Tests
 
-**Difficulty:** ★ starter (<½ day) · ★★ medium (1–2 days) · ★★★ deeper (2–5 days)
-**Tracks:** 📚 Docs · 🎨 Dashboard UX · 🧪 Tests · 🛠 Tooling · 🔧 Ops
+- **Click-a-street end-to-end test** ★★ — Playwright: open `/dublin`, click a street, assert the
+  panel opens *inside the viewport* with the API's total. (An off-screen panel shipped once.)
+- **Counter edge cases** ★★ — `tests/test_windowed_counter.py`: midnight, DST change, empty
+  windows, events exactly on a window boundary.
+- **State-file corruption** ★★ — `tests/test_daily_accumulator.py`: truncated or zeroed `state.db`
+  is quarantined and logged, never crashes the daemon. Use real files, not mocks.
+- **Admin routes need a session** ★★ — every `/api/admin/**` route returns 401 without one; the test
+  fails when a new route is added unguarded. *After S5.*
 
-**How to claim a task:** flip `[ ]` → `[x]`, fill **Claimed by:** with your name, commit as `chore(todo): claim <task name>`. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full flow.
+### Tooling
 
----
+- **Pre-commit hooks** ★ — `.pre-commit-config.yaml`: ruff and pytest for Python; ESLint, `tsc`
+  and vitest for the dashboard.
+- **Fake sensor** ★★ — `scripts/fake_sensor.py`: posts valid count payloads to a local dashboard at a
+  set rate, reproducible from a seed. Useful for demos and for testing S4.
 
-## 📚 Documentation
+## Ask first
 
-### [X] ★ Clean up debug log in `StreetMap.tsx`
-**Claimed by:** Guillaume
-**File:** `dashboard/src/components/StreetMap.tsx`
-**Task:** Remove the `[CAMINA] ancestor heights` diagnostic `console.log` near the ResizeObserver setup.
-**Acceptance:** `grep -rn "ancestor heights" dashboard/src` returns nothing; `pnpm dev` still renders the map.
-
-### [X] ★ Dashboard README first-run polish
-**Claimed by:** Guillaume
-**File:** `dashboard/README.md`
-**Task:** Add a "First-run" section covering `pnpm install` → tile download → `.env.local` → `pnpm dev`. Include a troubleshooting row for missing tiles.
-**Acceptance:** A fresh contributor can go from clone to `/dublin` following only the README.
-
-### [X] ★ Python docstring pass on `src/camina/core/`
-**Claimed by:** Guillaume
-**Files:** `src/camina/core/counter.py`, `daily_accumulator.py`, `offline_buffer.py`, `tracker.py`
-**Task:** Every public class + method gets a Google-style docstring (Args, Returns, Raises).
-**Acceptance:** `uv run pydocstyle src/camina/core/` returns no missing-docstring warnings.
-
-### [ ] ★★ Hardware BOM + assembly guide
-**Claimed by:** _(available)_
-**File:** new `docs/HARDWARE.md`
-**Task:** Document the Pi 5 8GB sensor assembly — parts list with links/prices, photos of wiring, enclosure mount, USB SSD, Active Cooler.
-**Acceptance:** `docs/HARDWARE.md` contains sections `## Bill of materials`, `## Assembly`, `## Enclosure`, `## Known-good vendors`; every assembly step has a photo in `docs/img/hardware/`.
-**Depends on:** ask @tamagusko for bench access + an assembled prototype to photograph.
-
-### [ ] ★★ Dashboard `RUNBOOK.md` skeleton
-**Claimed by:** _(available)_
-**File:** new `dashboard/docs/RUNBOOK.md`
-**Task:** Operational runbook covering deploy, rollback, "sensor went silent", "map not loading", "DB connection spike". Each scenario gets **symptom / check / fix**.
-**Acceptance:** ≥5 scenarios with the three-section format; linked from `dashboard/README.md`.
-
----
-
-## 🎨 Dashboard UX
-
-### [ ] ★★ Street detail page: mirror side-panel richness
-**Claimed by:** _(available)_
-**File:** `dashboard/src/app/[city]/street/[slug]/page.tsx`
-**Task:** The map-click side-panel shows total count, avg speed, per-class breakdown. Add the same summary above the time-series chart on the street detail page.
-**Acceptance:** Visual match with the side-panel; Playwright test navigates to a street detail page and asserts per-class rows.
-
-### [ ] ★★ Time-range selector on street detail
-**Claimed by:** _(available)_
-**File:** same page as above
-**Task:** Segmented selector `1h / 24h / 7d / 30d`; drives the chart via `?range=` query param; URL param persists on refresh.
-**Acceptance:** Switching updates the chart without full reload; Playwright test asserts URL ↔ chart sync.
-
-### [ ] ★★ 44×44 px tap-target audit
-**Claimed by:** _(available)_
-**Files:** `dashboard/src/components/**`
-**Task:** Find every clickable control smaller than 44×44 px on mobile and fix via padding (not font-size).
-**Acceptance:** Before/after table in PR description listing ≥5 controls; Playwright snapshot on 390×844 viewport.
-
-### [ ] ★★ Keyboard shortcuts (`M`, `C`, `T`, `Esc`, `?`)
-**Claimed by:** _(available)_
-**Files:** `MetricToggle.tsx`, `ClassFilter.tsx`, `TimeWindowPicker.tsx`, new `KeyboardShortcuts.tsx`
-**Task:** `M` cycles metric, `C` cycles class filter, `T` cycles time window, `Esc` closes the panel, `?` opens a shortcuts overlay.
-**Acceptance:** Playwright fires each key and asserts the UI change; overlay lists all shortcuts.
-
-### [ ] ★★ ARIA live region for filter announcements
-**Claimed by:** _(available)_
-**File:** `dashboard/src/components/MetricToggle.tsx` (+ siblings)
-**Task:** When metric / class / time window changes, announce the new state in a visually-hidden `aria-live="polite"` region.
-**Acceptance:** Vitest asserts announcement text after a change; passes VoiceOver manual check.
-
-### [ ] ★★★ Mobile bottom-sheet for street panel
-**Claimed by:** _(available)_
-**Files:** `StreetPanel.tsx`, new `BottomSheet.tsx`
-**Task:** Below 600 px viewport, render the panel as a bottom-sheet with three snap points (peek 120 px / half 50 vh / full 90 vh), swipeable. Fall back to the current side-panel ≥600 px.
-**Acceptance:** Playwright on 390×844 viewport drags through all three snap points; reduced-motion skips the animation.
-
-### [ ] ★★★ Colour-blindness preview on `/admin`
-**Claimed by:** _(available)_
-**File:** new `dashboard/src/app/admin/colour-preview/page.tsx`
-**Task:** Toggle that overlays Protanopia / Deuteranopia / Tritanopia CSS filters on the map — lets admins check the viridis/cividis ramps.
-**Acceptance:** Three toggle states render; screenshots stored in `dashboard/docs/img/colour-preview/`.
-
-### [ ] ★★★ i18n scaffold (EN + PT)
-**Claimed by:** _(available)_
-**Files:** `dashboard/next.config.mjs`, new `dashboard/src/i18n/{en,pt}.ts`, route moves to `dashboard/src/app/[locale]/...`
-**Task:** Wire `next-intl`; extract visible strings into locale files; English + Portuguese initial set.
-**Acceptance:** `/en/dublin` and `/pt/dublin` render translated strings; Playwright asserts language switch.
-
----
-
-## 🧪 Tests
-
-### [ ] ★★ `WindowedCounter` edge-case expansion
-**Claimed by:** _(available)_
-**File:** `tests/test_counter.py`
-**Task:** Add tests for TZ midnight rollover, DST transition, empty windows, counts on second-boundary edges.
-**Acceptance:** +5 tests; `uv run pytest tests/test_counter.py` stays under 1 s.
-
-### [ ] ★★ `DailyAccumulator` crash-recovery tests
-**Claimed by:** _(available)_
-**File:** `tests/test_daily_accumulator.py`
-**Task:** Simulate corrupted `state.db` (truncated file, zeroed header) with `tmp_path`; assert the accumulator quarantines + logs, never crashes the daemon.
-**Acceptance:** +3 tests using real file corruption (not mocks).
-
-### [ ] ★★ Privacy regression for admin routes
-**Claimed by:** _(available)_
-**File:** new `dashboard/tests/privacy/admin-auth.spec.ts`
-**Task:** Every `/api/admin/**` route must return 401 without a valid session. Parametrize over the full route table.
-**Acceptance:** Vitest asserts 401 for ≥10 admin routes; test fails if a new admin route is added without a session guard.
-
-### [ ] ★★★ Playwright E2E: 3 golden paths on preview
-**Claimed by:** _(available)_
-**Files:** `dashboard/tests/e2e/{street-click,metric-toggle,side-panel}.spec.ts`
-**Task:** Three E2E flows against a Vercel preview URL (env `PREVIEW_URL`): click a street, toggle metric, open+close side-panel.
-**Acceptance:** `PREVIEW_URL=https://... pnpm exec playwright test` passes all three; GitHub Action runs them per PR.
-
----
-
-## 🛠 Tooling
-
-### [ ] ★ Pre-commit hook bundle
-**Claimed by:** _(available)_
-**File:** new `.pre-commit-config.yaml`
-**Task:** `ruff + mypy + pytest -x --ff` on Python; `eslint + tsc + vitest --run` on dashboard.
-**Acceptance:** Fresh clone + `pre-commit install` + a deliberately bad commit is blocked.
-
-### [ ] ★ Dependabot
-**Claimed by:** _(available)_
-**File:** new `.github/dependabot.yml`
-**Task:** Weekly bumps for Python (`pip` or `uv` ecosystem), `pnpm` dashboard deps, and GitHub Actions.
-**Acceptance:** File validates; first weekly run produces at least one PR.
-
-### [ ] ★★ GitHub Actions: lint + test on PR
-**Claimed by:** _(available)_
-**File:** new `.github/workflows/ci.yml`
-**Task:** Matrix job — Python (ruff, mypy, pytest) and dashboard (lint, tsc, vitest) on every PR. Cache `uv` and `pnpm` stores.
-**Acceptance:** First PR after merge runs both jobs green in <5 min.
-
-### [ ] ★★ Coverage reporting
-**Claimed by:** _(available)_
-**Files:** update `.github/workflows/ci.yml`, add `.codecov.yml`
-**Task:** `pytest --cov` + vitest `--coverage` uploaded to Codecov; PR comment with delta.
-**Acceptance:** Coverage badge in `README.md`; PR gets a coverage comment.
-
----
-
-## 🔧 Ops helpers (no Pi hardware needed)
-
-### [ ] ★★ Synthetic payload generator `tools/gen_mock_counts.py`
-**Claimed by:** _(available)_
-**File:** new `tools/gen_mock_counts.py`
-**Task:** CLI that posts well-formed `/counts` payloads to `localhost:3000/api/ingest/...` at a given cadence; deterministic from a seed.
-**Acceptance:** `uv run python tools/gen_mock_counts.py --sensor D99 --rate 1/s --seed 42 --duration 60s` posts 60 payloads; dashboard map updates.
-
-### [ ] ★★ YOLO dev-host benchmark `scripts/bench_host.py`
-**Claimed by:** _(available)_
-**Files:** new `scripts/bench_host.py`, update `docs/sensor_deployment.md`
-**Task:** Run CAMINAv1 **on the dev host** against a folder of test images; report FPS, latency P50/P95, per-image class counts. This is a sanity check, not a thermal benchmark.
-**Acceptance:** `uv run python scripts/bench_host.py --images tests/fixtures/images/ --imgsz 640` prints a summary table; docs get a "Host vs Pi benchmark" note explaining what this does and doesn't measure.
-**Depends on:** sample test images — ask @tamagusko for 20 frames.
-
-### [ ] ★★★ Read-only `/admin/diagnostics` page
-**Claimed by:** _(available)_
-**File:** new `dashboard/src/app/admin/diagnostics/page.tsx`
-**Task:** Four cards: build info (commit sha, build time), DB health (up/down, latency), tile cache size, last cron run. **Read-only** — no mutations.
-**Acceptance:** Authenticated admin sees all four cards; guarded by `requireAdmin()`; visual snapshot in PR.
-
----
-
-## Out-of-scope for contributors (ping @tamagusko first)
-
-These touch load-bearing core or security-sensitive paths:
-
-- Neon Postgres live repo + migrations (`dashboard/src/lib/repo/streets-live.ts`, `drizzle/migrations/*`)
-- Google OAuth wiring + `lib/auth.ts` live allowlist
-- LoRaWAN codec + TTN webhook + `/api/ingest/lora/uplink`
-- Privacy k-anonymity enforcement (`k_min=5`) changes
-- YOLO fine-tuning, CAMINAv1 model weights, tracker logic
-- systemd + NTP gate + USB SSD durability on the Pi
-- Upstash rate-limiting (Rolling Releases, BotID and Sentry were closed on 2026-09-15 — `.planning/PLAN.md` §4)
-- Anything under `.planning/` — that's the project memory layer
-
-Want to work on one of these? Ping first. Sometimes the answer is yes-but-pair.
-
----
-
-## When a task is done
-
-1. Tests + lint + types green locally.
-2. Screenshots in the PR if it touches UI.
-3. `[x]` the box in this file with your name on the same PR.
-4. Ship it.
+These touch the core or security; talk to @tamagusko before starting: database migrations and
+the live repository, authentication, privacy thresholds, the model and tracker, the Pi service
+setup, LoRa, and anything in `.planning/`.
