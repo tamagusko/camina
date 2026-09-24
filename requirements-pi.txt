@@ -1,0 +1,38 @@
+# Sensor runtime for a Raspberry Pi 5 — see docs/raspberry_pi_5.md.
+#
+# The exact set of packages the daemon imports, pinned, and installed WITHOUT
+# dependency resolution:
+#
+#     pip install --no-deps -r requirements-pi.txt
+#
+# --no-deps matters: ncnn's wheel declares opencv-python, requests, tqdm and
+# portalocker (for its model zoo), and filterpy declares matplotlib; the daemon
+# imports none of them. Without --no-deps they add ~150 MB and opencv-python
+# needs desktop GL libraries that Raspberry Pi OS Lite does not have.
+#
+# No PyTorch, no Ultralytics: the NCNN model runs through
+# src/camina/service/ncnn_detector.py. Training, export and the parity tests
+# need requirements.txt. picamera2 comes from apt (python3-picamera2); create
+# the venv with --system-site-packages so the daemon can import it.
+#
+# Resolved for aarch64 on Python 3.11 (Bookworm) and 3.13 (Trixie): same pins.
+
+# Detection and tracking
+ncnn==1.0.20260526
+numpy==2.2.5
+scipy==1.15.2
+filterpy==1.4.5
+
+# Config and publishing
+pyyaml==6.0.2
+httpx==0.28.1
+httpcore==1.0.9
+h11==0.16.0
+anyio==4.15.1
+idna==3.20
+certifi==2026.7.22
+pydantic==2.13.5
+pydantic-core==2.46.5
+annotated-types==0.8.0
+typing-extensions==4.16.0
+typing-inspection==0.4.4

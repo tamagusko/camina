@@ -38,11 +38,12 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, Optional, Sequence
 
 import yaml
 from ultralytics import YOLO
 
+from src.camina.utils.taxonomy import load_canonical_classes, load_class_aliases
 from src.utils.pnnx_export import export_torchscript, read_torchscript_metadata, smoke_test
 
 
@@ -185,34 +186,6 @@ def _export_to(source: Path, target_dir: Path, *, imgsz: int, half: bool) -> Non
             shutil.rmtree(target_dir)
         target_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(export_path), str(target_dir))
-
-
-# ---------- Taxonomy loading (decoupled: reads the same YAML SSOT) ----------
-
-
-def _project_root() -> Path:
-    """Return the repo root by walking up until ``configs/classes.yaml`` exists."""
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "configs" / "classes.yaml").exists():
-            return parent
-    raise SystemExit(
-        "Could not locate configs/classes.yaml; is the repo layout intact?"
-    )
-
-
-def load_canonical_classes() -> List[str]:
-    """Load the canonical class list from ``configs/classes.yaml``, index order."""
-    path = _project_root() / "configs" / "classes.yaml"
-    with open(path, "r") as f:
-        raw: Dict[int, str] = {int(k): v for k, v in yaml.safe_load(f).items()}
-    return [raw[i] for i in sorted(raw.keys())]
-
-
-def load_class_aliases() -> Dict[str, str]:
-    """Load the label-name -> canonical-name alias table."""
-    path = _project_root() / "custom_model_train" / "class_mapping.yaml"
-    with open(path, "r") as f:
-        return dict(yaml.safe_load(f))
 
 
 def _verify_canonical_taxonomy(names_list: Sequence[str]) -> None:

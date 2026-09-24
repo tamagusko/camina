@@ -1,9 +1,8 @@
 """Unit tests for the YOLO NCNN + custom tracker adapter.
 
-We monkeypatch the Ultralytics ``YOLO`` class so the test suite never loads a
-real model. Detections are synthesised directly as ``MagicMock`` results
-matching the relevant subset of the Ultralytics ``Results`` API
-(``.boxes.cls``, ``.boxes.conf``, ``.boxes.xyxy``).
+We monkeypatch ``NcnnDetector`` so the test suite never loads a real model.
+Detections are synthesised as the ``(N, 6)`` arrays it returns
+(``[x1, y1, x2, y2, score, class]``).
 
 The adapter wires YOLO -> the existing custom Kalman+Hungarian tracker
 (``src.camina.core.tracker.Sort``) and yields ``(track_id_str, class_name)``
@@ -30,7 +29,7 @@ CLASSES = [
 
 
 class _FakeBoxes:
-    """Mimic the ``ultralytics.engine.results.Boxes`` API used by the adapter."""
+    """One frame's detections, converted by the fake detector to ``(N, 6)``."""
 
     def __init__(self, cls: list[int], conf: list[float], xyxy: list[list[float]]):
         self.cls = np.asarray(cls, dtype=float)
@@ -39,11 +38,6 @@ class _FakeBoxes:
 
     def __len__(self) -> int:
         return int(self.cls.shape[0])
-
-
-class _FakeResult:
-    def __init__(self, boxes: _FakeBoxes):
-        self.boxes = boxes
 
 
 # Class order of the TRA 2026 YOLO11n NCNN export (alphabetical, as Ultralytics
@@ -61,31 +55,32 @@ TRA2026_MODEL_NAMES = [
 ]
 
 
-def _fake_yolo_factory(
+def _fake_detector_factory(
     boxes_per_call: list[_FakeBoxes], model_names: list[str] | None = None
 ):
-    """Build a ``YOLO`` stand-in whose call returns a list of fake results.
+    """Build an ``NcnnDetector`` stand-in returning ``boxes_per_call[i]`` on call i.
 
-    The fake model is callable: ``model(frame, ...)`` returns
-    ``[FakeResult(boxes_per_call[i])]`` and advances ``i`` on each call.
-    The model exposes ``.names`` in ``model_names`` order (CAMINAv1 order by
-    default).
+    The detector exposes ``.names`` in ``model_names`` order (CAMINAv1 order by
+    default) and returns ``(N, 6)`` rows ``[x1, y1, x2, y2, score, class]``.
     """
     state = {"i": 0}
     names_map = {i: c for i, c in enumerate(model_names or CLASSES)}
 
-    class _FakeModel:
+    class _FakeDetector:
         names = names_map
 
-        def __call__(self, frame, **kwargs):  # noqa: D401 — mimic YOLO signature
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __call__(self, frame):
             idx = state["i"]
             state["i"] = min(idx + 1, len(boxes_per_call) - 1)
-            return [_FakeResult(boxes_per_call[idx])]
+            b = boxes_per_call[idx]
+            if not len(b):
+                return np.zeros((0, 6))
+            return np.column_stack([b.xyxy.reshape(-1, 4), b.conf, b.cls])
 
-    def _ctor(_path):
-        return _FakeModel()
-
-    return _ctor
+    return _FakeDetector
 
 
 def test_yields_track_id_class_name_tuples(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -99,7 +94,7 @@ def test_yields_track_id_class_name_tuples(monkeypatch: pytest.MonkeyPatch) -> N
         xyxy=[[10.0, 10.0, 60.0, 60.0]],
     )
     monkeypatch.setattr(
-        detect_track, "YOLO", _fake_yolo_factory([boxes, boxes, boxes, boxes])
+        detect_track, "NcnnDetector", _fake_detector_factory([boxes, boxes, boxes, boxes])
     )
 
     f = detect_track.make_detect_and_track(
@@ -134,7 +129,7 @@ def test_filters_below_confidence(monkeypatch: pytest.MonkeyPatch) -> None:
         xyxy=[[10.0, 10.0, 60.0, 60.0]],
     )
     monkeypatch.setattr(
-        detect_track, "YOLO", _fake_yolo_factory([boxes] * 6)
+        detect_track, "NcnnDetector", _fake_detector_factory([boxes] * 6)
     )
 
     f = detect_track.make_detect_and_track(
@@ -161,7 +156,7 @@ def test_unknown_class_index_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         xyxy=[[10.0, 10.0, 60.0, 60.0]],
     )
     monkeypatch.setattr(
-        detect_track, "YOLO", _fake_yolo_factory([boxes])
+        detect_track, "NcnnDetector", _fake_detector_factory([boxes])
     )
     f = detect_track.make_detect_and_track(
         ncnn_model_path="ignored", classes=CLASSES, imgsz=480, conf=0.3
@@ -185,7 +180,7 @@ def test_class_name_mismatch_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         def __call__(self, *_a, **_kw):
             return []
 
-    monkeypatch.setattr(detect_track, "YOLO", lambda _p: _FakeModel())
+    monkeypatch.setattr(detect_track, "NcnnDetector", lambda *_a, **_kw: _FakeModel())
     with pytest.raises(ValueError, match="Model classes"):
         detect_track.make_detect_and_track(
             ncnn_model_path="ignored", classes=bad_classes
@@ -207,8 +202,8 @@ def test_alphabetical_model_names_are_remapped_to_canonical(
     )
     monkeypatch.setattr(
         detect_track,
-        "YOLO",
-        _fake_yolo_factory([boxes] * 5, model_names=TRA2026_MODEL_NAMES),
+        "NcnnDetector",
+        _fake_detector_factory([boxes] * 5, model_names=TRA2026_MODEL_NAMES),
     )
 
     f = detect_track.make_detect_and_track(
@@ -231,7 +226,7 @@ def test_unknown_model_class_name_raises(monkeypatch: pytest.MonkeyPatch) -> Non
 
     names = [n if n != "truck" else "tram" for n in TRA2026_MODEL_NAMES]
     monkeypatch.setattr(
-        detect_track, "YOLO", _fake_yolo_factory([_FakeBoxes([], [], [])], names)
+        detect_track, "NcnnDetector", _fake_detector_factory([_FakeBoxes([], [], [])], names)
     )
     with pytest.raises(ValueError, match=r"tram.*class_mapping"):
         detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES)
@@ -246,7 +241,7 @@ def test_imgsz_mismatch_with_export_metadata_raises(
 
     (tmp_path / "metadata.yaml").write_text("imgsz:\n- 640\n- 640\n")
     monkeypatch.setattr(
-        detect_track, "YOLO", _fake_yolo_factory([_FakeBoxes([], [], [])])
+        detect_track, "NcnnDetector", _fake_detector_factory([_FakeBoxes([], [], [])])
     )
     with pytest.raises(ValueError, match="imgsz"):
         detect_track.make_detect_and_track(
