@@ -14,11 +14,26 @@ is in [`.planning/PLAN.md`](.planning/PLAN.md), current status in
 Pi camera → YOLO11n (NCNN) → tracker → 15-min counts → HTTPS → dashboard
 ```
 
-- **Detector:** the 9-class YOLO11n from the TRA 2026 paper — person, cyclist, car,
-  e-scooter, SUV, motorcyclist, bus, delivery van, truck. FP32 and FP16 NCNN exports in
-  [`models/`](models/), provenance in each folder's `PROVENANCE.md`.
+- **Detector:** the 9-class YOLO11n from the TRA 2026 paper (classes below). FP32 and FP16
+  NCNN exports in [`models/`](models/), provenance in each folder's `PROVENANCE.md`.
 - **Privacy:** counts only; the public map never shows sensor locations; counts below 5
   are suppressed.
+
+## Detected classes
+
+| ID | Class | Description |
+|---|---|---|
+| 0 | Person | Individual persons |
+| 1 | Cyclist | People on bicycles |
+| 2 | Car | Standard passenger cars |
+| 3 | E-scooter | Electric scooters |
+| 4 | SUV | Sport utility vehicles |
+| 5 | Motorcyclist | People on motorcycles |
+| 6 | Bus | Public buses |
+| 7 | Delivery Van | Delivery vehicles |
+| 8 | Truck | Large trucks |
+
+IDs are the published order, fixed in [`configs/classes.yaml`](configs/classes.yaml).
 
 ## Quick start
 
