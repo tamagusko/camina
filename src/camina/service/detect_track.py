@@ -39,10 +39,9 @@ from typing import Callable, Iterable
 
 import numpy as np
 import yaml
-from ultralytics import YOLO
-
 from src.camina.core.tracker import Sort
-from src.utils.export_ncnn import load_class_aliases
+from src.camina.service.ncnn_detector import NcnnDetector
+from src.camina.utils.taxonomy import load_class_aliases
 
 
 logger = logging.getLogger(__name__)
@@ -81,8 +80,8 @@ def make_detect_and_track(
     """
     _check_export_imgsz(Path(ncnn_model_path), imgsz)
 
-    model = YOLO(str(ncnn_model_path))
-    model_names = [model.names[i] for i in sorted(model.names.keys())]
+    detector = NcnnDetector(ncnn_model_path, imgsz=imgsz, conf=conf)
+    model_names = [detector.names[i] for i in sorted(detector.names.keys())]
     model_to_class = _map_model_classes(model_names, classes)
 
     # One tracker per class so each Sort's integer ids stay class-scoped.
@@ -90,12 +89,7 @@ def make_detect_and_track(
     n_model_classes = len(model_names)
 
     def detect_and_track(frame: np.ndarray) -> Iterable[tuple[str, str]]:
-        results = model(frame, verbose=False, imgsz=imgsz, conf=conf)
-        if not results:
-            return
-        r = results[0]
-
-        per_class_dets = _split_detections_by_class(r, n_model_classes, conf)
+        per_class_dets = _split_detections_by_class(detector(frame), n_model_classes, conf)
 
         for model_idx, dets in per_class_dets.items():
             cls_idx = model_to_class[model_idx]
@@ -171,12 +165,13 @@ def _map_model_classes(model_names: list[str], classes: list[str]) -> dict[int, 
 
 
 def _split_detections_by_class(
-    result, n_classes: int, conf_threshold: float
+    dets: np.ndarray, n_classes: int, conf_threshold: float
 ) -> dict[int, np.ndarray]:
-    """Group YOLO detections by class index.
+    """Group detections by class index.
 
     Args:
-        result: A single Ultralytics ``Results`` object with ``boxes``.
+        dets: ``(N, 6)`` rows ``[x1, y1, x2, y2, score, class]`` from
+            ``NcnnDetector``.
         n_classes: Length of the class taxonomy; class indices outside
             ``0..n_classes-1`` raise ``ValueError``.
         conf_threshold: Confidence floor; detections below are dropped.
@@ -193,22 +188,15 @@ def _split_detections_by_class(
     """
     grouped: dict[int, list[list[float]]] = {i: [] for i in range(n_classes)}
 
-    boxes = getattr(result, "boxes", None)
-    if boxes is None or len(boxes) == 0:
-        return {i: np.empty((0, 5)) for i in range(n_classes)}
-
-    cls_arr = np.asarray(boxes.cls).reshape(-1).astype(int)
-    conf_arr = np.asarray(boxes.conf).reshape(-1).astype(float)
-    xyxy_arr = np.asarray(boxes.xyxy).reshape(-1, 4).astype(float)
-
-    for cls_idx, c, box in zip(cls_arr, conf_arr, xyxy_arr):
+    for x1, y1, x2, y2, c, cls in np.asarray(dets, dtype=float).reshape(-1, 6):
+        cls_idx = int(cls)
         if not (0 <= cls_idx < n_classes):
             raise ValueError(
                 f"Unknown class index {cls_idx}, expected 0..{n_classes - 1}"
             )
         if c < conf_threshold:
             continue
-        grouped[int(cls_idx)].append([box[0], box[1], box[2], box[3], c])
+        grouped[cls_idx].append([x1, y1, x2, y2, c])
 
     return {
         i: (np.asarray(rows, dtype=float) if rows else np.empty((0, 5)))
