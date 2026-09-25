@@ -54,7 +54,7 @@ The base configuration is `configs/yolo26n.yaml` (each choice commented); an exp
 Rules: `docs/labelling_guide/`. Every box is still reviewed by a person in Roboflow.
 
 ```bash
-# 1. YOLO26x (COCO) + rider rule; SAM 3 relabels SUV / van / e-scooter if weights/sam3.pt
+# 1. YOLO26x (COCO) + rider rule; SAM 3 relabels van / e-scooter if weights/sam3.pt
 #    exists (gated: accept the licence at huggingface.co/facebook/sam3, then download).
 #    --existing keeps labels already in hand. GPU env.
 .venv-train/bin/python -m training.autolabel --images <dir> --out data/autolabel/<name> \

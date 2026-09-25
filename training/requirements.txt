@@ -12,3 +12,8 @@ torch==2.14.0
 torchvision==0.29.0
 ultralytics==8.4.162
 opencv-python==4.11.0.86  # = requirements.txt: frame decoding and resizing must match, or counts shift
+
+# SAM 3 for training.autolabel (weights: gated facebook/sam3 -> weights/sam3.pt).
+# Ultralytics would otherwise auto-install these at first use, unpinned.
+timm==1.0.30
+clip @ git+https://github.com/ultralytics/CLIP.git@a13192f8cb767260d7dfd98c843b0716593169e7

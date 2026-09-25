@@ -4,9 +4,12 @@
    lying mostly inside a larger one (a split detection) is dropped.
 2. A person on a bicycle or motorcycle becomes one ``cyclist`` / ``motorcyclist`` box;
    a riderless bicycle or motorcycle is dropped (guide, rules 2 and 4).
-3. SAM 3 (optional, text prompts) relabels a matching car or truck box as ``SUV`` or
+3. SAM 3 (optional, text prompts) relabels a matching car or truck box as
    ``delivery_van`` and turns a person on a kick scooter into ``e-scooter``. It never
-   adds an SUV or a van on its own: a second box on one vehicle is a known error.
+   adds a van on its own: a second box on one vehicle is a known error. There is no SUV
+   prompt: on the TRA 2026 test split it relabelled most cars as SUV (23% of its SUV
+   boxes matched the labels; car recall fell from 0.71 to 0.22). Cars stay ``car``
+   (guide, rule 5) and ``training.codex_check`` flags the SUVs among them.
 4. With ``--existing``, labels already in hand are kept and only new objects are added.
 
 Writes ``<out>/images``, ``<out>/labels`` (canonical class order), ``data.yaml`` and
@@ -42,7 +45,7 @@ COCO_NAMES = {0: "person", 1: "bicycle", 2: "car", 3: "motorcycle", 5: "bus", 7:
 RIDDEN = {"bicycle": "cyclist", "motorcycle": "motorcyclist"}
 RIDERS = {"cyclist", "motorcyclist", "e-scooter"}
 RELABELLABLE = {"car", "truck"}
-SAM3_PROMPTS = {"SUV": "SUV", "van": "delivery_van", "person riding a kick scooter": "e-scooter"}
+SAM3_PROMPTS = {"van": "delivery_van", "person riding a kick scooter": "e-scooter"}
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 MIN_RIDER_OVERLAP = 0.2  # share of the person's box that overlaps the vehicle
@@ -255,12 +258,13 @@ def _load_models(args: argparse.Namespace) -> tuple[Any, Any]:
                 "mode": "predict",
                 "model": str(args.sam3),
                 "half": True,
+                "imgsz": 1008,  # SAM 3 native input size
                 "save": False,
                 "verbose": False,
             }
         )
     else:
-        logger.warning("%s not found: SUV / van / e-scooter prompts skipped", args.sam3)
+        logger.warning("%s not found: van / e-scooter prompts skipped", args.sam3)
     return coco, sam3
 
 
@@ -322,7 +326,9 @@ def main() -> None:
     parser.add_argument("--conf", type=float, default=0.3)
     parser.add_argument("--imgsz", type=int, default=640, help="1280 for large camera frames")
     parser.add_argument("--sam3", type=Path, default=Path("weights/sam3.pt"))
-    parser.add_argument("--sam3-conf", type=float, default=0.4)
+    # 0.8: on the TRA 2026 test split, lower thresholds relabelled cars as vans
+    # (car recall 0.62 at 0.4, 0.70 at 0.8, 0.71 without SAM 3).
+    parser.add_argument("--sam3-conf", type=float, default=0.8)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     run(parser.parse_args())
 
