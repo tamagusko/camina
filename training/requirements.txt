@@ -11,3 +11,4 @@
 torch==2.14.0
 torchvision==0.29.0
 ultralytics==8.4.162
+opencv-python==4.11.0.86  # = requirements.txt: frame decoding and resizing must match, or counts shift
