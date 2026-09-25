@@ -30,7 +30,7 @@ from training.count_eval import Row, compare, count_clip, read_truth
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DATA = Path("runs/datasets/yolo26n_tra2026/data.yaml")
+DEFAULT_DATA = Path("training/dataset/data.yaml")
 VIDEO_EXTS = {".mov", ".mp4", ".avi", ".mkv"}
 
 

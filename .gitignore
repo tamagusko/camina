@@ -19,7 +19,6 @@ htmlcov/
 # Local data, backups, runtime state
 data/
 bkp/
-training/datasets/
 *.log
 *.sqlite3
 *.db

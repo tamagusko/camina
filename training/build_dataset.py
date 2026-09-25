@@ -1,28 +1,25 @@
-"""Build one training dataset from the real data and, optionally, synthetic data.
+"""The training dataset: prepare it once, then assemble each experiment from it.
 
-Output is a YOLO dataset with canonical class ids (``configs/classes.yaml``):
+**prepare** (once, from a download such as the Roboflow TRA 2026 export) writes the
+committed, already-split ``training/dataset``:
 
-- **test** — the images frozen in the holdout manifest, and nothing else, so every
-  experiment is scored on the same real images;
-- **val** — a stratified share of the other real images;
-- **train** — the rest, plus the synthetic images if given. Synthetic data never
-  enters ``val`` or ``test``.
+- canonical class ids (``configs/classes.yaml``, names mapped through
+  ``configs/class_mapping.yaml``) and original file names (Roboflow's
+  ``_jpg.rf.<hash>`` renames undone);
+- test, then val, **stratified by rarest class** (or "background"), so rare classes
+  such as delivery_van appear in every split in about the same proportion, **whole
+  video sequences at a time**: consecutive frames are near-duplicates, and one in
+  train with its neighbour in test would inflate every score;
+- ``split.json``: method, seed, per-split image and instance counts, and the SHA-256
+  of every test image and label, as proof the test split never changes.
 
-Test and val are **stratified by rarest class** (or "background"), so rare classes
-such as delivery_van appear in every split in about the same proportion, and **a
-video sequence never spans two splits**: consecutive frames are near-duplicates,
-and one in train with its neighbour in test would inflate every score.
-The test split is chosen once (``--freeze-test``) and stored with
-hashes; images added later only ever go to train or val.
+**build** (per experiment) keeps that split as it is and writes a YOLO dataset under
+``runs/datasets``: synthetic images, if any, go to train only; for final training,
+val is merged into train. Test is never touched.
 
-Sources may be laid out as ``images/<split>/`` or, as Roboflow exports them,
-``<split>/images/``; Roboflow's ``_jpg.rf.<hash>`` renames are undone. Images
-are symlinked; labels are rewritten with canonical ids.
-
-    python -m training.build_dataset --freeze-test training/holdout_manifest.json
-    python -m training.build_dataset --real data/tra2026 --out runs/datasets/tra2026
-    python -m training.build_dataset --real data/tra2026 --synthetic data/synthetic \\
-        --syn-fraction 1.0 --out runs/datasets/tra2026_synthetic
+    python -m training.build_dataset --prepare data/tra2026 --out training/dataset
+    python -m training.build_dataset --out runs/datasets/tra2026_synthetic \\
+        --synthetic data/synthetic --syn-fraction 1.0
 """
 
 from __future__ import annotations
@@ -46,7 +43,8 @@ from training.class_taxonomy import load_canonical_classes, resolve_to_canonical
 logger = logging.getLogger(__name__)
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-DEFAULT_HOLDOUT = Path("training/holdout_manifest.json")
+DATASET = Path("training/dataset")
+SPLITS = ("train", "val", "test")
 
 
 @dataclass(frozen=True)
@@ -56,9 +54,8 @@ class _Item:
     stem: str  # original file stem; "syn_" prefix for synthetic images
     lines: tuple[str, ...]  # label lines with canonical class ids
 
-    @property
-    def classes(self) -> set[int]:
-        return {int(line.split()[0]) for line in self.lines}
+    def classes(self, names: list[str]) -> set[str]:
+        return {names[int(line.split()[0])] for line in self.lines}
 
 
 def sequence_of(stem: str) -> str:
@@ -85,8 +82,7 @@ def stratified_split(
             ``train``.
         seed: Seed for the shuffle within each stratum.
         groups: Image -> group (e.g. its video sequence). A group never spans two
-            splits, so near-identical frames cannot sit in train and test. Default:
-            every image is its own group.
+            splits. Default: every image is its own group.
 
     Returns:
         ``{image: split}``.
@@ -119,124 +115,138 @@ def stratified_split(
     return split
 
 
-def freeze_test(
-    real: Path, manifest_path: Path = DEFAULT_HOLDOUT, fraction: float = 0.1, seed: int = 42
+def prepare_dataset(
+    source: Path,
+    out: Path = DATASET,
+    test_fraction: float = 0.1,
+    val_fraction: float = 0.1,
+    seed: int = 42,
 ) -> dict:
-    """Choose the stratified test split of ``real`` once and store it with hashes."""
+    """Write the split dataset at ``out`` (replacing it) and return ``split.json``.
+
+    Raises:
+        TaxonomyError: when the source uses a class name with no canonical mapping.
+    """
     names = load_canonical_classes()
-    items = _read_items(real, "")
-    split = stratified_split(
-        {i.stem: {names[c] for c in i.classes} for i in items},
-        {"test": fraction},
-        seed,
-        groups={i.stem: sequence_of(i.stem) for i in items},
-    )
-    test = [i for i in items if split[i.stem] == "test"]
-    instances = Counter(names[int(line.split()[0])] for i in test for line in i.lines)
-    manifest = {
-        "dataset": str(real),
+    items = _read_items(source)
+
+    def split(pool: list[_Item], name: str, fraction: float) -> set[str]:
+        chosen = stratified_split(
+            {i.stem: i.classes(names) for i in pool},
+            {name: fraction},
+            seed,
+            groups={i.stem: sequence_of(i.stem) for i in pool},
+        )
+        return {stem for stem, s in chosen.items() if s == name}
+
+    test = split(items, "test", test_fraction)
+    val = split([i for i in items if i.stem not in test], "val", val_fraction)
+    splits = {
+        "train": [i for i in items if i.stem not in test | val],
+        "val": [i for i in items if i.stem in val],
+        "test": [i for i in items if i.stem in test],
+    }
+    record = {
+        "source": str(source),
         "created": date.today().isoformat(),
         "method": "stratified by rarest class; video sequences kept whole",
         "seed": seed,
-        "fraction": fraction,
-        "num_pool": len(items),
-        "num_test": len(test),
-        "instances": dict(sorted(instances.items(), key=lambda kv: names.index(kv[0]))),
-        "test_files": [
-            {
-                "image": f"{i.stem}{i.image.suffix}",
-                "image_sha256": _sha256(i.image),
-                "label_sha256": _sha256(i.label) if i.label.exists() else None,
-            }
-            for i in test
-        ],
+        "test_fraction": test_fraction,
+        "val_fraction": val_fraction,
     }
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    return manifest
+    record |= _write(out, splits, link=False)
+    record["test_files"] = [
+        {
+            "image": f"{i.stem}{i.image.suffix}",
+            "image_sha256": _sha256(i.image),
+            "label_sha256": _sha256(i.label) if i.label.exists() else None,
+        }
+        for i in splits["test"]
+    ]
+    (out / "split.json").write_text(json.dumps(record, indent=2) + "\n")
+    return record
 
 
 def build_dataset(
-    real: Path,
     out: Path,
-    holdout: Path = DEFAULT_HOLDOUT,
+    dataset: Path = DATASET,
     synthetic: Path | None = None,
     syn_fraction: float | None = None,
     seed: int = 42,
-    val_fraction: float = 0.1,
+    final: bool = False,
 ) -> dict:
-    """Assemble the dataset at ``out`` (replacing it) and return its manifest.
+    """Assemble one experiment's dataset at ``out`` from the prepared split.
 
     Args:
-        real: Real YOLO dataset (``data.yaml`` and images with labels).
-        out: Output directory.
-        holdout: Manifest from ``freeze_test``; its images form the test split.
+        out: Output directory (replaced).
+        dataset: The prepared dataset (``prepare_dataset``).
         synthetic: Optional synthetic YOLO dataset; every image goes to train.
         syn_fraction: Cap synthetic images at this multiple of the real training
             images (seeded sample); ``None`` uses all of them.
-        seed: Seed for the validation split and the synthetic sample.
-        val_fraction: Stratified share of the non-test real images used for val.
+        seed: Seed for the synthetic sample.
+        final: Merge val into train (final training; validation is off).
 
     Raises:
-        TaxonomyError: when a source uses a class name with no canonical mapping.
+        TaxonomyError: when the synthetic data uses a class name with no mapping.
     """
-    names = load_canonical_classes()
-    test_stems = {Path(r["image"]).stem for r in json.loads(holdout.read_text())["test_files"]}
-
-    items = _read_items(real, "")
-    pool = [i for i in items if i.stem not in test_stems]
-    val = stratified_split(
-        {i.stem: {names[c] for c in i.classes} for i in pool},
-        {"val": val_fraction},
-        seed,
-        groups={i.stem: sequence_of(i.stem) for i in pool},
-    )
-    splits = {
-        "train": [i for i in pool if val[i.stem] == "train"],
-        "val": [i for i in pool if val[i.stem] == "val"],
-        "test": [i for i in items if i.stem in test_stems],
-    }
+    items = _read_items(dataset)
+    splits = {s: [i for i in items if i.image.parent.name == s] for s in SPLITS}
+    if final:
+        splits["train"], splits["val"] = splits["train"] + splits["val"], []
     if synthetic is not None:
-        syn = _read_items(synthetic, "syn_")
+        syn = _read_items(synthetic, prefix="syn_")
         if syn_fraction is not None:
             n = min(len(syn), round(syn_fraction * len(splits["train"])))
             syn = sorted(random.Random(seed).sample(syn, n), key=lambda i: i.stem)
         splits["train"] += syn
 
-    if out.exists():
-        shutil.rmtree(out)
-    manifest: dict = {
-        "sources": {"real": str(real), "synthetic": str(synthetic) if synthetic else None},
-        "holdout": str(holdout),
+    manifest = {
+        "dataset": str(dataset),
+        "synthetic": str(synthetic) if synthetic else None,
         "syn_fraction": syn_fraction,
-        "val_fraction": val_fraction,
+        "final": final,
         "seed": seed,
     }
-    for split, members in splits.items():
-        (out / "images" / split).mkdir(parents=True)
-        (out / "labels" / split).mkdir(parents=True)
-        for i in members:
-            (out / "images" / split / f"{i.stem}{i.image.suffix}").symlink_to(i.image.resolve())
-            (out / "labels" / split / f"{i.stem}.txt").write_text(
-                "".join(f"{x}\n" for x in i.lines)
-            )
-        instances = Counter(names[int(line.split()[0])] for i in members for line in i.lines)
-        manifest[split] = {
-            "images": len(members),
-            "synthetic_images": sum(i.stem.startswith("syn_") for i in members),
-            "instances": dict(sorted(instances.items(), key=lambda kv: names.index(kv[0]))),
-        }
-
-    # With no val split (final training), Ultralytics still needs a val path; training
-    # then runs with validation off, so nothing is ever scored on it.
-    val_dir = "images/val" if splits["val"] else "images/train"
-    data = {"path": str(out.resolve()), "train": "images/train", "val": val_dir}
-    data |= {"test": "images/test", "names": dict(enumerate(names))}
-    (out / "data.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+    manifest |= _write(out, splits, link=True)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return manifest
 
 
-def _read_items(root: Path, prefix: str) -> list[_Item]:
+def _write(out: Path, splits: dict[str, list[_Item]], link: bool) -> dict:
+    """Write images (linked or copied), canonical labels and data.yaml; return counts."""
+    names = load_canonical_classes()
+    if out.exists():
+        shutil.rmtree(out)
+    counts = {}
+    for split, members in splits.items():
+        (out / "images" / split).mkdir(parents=True)
+        (out / "labels" / split).mkdir(parents=True)
+        for i in members:
+            image = out / "images" / split / f"{i.stem}{i.image.suffix}"
+            if link:
+                image.symlink_to(i.image.resolve())
+            else:
+                shutil.copyfile(i.image, image)
+            label = "".join(f"{line}\n" for line in i.lines)
+            (out / "labels" / split / f"{i.stem}.txt").write_text(label)
+        instances = Counter(names[int(line.split()[0])] for i in members for line in i.lines)
+        counts[split] = {
+            "images": len(members),
+            "synthetic_images": sum(i.stem.startswith("syn_") for i in members),
+            "instances": dict(sorted(instances.items(), key=lambda kv: names.index(kv[0]))),
+        }
+    # With no val split (final training), Ultralytics still needs a val path; training
+    # then runs with validation off, so nothing is ever scored on it.
+    val = "images/val" if splits["val"] else "images/train"
+    data = {"path": str(out.resolve()), "train": "images/train", "val": val, "test": "images/test"}
+    if not link:
+        data.pop("path")  # the committed dataset is resolved next to its data.yaml
+    data["names"] = dict(enumerate(names))
+    (out / "data.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+    return counts
+
+
+def _read_items(root: Path, prefix: str = "") -> list[_Item]:
     """Every image under ``root`` with its label lines in canonical class ids."""
     names = load_canonical_classes()
     to_canonical = [names.index(c) for c in resolve_to_canonical(_names(root))]
@@ -277,36 +287,30 @@ def _sha256(path: Path) -> str:
 
 
 def main() -> None:
-    """Freeze the test split, or build a dataset, from the command line."""
+    """Prepare the dataset, or build one experiment's dataset, from the command line."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--real", type=Path, default=Path("data/tra2026"))
-    ap.add_argument("--freeze-test", type=Path, metavar="MANIFEST", help="choose and store test")
+    ap.add_argument("--prepare", type=Path, metavar="SOURCE", help="download to split, once")
+    ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--test-fraction", type=float, default=0.1)
+    ap.add_argument("--val-fraction", type=float, default=0.1)
+    ap.add_argument("--dataset", type=Path, default=DATASET)
     ap.add_argument("--synthetic", type=Path)
     ap.add_argument("--syn-fraction", type=float, help="cap synthetic at this x real train images")
-    ap.add_argument("--holdout", type=Path, default=DEFAULT_HOLDOUT)
-    ap.add_argument("--val-fraction", type=float, default=0.1)
-    ap.add_argument("--out", type=Path)
+    ap.add_argument("--final", action="store_true", help="merge val into train")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
-    if args.freeze_test:
-        manifest = freeze_test(args.real, args.freeze_test, args.test_fraction, args.seed)
-        manifest = {k: v for k, v in manifest.items() if k != "test_files"}
-    elif args.out:
-        manifest = build_dataset(
-            args.real,
-            args.out,
-            args.holdout,
-            args.synthetic,
-            args.syn_fraction,
-            args.seed,
-            args.val_fraction,
+    if args.prepare:
+        record = prepare_dataset(
+            args.prepare, args.out, args.test_fraction, args.val_fraction, args.seed
         )
+        record.pop("test_files")
     else:
-        ap.error("give --freeze-test MANIFEST or --out DIR")
-    logger.info(json.dumps(manifest, indent=2))
+        record = build_dataset(
+            args.out, args.dataset, args.synthetic, args.syn_fraction, args.seed, args.final
+        )
+    logger.info(json.dumps(record, indent=2))
 
 
 if __name__ == "__main__":

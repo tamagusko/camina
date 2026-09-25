@@ -5,16 +5,15 @@ How a new detector is trained, compared and promoted to the Pi. Commands are in
 
 ## Where the data stands (2026-09-25)
 
-- **`data/tra2026/`** — the TRA 2026 training set (Roboflow `sdl-urban-mobility-dataset`
-  v3; `python -m training.download_tra2026`, key in `ROBOFLOW_API_KEY`): 1,837 images, all
-  nine classes. Thin classes: delivery_van 112 instances, truck 132, motorcyclist 307.
-  This is what CAMINAv1 was trained on.
-- `training/dataset/` — the older 1,296-image set in the repo; six classes labelled, no
-  e-scooter, SUV or delivery_van. 1,247 of its images are also in TRA 2026.
-- Splits: test (184 images, frozen in `holdout_manifest.json`) and val (10 %) are
-  **stratified by rarest class, whole video sequences at a time** (590 images are frames of
-  167 sequences; neighbouring frames in train and test would inflate every score).
-  Every class is in every split; delivery_van and truck have 11 test instances each.
+- **`training/dataset/`** — the TRA 2026 training set (Roboflow `sdl-urban-mobility-dataset`
+  v3), the data CAMINAv1 was trained on: 1,837 images, all nine classes, canonical ids,
+  already split (`split.json`). Thin classes: delivery_van 112 instances, truck 132,
+  motorcyclist 307.
+- Splits: train 1,488 / val 165 / test 184, **stratified by rarest class, whole video
+  sequences at a time** (590 images are frames of 167 sequences; neighbouring frames in
+  train and test would inflate every score). Every class is in every split; delivery_van
+  and truck have 11 test instances each. Re-create only from a new download:
+  `download_tra2026`, then `build_dataset --prepare data/tra2026 --out training/dataset`.
 - `dev_expanded_dataset` (a branch) holds more data, unaudited: do not use it until audited.
 
 ## Pipeline

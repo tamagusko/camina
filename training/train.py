@@ -34,7 +34,7 @@ from pathlib import Path
 
 import yaml
 
-from training.build_dataset import DEFAULT_HOLDOUT, build_dataset
+from training.build_dataset import build_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class Experiment:
 
     name: str
     params: dict
-    real: Path
+    dataset: Path
     synthetic: Path | None
     syn_fraction: float | None
 
@@ -70,7 +70,7 @@ def load_experiment(path: Path) -> Experiment:
     return Experiment(
         name=exp["name"],
         params=params,
-        real=Path(data["real"]),
+        dataset=Path(data["dataset"]),
         synthetic=Path(syn) if syn else None,
         syn_fraction=data.get("syn_fraction"),
     )
@@ -94,18 +94,17 @@ def train(exp: Experiment, final: bool = False) -> Path:
 
     if exp.synthetic is not None and not (exp.synthetic / "data.yaml").exists():
         raise FileNotFoundError(f"synthetic dataset not found: {exp.synthetic}/data.yaml")
-    name, params, val_fraction = exp.name, dict(exp.params), 0.1
+    name, params = exp.name, dict(exp.params)
     if final:
         dev = json.loads((RUNS / "train" / exp.name / "run.json").read_text())
-        name, params, val_fraction = f"{exp.name}_final", final_params(params, dev), 0.0
+        name, params = f"{exp.name}_final", final_params(params, dev)
     manifest = build_dataset(
-        exp.real,
         RUNS / "datasets" / name,
-        DEFAULT_HOLDOUT,
+        exp.dataset,
         exp.synthetic,
         exp.syn_fraction,
         seed=exp.params.get("seed", 42),
-        val_fraction=val_fraction,
+        final=final,
     )
     model = YOLO(params.pop("model"))
     model.train(

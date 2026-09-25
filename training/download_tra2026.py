@@ -5,7 +5,9 @@ The API key comes from the environment, never from the repo::
     ROBOFLOW_API_KEY=... .venv-train/bin/python -m training.download_tra2026
 
 Needs ``pip install roboflow`` (not in training/requirements.txt: it pulls in its
-own OpenCV; install it for the download, then remove it).
+own OpenCV; install it for the download, then remove it). Then write the split,
+committed dataset: ``python -m training.build_dataset --prepare data/tra2026 --out
+training/dataset``.
 """
 
 from __future__ import annotations

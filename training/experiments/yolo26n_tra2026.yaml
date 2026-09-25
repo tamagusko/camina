@@ -1,6 +1,5 @@
-# Baseline: the TRA 2026 dataset only (Roboflow sdl-urban-mobility-dataset v3, all nine
-# classes). Download it with `python -m training.download_tra2026`.
+# Baseline: the TRA 2026 dataset (training/dataset, all nine classes) only.
 name: yolo26n_tra2026
 base: training/configs/yolo26n.yaml
 data:
-  real: data/tra2026
+  dataset: training/dataset
