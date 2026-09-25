@@ -8,9 +8,11 @@ Output is a YOLO dataset with canonical class ids (``configs/classes.yaml``):
 - **train** — the rest, plus the synthetic images if given. Synthetic data never
   enters ``val`` or ``test``.
 
-Test and val are **stratified by each image's rarest class** (or "background"),
-so rare classes such as delivery_van appear in every split in the same
-proportion. The test split is chosen once (``--freeze-test``) and stored with
+Test and val are **stratified by rarest class** (or "background"), so rare classes
+such as delivery_van appear in every split in about the same proportion, and **a
+video sequence never spans two splits**: consecutive frames are near-duplicates,
+and one in train with its neighbour in test would inflate every score.
+The test split is chosen once (``--freeze-test``) and stored with
 hashes; images added later only ever go to train or val.
 
 Sources may be laid out as ``images/<split>/`` or, as Roboflow exports them,
@@ -59,37 +61,61 @@ class _Item:
         return {int(line.split()[0]) for line in self.lines}
 
 
+def sequence_of(stem: str) -> str:
+    """The video sequence a frame belongs to; a still photo is its own sequence.
+
+    TRA 2026 frames are named ``<sequence>_<frame>_<index>`` (``9_3_429_00000060``,
+    ``09-26_25_2_10176_00000026``); COCO photos have a bare 12-digit id.
+    """
+    fields = stem.split("_")
+    return "_".join(fields[:-2]) if len(fields) >= 4 else fields[0]
+
+
 def stratified_split(
-    classes: dict[str, set[str]], fractions: dict[str, float], seed: int
+    classes: dict[str, set[str]],
+    fractions: dict[str, float],
+    seed: int,
+    groups: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Assign each image to a split, stratified by its rarest class.
+    """Assign each image to a split, stratified by rarest class, whole groups at a time.
 
     Args:
         classes: The classes present in each image (empty set: background).
-        fractions: Share of each group for each named split; the rest is ``train``.
-        seed: Seed for the shuffle within each group.
+        fractions: Share of each stratum's images for each named split; the rest is
+            ``train``.
+        seed: Seed for the shuffle within each stratum.
+        groups: Image -> group (e.g. its video sequence). A group never spans two
+            splits, so near-identical frames cannot sit in train and test. Default:
+            every image is its own group.
 
     Returns:
         ``{image: split}``.
     """
-    frequency = Counter(c for present in classes.values() for c in present)
-    groups: dict[str, list[str]] = {}
+    groups = groups or {image: image for image in classes}
+    members: dict[str, list[str]] = {}
     for image in sorted(classes):
-        present = classes[image]
-        key = min(present, key=lambda c: (frequency[c], c)) if present else ""
-        groups.setdefault(key, []).append(image)
+        members.setdefault(groups[image], []).append(image)
+    present = {g: set().union(*(classes[i] for i in imgs)) for g, imgs in members.items()}
+
+    frequency = Counter(c for cs in present.values() for c in cs)
+    strata: dict[str, list[str]] = {}
+    for g in sorted(members):
+        key = min(present[g], key=lambda c: (frequency[c], c)) if present[g] else ""
+        strata.setdefault(key, []).append(g)
 
     rng = random.Random(seed)
     split: dict[str, str] = {}
-    for key in sorted(groups):
-        members = groups[key]
-        rng.shuffle(members)
-        start = 0
-        for name, fraction in fractions.items():
-            n = round(fraction * len(members))
-            split |= dict.fromkeys(members[start : start + n], name)
-            start += n
-        split |= dict.fromkeys(members[start:], "train")
+    for key in sorted(strata):
+        stratum = strata[key]
+        rng.shuffle(stratum)
+        size = sum(len(members[g]) for g in stratum)
+        quota = {name: round(fraction * size) for name, fraction in fractions.items()}
+        filled = dict.fromkeys(quota, 0)
+        for g in stratum:
+            name = next((n for n in quota if filled[n] < quota[n]), "train")
+            if name != "train":
+                filled[name] += len(members[g])
+            split |= dict.fromkeys(members[g], name)
     return split
 
 
@@ -100,14 +126,17 @@ def freeze_test(
     names = load_canonical_classes()
     items = _read_items(real, "")
     split = stratified_split(
-        {i.stem: {names[c] for c in i.classes} for i in items}, {"test": fraction}, seed
+        {i.stem: {names[c] for c in i.classes} for i in items},
+        {"test": fraction},
+        seed,
+        groups={i.stem: sequence_of(i.stem) for i in items},
     )
     test = [i for i in items if split[i.stem] == "test"]
     instances = Counter(names[int(line.split()[0])] for i in test for line in i.lines)
     manifest = {
         "dataset": str(real),
         "created": date.today().isoformat(),
-        "method": "stratified by each image's rarest class",
+        "method": "stratified by rarest class; video sequences kept whole",
         "seed": seed,
         "fraction": fraction,
         "num_pool": len(items),
@@ -156,7 +185,10 @@ def build_dataset(
     items = _read_items(real, "")
     pool = [i for i in items if i.stem not in test_stems]
     val = stratified_split(
-        {i.stem: {names[c] for c in i.classes} for i in pool}, {"val": val_fraction}, seed
+        {i.stem: {names[c] for c in i.classes} for i in pool},
+        {"val": val_fraction},
+        seed,
+        groups={i.stem: sequence_of(i.stem) for i in pool},
     )
     splits = {
         "train": [i for i in pool if val[i.stem] == "train"],

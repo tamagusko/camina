@@ -11,9 +11,10 @@ How a new detector is trained, compared and promoted to the Pi. Commands are in
   This is what CAMINAv1 was trained on.
 - `training/dataset/` — the older 1,296-image set in the repo; six classes labelled, no
   e-scooter, SUV or delivery_van. 1,247 of its images are also in TRA 2026.
-- Splits: test (183 images, frozen in `holdout_manifest.json`) and val (10 %) are
-  **stratified by each image's rarest class**, so every class, rare ones included, is split
-  about 80 / 10 / 10. Test has all nine classes (delivery_van 9, truck 14, the fewest).
+- Splits: test (184 images, frozen in `holdout_manifest.json`) and val (10 %) are
+  **stratified by rarest class, whole video sequences at a time** (590 images are frames of
+  167 sequences; neighbouring frames in train and test would inflate every score).
+  Every class is in every split; delivery_van and truck have 11 test instances each.
 - `dev_expanded_dataset` (a branch) holds more data, unaudited: do not use it until audited.
 
 ## Pipeline

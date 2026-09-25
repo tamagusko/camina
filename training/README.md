@@ -51,7 +51,7 @@ The base configuration is `configs/yolo26n.yaml` (each choice commented); an exp
 
 - `data/tra2026/` (not in git) — the TRA 2026 dataset, all nine classes (see `PLAN.md`).
 - `dataset/` — the older 1,296-image set; six classes labelled.
-- `holdout_manifest.json` — the 183 frozen test images (stratified), by hash.
+- `holdout_manifest.json` — the 184 frozen test images (stratified, whole sequences), by hash.
 - `SDL fine-tuned_v3-cyclist_cleaned.zip` — the source SDL export
   ([also on Google Drive](https://drive.google.com/file/d/1eDvrytc2s8MLZqQcImVsSXQq6n2rajhW/view?usp=drive_link)).
 - `test_images/` — 10 images for the detector's parity test.

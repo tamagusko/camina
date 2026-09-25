@@ -184,3 +184,28 @@ def test_with_no_val_split_the_training_images_stand_in_for_val(real: Path, tmp_
 
     assert manifest["val"]["images"] == 0 and manifest["train"]["images"] == 180
     assert yaml.safe_load((out / "data.yaml").read_text())["val"] == "images/train"
+
+
+# ---------- video sequences never cross splits ----------
+
+
+def test_frames_of_one_sequence_stay_in_one_split() -> None:
+    """Consecutive frames are near-duplicates: split by sequence, not by frame."""
+    classes = {f"seq{s}_{f:03d}_{f:08d}": {"person"} for s in range(20) for f in range(10)}
+    groups = {stem: stem.rsplit("_", 2)[0] for stem in classes}
+
+    split = stratified_split(classes, {"test": 0.1, "val": 0.1}, seed=3, groups=groups)
+
+    by_group: dict[str, set[str]] = {}
+    for stem, name in split.items():
+        by_group.setdefault(groups[stem], set()).add(name)
+    assert all(len(splits) == 1 for splits in by_group.values())
+    assert list(split.values()).count("test") == 20  # 2 whole sequences of 10
+
+
+def test_sequence_names_group_frames_and_leave_photos_alone() -> None:
+    from training.build_dataset import sequence_of
+
+    assert sequence_of("9_3_429_00000060") == sequence_of("9_3_431_00000066") == "9_3"
+    assert sequence_of("09-26_25_2_10176_00000026") == "09-26_25_2"
+    assert sequence_of("000000001722") == "000000001722"  # a COCO photo is its own group

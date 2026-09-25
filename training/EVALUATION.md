@@ -24,11 +24,13 @@ active-travel narrative and are the ones a car/person-dominated mAP will mask.
 ## 1. Held-out test set
 
 **Frozen 2026-09-25** with `python -m training.build_dataset --freeze-test
-training/holdout_manifest.json`: 183 of the 1,837 TRA 2026 images (seed 42, 10 %),
-stratified by each image's rarest class so every class gets about the same share. The
-manifest records each image's original file name and the SHA-256 of image and label.
-Test instances: person 703, car 247, cyclist 196, e-scooter 65, SUV 46, bus 35,
-motorcyclist 33, truck 14, delivery_van 9. Validation is stratified the same way from the
+training/holdout_manifest.json`: 184 of the 1,837 TRA 2026 images (seed 42, 10 %),
+stratified by rarest class, **whole video sequences at a time**: 590 images are frames of
+167 sequences, and a first split that ignored this put 91 val/test frames next to
+near-identical training frames (e-scooter val mAP50 0.96). The manifest records each
+image's original file name and the SHA-256 of image and label. Test instances: person
+655, cyclist 202, car 188, motorcyclist 71 (one long sequence: 23 %), e-scooter 56, bus
+37, SUV 35, delivery_van 11, truck 11. Validation is split the same way from the
 rest (10 %); synthetic images never enter either. Images added later only go to train/val.
 
 Original state (for reference): `convert_sdl_to_yolo11.py:155-164` created an **empty**
