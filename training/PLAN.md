@@ -28,6 +28,9 @@ build_dataset ──▶ train ──▶ evaluate ──▶ promote
 2. **Train** (`train`): one base config (`configs/yolo26n.yaml`), fixed seed, deterministic;
    `run.json` records parameters, git commit, library versions, GPU and the dataset
    manifest. Runs in the GPU environment (`requirements.txt` in this folder).
+   - **dev** mode: train on train, early-stop on val; records the best epoch.
+   - **final** mode (`--final`): the chosen experiment retrained on train + val for that
+     many epochs, validation off. Same parameters as its dev run, or it refuses.
 3. **Evaluate** (`evaluate`): every model as the Pi runs it (FP16 NCNN, 640), on the same
    held-out images and the same hand-counted clips; per-class AP50, mAP50-95, count error
    per class and direction (S7), NCNN speed.
@@ -55,11 +58,13 @@ A candidate replaces CAMINAv1 only when, in order:
 
 1. **Evaluation:** per-class count error on every hand-counted clip no worse than the
    current model, and S7 passing; held-out AP no worse for the six real classes.
-2. **Export:** FP16 NCNN at 640 (the evaluator's export, smoke-tested). Class names must map
+2. **Final model:** `--final` run of the chosen experiment, evaluated again on test and
+   the clips (it should match or beat its dev run).
+3. **Export:** FP16 NCNN at 640 (the evaluator's export, smoke-tested). Class names must map
    onto the canonical nine through `configs/class_mapping.yaml`; the order is free.
-3. **Pi benchmark (S6):** 30 minutes in the enclosure, ambient ≥ 25 °C, Active Cooler on:
+4. **Pi benchmark (S6):** 30 minutes in the enclosure, ambient ≥ 25 °C, Active Cooler on:
    ≥ 5 FPS at 640 and `vcgencmd get_throttled` = `0x0`.
-4. **Record:** copy the NCNN directory to `models/<name>_fp16_ncnn_model/` with a
+5. **Record:** copy the NCNN directory to `models/<name>_fp16_ncnn_model/` with a
    `PROVENANCE.md` (run.json, evaluation JSON, dataset manifest), point
    `configs/sensor.yaml` at it, keep CAMINAv1 until the new model has run in the field.
 

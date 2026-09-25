@@ -194,7 +194,10 @@ def build_dataset(
             "instances": dict(sorted(instances.items(), key=lambda kv: names.index(kv[0]))),
         }
 
-    data = {"path": str(out.resolve()), "train": "images/train", "val": "images/val"}
+    # With no val split (final training), Ultralytics still needs a val path; training
+    # then runs with validation off, so nothing is ever scored on it.
+    val_dir = "images/val" if splits["val"] else "images/train"
+    data = {"path": str(out.resolve()), "train": "images/train", "val": val_dir}
     data |= {"test": "images/test", "names": dict(enumerate(names))}
     (out / "data.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))

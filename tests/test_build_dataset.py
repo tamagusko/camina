@@ -172,3 +172,15 @@ def test_an_unknown_class_name_fails_loudly(real: Path, tmp_path: Path) -> None:
 
     with pytest.raises(TaxonomyError, match="tram"):
         build_dataset(real, tmp_path / "out", holdout=_no_holdout(tmp_path), synthetic=syn)
+
+
+def test_with_no_val_split_the_training_images_stand_in_for_val(real: Path, tmp_path: Path) -> None:
+    """Final training merges val into train; Ultralytics still needs a val path."""
+    holdout = tmp_path / "holdout.json"
+    freeze_test(real, holdout)
+    out = tmp_path / "out"
+
+    manifest = build_dataset(real, out, holdout=holdout, val_fraction=0.0)
+
+    assert manifest["val"]["images"] == 0 and manifest["train"]["images"] == 180
+    assert yaml.safe_load((out / "data.yaml").read_text())["val"] == "images/train"
