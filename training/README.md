@@ -45,7 +45,27 @@ The base configuration is `configs/yolo26n.yaml` (each choice commented); an exp
 | `export_ncnn` | Reproducible NCNN export of the committed models (pinned pnnx) |
 | `download_tra2026` | Download the TRA 2026 dataset from Roboflow (`ROBOFLOW_API_KEY`) |
 | `validate_labels` | Check every label: class in the taxonomy, box in bounds |
+| `autolabel` | Pre-label new images for Roboflow (below) |
+| `codex_check` | Check each pre-label's class with Codex; split images into flagged / ok (below) |
 | `sam2_clip_auto_labeling.py`, `dinov3_semi_auto_labeling.py` | Experimental pre-labelling; unverified |
+
+## Pre-labelling new images
+
+Rules: `docs/labelling_guide/`. Every box is still reviewed by a person in Roboflow.
+
+```bash
+# 1. YOLO26x (COCO) + rider rule; SAM 3 relabels SUV / van / e-scooter if weights/sam3.pt
+#    exists (gated: accept the licence at huggingface.co/facebook/sam3, then download).
+#    --existing keeps labels already in hand. GPU env.
+.venv-train/bin/python -m training.autolabel --images <dir> --out data/autolabel/<name> \
+    --model weights/yolo26x.pt [--existing <labels dir>] [--imgsz 1280 for camera frames]
+# 2. Codex (your `codex login`, model gpt-6-astra) classifies a crop of each box; resumable
+.venv/bin/python -m training.codex_check --run data/autolabel/<name>
+# 3. Upload data/autolabel/<name>/review/flagged, then review/ok, as two Roboflow batches
+```
+
+Crops go to OpenAI in step 2. For camera images, leave person-carrying classes out of
+`--classes` until GDPR and the camera terms are settled.
 
 ## Data
 
