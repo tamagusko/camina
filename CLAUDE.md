@@ -22,7 +22,7 @@ uv venv && uv pip install -r requirements.txt          # dev: tests, training, e
 scripts/view_detections.py --video videos/test.mov --out /tmp/o.mp4 --screenline 0.65 0.15 0.65 0.72
 scripts/hand_count.py --video videos/test.mov --screenline 0.65 0.15 0.65 0.72 --out videos/test.counts.csv   # ground truth: every class left, one pass each
 .venv/bin/python -m training.count_eval --video videos/test.mov --truth videos/test.counts.csv   # count error (S7)
-.venv-train/bin/python -m training.train --experiment training/experiments/yolo26n_real.yaml   # GPU env: training/README.md
+.venv-train/bin/python -m training.train --experiment training/experiments/yolo26n_tra2026.yaml   # GPU env: training/README.md
 
 # Pi runtime profile — what the device installs (docs/raspberry_pi_5.md)
 pip install --no-deps -r requirements-pi.txt

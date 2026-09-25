@@ -5,12 +5,15 @@ How a new detector is trained, compared and promoted to the Pi. Commands are in
 
 ## Where the data stands (2026-09-25)
 
-- `dataset/` has 1,296 real images. Only six classes are labelled: person, cyclist, car,
-  motorcyclist, bus, truck. **e-scooter, SUV and delivery_van have no labels.** The
-  paper model (CAMINAv1) got them from YOLO-World pseudo-labels in a Roboflow export that
-  is not in the repo.
-- 192 images are the frozen held-out test set (`holdout_manifest.json`); `build_dataset`
-  keeps them out of training in every experiment.
+- **`data/tra2026/`** — the TRA 2026 training set (Roboflow `sdl-urban-mobility-dataset`
+  v3; `python -m training.download_tra2026`, key in `ROBOFLOW_API_KEY`): 1,837 images, all
+  nine classes. Thin classes: delivery_van 112 instances, truck 132, motorcyclist 307.
+  This is what CAMINAv1 was trained on.
+- `training/dataset/` — the older 1,296-image set in the repo; six classes labelled, no
+  e-scooter, SUV or delivery_van. 1,247 of its images are also in TRA 2026.
+- Splits: test (183 images, frozen in `holdout_manifest.json`) and val (10 %) are
+  **stratified by each image's rarest class**, so every class, rare ones included, is split
+  about 80 / 10 / 10. Test has all nine classes (delivery_van 9, truck 14, the fewest).
 - `dev_expanded_dataset` (a branch) holds more data, unaudited: do not use it until audited.
 
 ## Pipeline
@@ -33,8 +36,8 @@ build_dataset ──▶ train ──▶ evaluate ──▶ promote
 
 | Experiment | Train data | Question |
 |---|---|---|
-| `yolo26n_real` | real only | Baseline: YOLO26n on what we have |
-| `yolo26n_real_synthetic` | real + synthetic (≤ 1× real) | Does synthetic data add the missing classes and help the rest? |
+| `yolo26n_tra2026` | TRA 2026 only | Baseline: YOLO26n on the paper's data |
+| `yolo26n_tra2026_synthetic` | TRA 2026 + synthetic (≤ 1× real) | Does synthetic data help the thin classes (van, truck, motorcyclist) and the rest? |
 
 They differ **only in training data**: same base config, seed, validation and test
 images. Put the synthetic dataset (YOLO format, class names mapped in
@@ -42,11 +45,9 @@ images. Put the synthetic dataset (YOLO format, class names mapped in
 
 **Caveats for reading the results**
 
-- The real test set has no e-scooter, SUV or delivery_van, so AP says nothing about
-  them; only the hand-counted clips do (`videos/test.counts.csv` has SUVs and vans).
-  A small, real, hand-labelled test set for these three classes is the missing piece.
-- CAMINAv1 was trained on these same 1,296 images, held-out ones included: its held-out AP
-  is not comparable (the evaluator skips it). Compare it on the clips only.
+- Rare classes have few test instances (delivery_van 9, truck 14): their AP is noisy.
+- CAMINAv1 was trained on the TRA 2026 images, held-out ones included: its held-out AP is
+  not comparable (the evaluator skips it). Compare it on the clips only.
 
 ## Promotion to the Pi
 

@@ -1,6 +1,6 @@
 """Compare detectors the way the sensor runs them: NCNN, 640, on the same data.
 
-    python -m training.evaluate runs/train/yolo26n_real runs/train/yolo26n_real_synthetic \\
+    python -m training.evaluate runs/train/yolo26n_tra2026 runs/train/yolo26n_tra2026_synthetic \\
         models/camina_v1_yolo11n_ncnn_model
 
 Each model is a training run (``weights/best.pt`` is exported to FP16 NCNN, the
@@ -30,7 +30,7 @@ from training.count_eval import Row, compare, count_clip, read_truth
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DATA = Path("runs/datasets/yolo26n_real/data.yaml")
+DEFAULT_DATA = Path("runs/datasets/yolo26n_tra2026/data.yaml")
 VIDEO_EXTS = {".mov", ".mp4", ".avi", ".mkv"}
 
 

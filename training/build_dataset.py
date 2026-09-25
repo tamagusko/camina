@@ -2,29 +2,39 @@
 
 Output is a YOLO dataset with canonical class ids (``configs/classes.yaml``):
 
-- **test** — the frozen held-out images listed in ``holdout_manifest.json``, and
-  nothing else, so every experiment is scored on the same real images;
-- **val** — the real dataset's ``val`` split minus the held-out images;
-- **train** — the rest of the real images, plus the synthetic images if given.
-  Synthetic data never enters ``val`` or ``test``.
+- **test** — the images frozen in the holdout manifest, and nothing else, so every
+  experiment is scored on the same real images;
+- **val** — a stratified share of the other real images;
+- **train** — the rest, plus the synthetic images if given. Synthetic data never
+  enters ``val`` or ``test``.
 
-Images are symlinked; labels are rewritten with canonical ids (each source's
-own ``data.yaml`` names are mapped through ``configs/class_mapping.yaml``).
-``manifest.json`` records the sources and per-split image and instance counts.
+Test and val are **stratified by each image's rarest class** (or "background"),
+so rare classes such as delivery_van appear in every split in the same
+proportion. The test split is chosen once (``--freeze-test``) and stored with
+hashes; images added later only ever go to train or val.
 
-    python -m training.build_dataset --real training/dataset --out runs/datasets/real
-    python -m training.build_dataset --real training/dataset --synthetic <dir> \\
-        --syn-fraction 1.0 --out runs/datasets/real_syn
+Sources may be laid out as ``images/<split>/`` or, as Roboflow exports them,
+``<split>/images/``; Roboflow's ``_jpg.rf.<hash>`` renames are undone. Images
+are symlinked; labels are rewritten with canonical ids.
+
+    python -m training.build_dataset --freeze-test training/holdout_manifest.json
+    python -m training.build_dataset --real data/tra2026 --out runs/datasets/tra2026
+    python -m training.build_dataset --real data/tra2026 --synthetic data/synthetic \\
+        --syn-fraction 1.0 --out runs/datasets/tra2026_synthetic
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import random
+import re
 import shutil
 from collections import Counter
+from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -37,6 +47,85 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 DEFAULT_HOLDOUT = Path("training/holdout_manifest.json")
 
 
+@dataclass(frozen=True)
+class _Item:
+    image: Path
+    label: Path
+    stem: str  # original file stem; "syn_" prefix for synthetic images
+    lines: tuple[str, ...]  # label lines with canonical class ids
+
+    @property
+    def classes(self) -> set[int]:
+        return {int(line.split()[0]) for line in self.lines}
+
+
+def stratified_split(
+    classes: dict[str, set[str]], fractions: dict[str, float], seed: int
+) -> dict[str, str]:
+    """Assign each image to a split, stratified by its rarest class.
+
+    Args:
+        classes: The classes present in each image (empty set: background).
+        fractions: Share of each group for each named split; the rest is ``train``.
+        seed: Seed for the shuffle within each group.
+
+    Returns:
+        ``{image: split}``.
+    """
+    frequency = Counter(c for present in classes.values() for c in present)
+    groups: dict[str, list[str]] = {}
+    for image in sorted(classes):
+        present = classes[image]
+        key = min(present, key=lambda c: (frequency[c], c)) if present else ""
+        groups.setdefault(key, []).append(image)
+
+    rng = random.Random(seed)
+    split: dict[str, str] = {}
+    for key in sorted(groups):
+        members = groups[key]
+        rng.shuffle(members)
+        start = 0
+        for name, fraction in fractions.items():
+            n = round(fraction * len(members))
+            split |= dict.fromkeys(members[start : start + n], name)
+            start += n
+        split |= dict.fromkeys(members[start:], "train")
+    return split
+
+
+def freeze_test(
+    real: Path, manifest_path: Path = DEFAULT_HOLDOUT, fraction: float = 0.1, seed: int = 42
+) -> dict:
+    """Choose the stratified test split of ``real`` once and store it with hashes."""
+    names = load_canonical_classes()
+    items = _read_items(real, "")
+    split = stratified_split(
+        {i.stem: {names[c] for c in i.classes} for i in items}, {"test": fraction}, seed
+    )
+    test = [i for i in items if split[i.stem] == "test"]
+    instances = Counter(names[int(line.split()[0])] for i in test for line in i.lines)
+    manifest = {
+        "dataset": str(real),
+        "created": date.today().isoformat(),
+        "method": "stratified by each image's rarest class",
+        "seed": seed,
+        "fraction": fraction,
+        "num_pool": len(items),
+        "num_test": len(test),
+        "instances": dict(sorted(instances.items(), key=lambda kv: names.index(kv[0]))),
+        "test_files": [
+            {
+                "image": f"{i.stem}{i.image.suffix}",
+                "image_sha256": _sha256(i.image),
+                "label_sha256": _sha256(i.label) if i.label.exists() else None,
+            }
+            for i in test
+        ],
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    return manifest
+
+
 def build_dataset(
     real: Path,
     out: Path,
@@ -44,47 +133,42 @@ def build_dataset(
     synthetic: Path | None = None,
     syn_fraction: float | None = None,
     seed: int = 42,
+    val_fraction: float = 0.1,
 ) -> dict:
     """Assemble the dataset at ``out`` (replacing it) and return its manifest.
 
     Args:
-        real: Real YOLO dataset with ``data.yaml`` and ``images/{train,val}``.
+        real: Real YOLO dataset (``data.yaml`` and images with labels).
         out: Output directory.
-        holdout: Manifest of the frozen held-out images (by file name).
+        holdout: Manifest from ``freeze_test``; its images form the test split.
         synthetic: Optional synthetic YOLO dataset; every image goes to train.
-        syn_fraction: Cap synthetic images at this multiple of the real
-            training images (seeded sample); ``None`` uses all of them.
-        seed: Seed for the synthetic sample.
+        syn_fraction: Cap synthetic images at this multiple of the real training
+            images (seeded sample); ``None`` uses all of them.
+        seed: Seed for the validation split and the synthetic sample.
+        val_fraction: Stratified share of the non-test real images used for val.
 
     Raises:
         TaxonomyError: when a source uses a class name with no canonical mapping.
     """
-    classes = load_canonical_classes()
-    test_names = {Path(r["image"]).name for r in json.loads(holdout.read_text())["test_files"]}
+    names = load_canonical_classes()
+    test_stems = {Path(r["image"]).stem for r in json.loads(holdout.read_text())["test_files"]}
 
-    real_images = _images(real)
-    splits: dict[str, list[tuple[Path, str, Path]]] = {"train": [], "val": [], "test": []}
-    for image in real_images:
-        if image.name in test_names:
-            split = "test"
-        elif image.parent.name == "val":
-            split = "val"
-        else:
-            split = "train"
-        splits[split].append((image, image.stem, real))
-
-    syn_images: list[Path] = []
-    if synthetic is not None:
-        syn_images = _images(synthetic)
-        if syn_fraction is not None:
-            n = min(len(syn_images), round(syn_fraction * len(splits["train"])))
-            syn_images = sorted(random.Random(seed).sample(syn_images, n))
-        splits["train"] += [(image, f"syn_{image.stem}", synthetic) for image in syn_images]
-
-    to_canonical = {
-        root: [classes.index(c) for c in resolve_to_canonical(_names(root))]
-        for root in [real] + ([synthetic] if synthetic else [])
+    items = _read_items(real, "")
+    pool = [i for i in items if i.stem not in test_stems]
+    val = stratified_split(
+        {i.stem: {names[c] for c in i.classes} for i in pool}, {"val": val_fraction}, seed
+    )
+    splits = {
+        "train": [i for i in pool if val[i.stem] == "train"],
+        "val": [i for i in pool if val[i.stem] == "val"],
+        "test": [i for i in items if i.stem in test_stems],
     }
+    if synthetic is not None:
+        syn = _read_items(synthetic, "syn_")
+        if syn_fraction is not None:
+            n = min(len(syn), round(syn_fraction * len(splits["train"])))
+            syn = sorted(random.Random(seed).sample(syn, n), key=lambda i: i.stem)
+        splits["train"] += syn
 
     if out.exists():
         shutil.rmtree(out)
@@ -92,37 +176,60 @@ def build_dataset(
         "sources": {"real": str(real), "synthetic": str(synthetic) if synthetic else None},
         "holdout": str(holdout),
         "syn_fraction": syn_fraction,
+        "val_fraction": val_fraction,
         "seed": seed,
     }
-    for split, items in splits.items():
+    for split, members in splits.items():
         (out / "images" / split).mkdir(parents=True)
         (out / "labels" / split).mkdir(parents=True)
-        instances: Counter[str] = Counter()
-        for image, stem, root in items:
-            (out / "images" / split / f"{stem}{image.suffix}").symlink_to(image.resolve())
-            lines = []
-            for line in _label_of(root, image).splitlines():
-                if line.strip():
-                    cls, *box = line.split()
-                    canonical = to_canonical[root][int(cls)]
-                    instances[classes[canonical]] += 1
-                    lines.append(" ".join([str(canonical), *box]))
-            (out / "labels" / split / f"{stem}.txt").write_text("".join(f"{x}\n" for x in lines))
+        for i in members:
+            (out / "images" / split / f"{i.stem}{i.image.suffix}").symlink_to(i.image.resolve())
+            (out / "labels" / split / f"{i.stem}.txt").write_text(
+                "".join(f"{x}\n" for x in i.lines)
+            )
+        instances = Counter(names[int(line.split()[0])] for i in members for line in i.lines)
         manifest[split] = {
-            "images": len(items),
-            "synthetic_images": sum(root != real for *_, root in items),
-            "instances": dict(sorted(instances.items(), key=lambda kv: classes.index(kv[0]))),
+            "images": len(members),
+            "synthetic_images": sum(i.stem.startswith("syn_") for i in members),
+            "instances": dict(sorted(instances.items(), key=lambda kv: names.index(kv[0]))),
         }
 
     data = {"path": str(out.resolve()), "train": "images/train", "val": "images/val"}
-    data |= {"test": "images/test", "names": dict(enumerate(classes))}
+    data |= {"test": "images/test", "names": dict(enumerate(names))}
     (out / "data.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return manifest
 
 
-def _images(root: Path) -> list[Path]:
-    return sorted(p for p in (root / "images").rglob("*") if p.suffix.lower() in IMAGE_EXTS)
+def _read_items(root: Path, prefix: str) -> list[_Item]:
+    """Every image under ``root`` with its label lines in canonical class ids."""
+    names = load_canonical_classes()
+    to_canonical = [names.index(c) for c in resolve_to_canonical(_names(root))]
+    items = []
+    for image in sorted(p for p in root.rglob("*") if _is_image(root, p)):
+        label = _label_path(root, image)
+        text = label.read_text() if label.exists() else ""
+        lines = tuple(
+            " ".join([str(to_canonical[int(cls)]), *box])
+            for cls, *box in (line.split() for line in text.splitlines() if line.strip())
+        )
+        items.append(_Item(image, label, prefix + _original_stem(image), lines))
+    return items
+
+
+def _is_image(root: Path, path: Path) -> bool:
+    return path.suffix.lower() in IMAGE_EXTS and "images" in path.relative_to(root).parts
+
+
+def _label_path(root: Path, image: Path) -> Path:
+    parts = list(image.relative_to(root).parts)
+    i = len(parts) - 1 - parts[::-1].index("images")
+    return root.joinpath(*parts[:i], "labels", *parts[i + 1 :]).with_suffix(".txt")
+
+
+def _original_stem(image: Path) -> str:
+    """File stem without Roboflow's ``_jpg.rf.<hash>`` rename."""
+    return re.sub(r"_(jpe?g|png|bmp|webp)\.rf\.[0-9a-f]+$", "", image.stem, flags=re.IGNORECASE)
 
 
 def _names(root: Path) -> list[str]:
@@ -130,25 +237,40 @@ def _names(root: Path) -> list[str]:
     return [names[i] for i in sorted(names)] if isinstance(names, dict) else list(names)
 
 
-def _label_of(root: Path, image: Path) -> str:
-    label = root / "labels" / image.relative_to(root / "images").with_suffix(".txt")
-    return label.read_text() if label.exists() else ""
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def main() -> None:
-    """Build a dataset from the command line and print its manifest."""
+    """Freeze the test split, or build a dataset, from the command line."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--real", type=Path, default=Path("training/dataset"))
+    ap.add_argument("--real", type=Path, default=Path("data/tra2026"))
+    ap.add_argument("--freeze-test", type=Path, metavar="MANIFEST", help="choose and store test")
+    ap.add_argument("--test-fraction", type=float, default=0.1)
     ap.add_argument("--synthetic", type=Path)
     ap.add_argument("--syn-fraction", type=float, help="cap synthetic at this x real train images")
     ap.add_argument("--holdout", type=Path, default=DEFAULT_HOLDOUT)
-    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--val-fraction", type=float, default=0.1)
+    ap.add_argument("--out", type=Path)
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
-    manifest = build_dataset(
-        args.real, args.out, args.holdout, args.synthetic, args.syn_fraction, args.seed
-    )
+
+    if args.freeze_test:
+        manifest = freeze_test(args.real, args.freeze_test, args.test_fraction, args.seed)
+        manifest = {k: v for k, v in manifest.items() if k != "test_files"}
+    elif args.out:
+        manifest = build_dataset(
+            args.real,
+            args.out,
+            args.holdout,
+            args.synthetic,
+            args.syn_fraction,
+            args.seed,
+            args.val_fraction,
+        )
+    else:
+        ap.error("give --freeze-test MANIFEST or --out DIR")
     logger.info(json.dumps(manifest, indent=2))
 
 

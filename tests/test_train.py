@@ -48,8 +48,8 @@ def test_an_override_the_base_does_not_know_is_rejected(tmp_path: Path) -> None:
 
 
 def test_the_two_committed_experiments_differ_only_in_data() -> None:
-    real = load_experiment(REPO / "training/experiments/yolo26n_real.yaml")
-    syn = load_experiment(REPO / "training/experiments/yolo26n_real_synthetic.yaml")
+    real = load_experiment(REPO / "training/experiments/yolo26n_tra2026.yaml")
+    syn = load_experiment(REPO / "training/experiments/yolo26n_tra2026_synthetic.yaml")
 
     assert real.params == syn.params
     assert real.real == syn.real

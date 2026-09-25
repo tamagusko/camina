@@ -15,12 +15,12 @@ uv pip install --python .venv-train/bin/python -r training/requirements.txt
 
 ```bash
 # 1. Train (builds runs/datasets/<name>, trains into runs/train/<name>)
-.venv-train/bin/python -m training.train --experiment training/experiments/yolo26n_real.yaml
-.venv-train/bin/python -m training.train --experiment training/experiments/yolo26n_real_synthetic.yaml
+.venv-train/bin/python -m training.train --experiment training/experiments/yolo26n_tra2026.yaml
+.venv-train/bin/python -m training.train --experiment training/experiments/yolo26n_tra2026_synthetic.yaml
 
 # 2. Compare: held-out AP, count error on the hand-counted clips, NCNN speed
-.venv-train/bin/python -m training.evaluate runs/train/yolo26n_real \
-    runs/train/yolo26n_real_synthetic models/camina_v1_yolo11n_ncnn_model
+.venv-train/bin/python -m training.evaluate runs/train/yolo26n_tra2026 \
+    runs/train/yolo26n_tra2026_synthetic models/camina_v1_yolo11n_ncnn_model
 ```
 
 The base configuration is `configs/yolo26n.yaml` (each choice commented); an experiment in
@@ -31,18 +31,20 @@ The base configuration is `configs/yolo26n.yaml` (each choice commented); an exp
 
 | Tool | What it does |
 |---|---|
-| `build_dataset` | Real (+ synthetic) → one dataset: canonical ids, frozen test split, manifest |
+| `build_dataset` | Real (+ synthetic) → one dataset: canonical ids, stratified splits, frozen test (`--freeze-test`) |
 | `train` | Train one experiment; records config, versions, GPU, git commit, dataset |
 | `evaluate` | Compare runs and NCNN models: AP, count error, speed |
 | `count_eval` | Count error of one model on one hand-counted clip |
 | `export_ncnn` | Reproducible NCNN export of the committed models (pinned pnnx) |
-| `validate_labels`, `freeze_holdout`, `convert_sdl_to_yolo11` | Dataset checks and preparation |
+| `download_tra2026` | Download the TRA 2026 dataset from Roboflow (`ROBOFLOW_API_KEY`) |
+| `validate_labels`, `convert_sdl_to_yolo11` | Dataset checks and preparation |
 | `sam2_clip_auto_labeling.py`, `dinov3_semi_auto_labeling.py` | Experimental pre-labelling; unverified |
 
 ## Data
 
-- `dataset/` — 1,296 real images; six classes labelled (see `PLAN.md`).
-- `holdout_manifest.json` — the 192 held-out test images, by hash.
+- `data/tra2026/` (not in git) — the TRA 2026 dataset, all nine classes (see `PLAN.md`).
+- `dataset/` — the older 1,296-image set; six classes labelled.
+- `holdout_manifest.json` — the 183 frozen test images (stratified), by hash.
 - `SDL fine-tuned_v3-cyclist_cleaned.zip` — the source SDL export
   ([also on Google Drive](https://drive.google.com/file/d/1eDvrytc2s8MLZqQcImVsSXQq6n2rajhW/view?usp=drive_link)).
 - `test_images/` — 10 images for the detector's parity test.

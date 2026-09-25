@@ -1,6 +1,6 @@
 """Train a detector for one experiment: build its dataset, train, record everything.
 
-    python -m training.train --experiment training/experiments/yolo26n_real.yaml
+    python -m training.train --experiment training/experiments/yolo26n_tra2026.yaml
 
 Runs in the GPU environment (``training/requirements.txt``). Output, per run:
 
