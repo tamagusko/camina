@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-train/
 venv/
 *.egg-info/
 build/
@@ -18,7 +19,6 @@ htmlcov/
 # Local data, backups, runtime state
 data/
 bkp/
-training/datasets/
 *.log
 *.sqlite3
 *.db
@@ -37,3 +37,6 @@ dashboard/CLAUDE.md
 .claude/
 .playwright-mcp/
 mpv-shot*.jpg
+runs/
+/*.pt
+/weights/
