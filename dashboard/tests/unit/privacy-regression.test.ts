@@ -177,6 +177,25 @@ describe.runIf(Boolean(process.env.DATABASE_URL_TEST))("privacy regression — l
     expect(speed[0]?.value).toBeNull();
     expect(speed[0]?.speedBreakdown.car).toBeNull();
   });
+
+  it("keeps sensor coordinates in the admin method only and gap-fills readings", async () => {
+    const admin = await liveStreetsRepo.adminInfo(streetId);
+    expect(admin?.sensors[0]).toMatchObject({
+      id: sensorId, latitude: 53.3, longitude: -6.3,
+    });
+    const rows = await liveStreetsRepo.readings({
+      streetId, from: bucket,
+      to: new Date(end.getTime() + 900_000), bucketMinutes: 15,
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.missing).toBe(false);
+    expect(rows[1]?.missing).toBe(true);
+    expect(rows[1]?.counts.car).toBeNull();
+    const uncovered = await liveStreetsRepo.readings({
+      streetId: `uncovered-${suffix}`, from: bucket, to: end, bucketMinutes: 15,
+    });
+    expect(uncovered).toEqual([]);
+  });
 });
 
 describe("k-anonymity floor — no published count in 1..4", () => {

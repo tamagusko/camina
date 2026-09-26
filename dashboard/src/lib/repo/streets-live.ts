@@ -121,8 +121,17 @@ export const liveStreetsRepo: StreetsRepo = {
         ${classFilter(classes)}
       GROUP BY bucket, r.class_name ORDER BY bucket
     `);
+    const aggregates = rows<ReadingAggregate>(result);
+    if (aggregates.length === 0) {
+      const coverage = rows<{ covered: boolean }>(await db().execute(sql`
+        SELECT EXISTS (
+          SELECT 1 FROM sensor_street_coverage WHERE street_id = ${streetId}
+        ) AS covered
+      `));
+      if (!coverage[0]?.covered) return [];
+    }
     const present = new Map<number, StreetReading>();
-    for (const aggregate of rows<ReadingAggregate>(result)) {
+    for (const aggregate of aggregates) {
       const t = new Date(aggregate.bucket).getTime();
       let row = present.get(t);
       if (!row) {
