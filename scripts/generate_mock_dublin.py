@@ -260,8 +260,28 @@ def _missing_window_set(idx: int, n_windows: int, transport: str) -> set[int]:
     return missing
 
 
+def _direction_counts(
+    count: int,
+    sensor_idx: int,
+    class_idx: int,
+    hour: float,
+    weekday: int,
+    rng: random.Random,
+) -> tuple[int, int]:
+    """Split a mock count between the street geometry's A→B and B→A directions."""
+    base_share = 0.46 + 0.04 * ((sensor_idx + class_idx) % 3)
+    commute_bias = 0.0
+    if weekday < 5:
+        commute_bias = 0.12 * math.exp(-((hour - 8.5) ** 2) / 2)
+        commute_bias -= 0.12 * math.exp(-((hour - 17.5) ** 2) / 2)
+    ab_share = min(0.8, max(0.2, base_share + commute_bias + rng.uniform(-0.05, 0.05)))
+    ab_count = round(count * ab_share)
+    return ab_count, count - ab_count
+
+
 def generate() -> dict:
     rng = random.Random(SEED)
+    direction_rng = random.Random(SEED + 3000)
 
     # ------- streets (public) -------
     streets = []
@@ -367,19 +387,29 @@ def generate() -> dict:
                 if count <= 0:
                     continue
                 speed = SPEED_BASELINE[cls] * rng.uniform(0.85, 1.15)
-                readings.append(
-                    {
-                        "sensor_id": sensor["id"],
-                        "window_start": window_start.isoformat(),
-                        "window_end": (
-                            window_start + timedelta(minutes=WINDOW_MINUTES)
-                        ).isoformat(),
-                        "class_name": cls,
-                        "count": count,
-                        "avg_speed_kmh": round(speed, 1),
-                        "partial": False,
-                    }
-                )
+                reading = {
+                    "sensor_id": sensor["id"],
+                    "window_start": window_start.isoformat(),
+                    "window_end": (window_start + timedelta(minutes=WINDOW_MINUTES)).isoformat(),
+                    "class_name": cls,
+                    "count": count,
+                    "avg_speed_kmh": round(speed, 1),
+                    "partial": False,
+                }
+                # Six of eight mock streets represent bidirectional coverage.
+                # The remaining two exercise the API's optional direction data.
+                if sensor_idx < 6:
+                    ab_count, ba_count = _direction_counts(
+                        count,
+                        sensor_idx,
+                        CLASSES.index(cls),
+                        hour,
+                        weekday,
+                        direction_rng,
+                    )
+                    reading["direction_ab_count"] = ab_count
+                    reading["direction_ba_count"] = ba_count
+                readings.append(reading)
 
     # ------- heartbeats (last 24 h only) -------
     heartbeats = []
