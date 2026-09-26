@@ -1,5 +1,4 @@
 import "server-only";
-import { attachDatabasePool } from "@vercel/functions";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { isProduction } from "@/lib/env";
@@ -28,9 +27,9 @@ export function db() {
   }
   // max:2 — Fluid Compute reuses instances but scales horizontally; a small
   // per-instance pool multiplied across instances still respects Neon limits.
-  const client = postgres(url, { max: 2, prepare: false });
-  // Drain in-flight queries when Vercel suspends the instance (M2 mandate).
-  attachDatabasePool(client);
+  // Postgres.js manages its own pool. Vercel's attachDatabasePool only accepts
+  // event-emitting pools (pg/mysql), not a Postgres.js client.
+  const client = postgres(url, { max: 2, prepare: false, idle_timeout: 20 });
   _db = drizzle(client, { schema });
   return _db;
 }

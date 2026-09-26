@@ -2,8 +2,10 @@
 // sensor identifier, latitude, or longitude, regardless of data source.
 // CI fails if any fixture-backed response body contains these keys.
 
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mockStreetsRepo } from "@/lib/repo/streets-mock";
+import { liveStreetsRepo } from "@/lib/repo/streets-live";
+import postgres from "postgres";
 
 const FORBIDDEN_KEYS = [
   "sensor_id",
@@ -103,6 +105,77 @@ describe("privacy regression — public repo outputs", () => {
       window: "1h",
     });
     assertClean(rows);
+  });
+});
+
+describe.runIf(Boolean(process.env.DATABASE_URL_TEST))("privacy regression — live repo", () => {
+  const url = process.env.DATABASE_URL_TEST ?? "";
+  const client = postgres(url, { max: 1 });
+  const suffix = crypto.randomUUID();
+  const streetId = `privacy-street-${suffix}`;
+  const sensorId = `privacy-sensor-${suffix}`;
+  const bucket = new Date(Math.floor(Date.now() / 900_000) * 900_000 - 900_000);
+  const end = new Date(bucket.getTime() + 900_000);
+
+  beforeAll(async () => {
+    process.env.DATABASE_URL = url;
+    await client`INSERT INTO streets (id, display_name, osm_way_ids, geom, bbox, city)
+      VALUES (${streetId}, 'Privacy Street', ARRAY[42]::bigint[],
+        ST_GeomFromText('MULTILINESTRING((-6.3 53.3,-6.2 53.4))', 4326),
+        ST_GeomFromText('POLYGON((-6.3 53.3,-6.2 53.3,-6.2 53.4,-6.3 53.4,-6.3 53.3))', 4326),
+        'privacy-test')`;
+    await client`INSERT INTO sensors
+      (id, display_name, latitude, longitude, install_date, config_json, config_version, api_token_hash)
+      VALUES (${sensorId}, 'Private Sensor', 53.3, -6.3, '2026-01-01', '{}'::jsonb, 'v1', 'test-hash')`;
+    await client`INSERT INTO sensor_street_coverage (sensor_id, street_id) VALUES (${sensorId}, ${streetId})`;
+    await client`INSERT INTO sensor_readings
+      (sensor_id, window_start, window_end, class_name, count, avg_speed_kmh,
+       direction_ab_count, direction_ba_count)
+      VALUES
+      (${sensorId}, ${bucket}, ${end}, 'cyclist', 6, 20, 5, 1),
+      (${sensorId}, ${bucket}, ${end}, 'car', 2, 45, 1, 1)`;
+  });
+
+  afterAll(async () => {
+    await client`DELETE FROM sensors WHERE id = ${sensorId}`;
+    await client`DELETE FROM streets WHERE id = ${streetId}`;
+    await client.end();
+  });
+
+  it("keeps all public methods free of sensor and GPS fields", async () => {
+    const listed = await liveStreetsRepo.list("privacy-test");
+    const detail = await liveStreetsRepo.get(streetId);
+    const readings = await liveStreetsRepo.readings({
+      streetId, from: bucket, to: end, bucketMinutes: 15,
+    });
+    const metrics = await liveStreetsRepo.latestMetrics({
+      city: "privacy-test", metric: "counts", window: "1h",
+    });
+    expect(listed).toHaveLength(1);
+    expect(detail?.id).toBe(streetId);
+    expect(readings[0]?.missing).toBe(false);
+    expect(metrics).toHaveLength(1);
+    for (const value of [listed, detail, readings, metrics]) assertClean(value);
+  });
+
+  it("suppresses low counts, speeds, and direction cells", async () => {
+    const rows = await liveStreetsRepo.readings({
+      streetId, from: bucket, to: end, bucketMinutes: 15,
+    });
+    const row = rows[0];
+    expect(row?.counts.car).toBeNull();
+    expect(row?.avgSpeedKmh.car).toBeNull();
+    expect(row?.counts.cyclist).toBe(6);
+    expect(row?.avgSpeedKmh.cyclist).toBe(20);
+    expect(row?.countsByDirection?.AB.cyclist).toBe(5);
+    expect(row?.countsByDirection?.BA.cyclist).toBeNull();
+    assertNoSmallCounts(rows);
+
+    const speed = await liveStreetsRepo.latestMetrics({
+      city: "privacy-test", metric: "speed", classes: ["car"], window: "1h",
+    });
+    expect(speed[0]?.value).toBeNull();
+    expect(speed[0]?.speedBreakdown.car).toBeNull();
   });
 });
 

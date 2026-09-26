@@ -32,6 +32,7 @@ export interface StreetReading {
   missing: boolean;           // true when no data covered this window (sensor down)
   counts: Record<RoadUserClass, number | null>;  // null per class when missing
   avgSpeedKmh: Partial<Record<RoadUserClass, number | null>>;
+  countsByDirection?: Record<"AB" | "BA", Record<RoadUserClass, number | null>>;
 }
 
 export interface MetricValue {
