@@ -5,7 +5,7 @@ import { rampExpression, streetPaintStatus, VIRIDIS_5 } from "@/lib/geo";
 import { ROAD_USER_CLASSES, type MetricValue } from "@/lib/types";
 
 const zeros = Object.fromEntries(ROAD_USER_CLASSES.map((c) => [c, 0])) as MetricValue["classBreakdown"];
-const metric: MetricValue = { streetId: "test", value: 12, totalCount: 12, classBreakdown: zeros, speedBreakdown: {}, avgSpeedKmh: null, stale: false, lastSeen: "2026-09-26T13:30:00Z" };
+const metric: MetricValue = { streetId: "test", value: 12, totalCount: 12, hasHidden: false, classBreakdown: zeros, speedBreakdown: {}, avgSpeedKmh: null, stale: false, lastSeen: "2026-09-26T13:30:00Z" };
 
 describe("fixed map legend", () => {
   it("uses fixed count thresholds and a readable text equivalent", () => {
@@ -20,6 +20,8 @@ describe("fixed map legend", () => {
   it("keeps suppressed totals solid and stale streets separate", () => {
     expect(streetPaintStatus(metric)).toBe("live");
     expect(streetPaintStatus({ ...metric, value: null })).toBe("suppressed");
+    expect(streetPaintStatus({ ...metric, value: 0, totalCount: 0, hasHidden: true })).toBe("suppressed");
+    expect(streetPaintStatus({ ...metric, value: 0, totalCount: 0 })).toBe("live");
     expect(streetPaintStatus({ ...metric, stale: true })).toBe("stale");
     expect(streetPaintStatus({ ...metric, lastSeen: null })).toBe("stale");
     expect(streetPaintStatus(undefined)).toBe("stale");

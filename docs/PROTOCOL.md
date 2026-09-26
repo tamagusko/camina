@@ -71,6 +71,14 @@ the relevant windows, so small per-window cells contribute to larger displayed
 aggregates. The edge sends an average speed for every class it measured; the
 server hides that speed when the class count in the displayed bucket is below 5.
 
+Hiding a cell is not enough when the values around it add up to it, so the
+public API also applies complementary suppression (rules and reasoning in
+`dashboard/src/lib/privacy.ts`): if either direction cell of a class is hidden,
+both are hidden, and so are both when some rows of the class in the bucket have
+no direction cells; a street total is the sum of the published class counts
+only, with `hasHidden: true` when any class was hidden. A published number is
+always the sum of the published numbers beneath it.
+
 **Response 200**:
 
     { "ok": true, "latest_config_version": "abc123" }

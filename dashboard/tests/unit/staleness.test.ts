@@ -73,50 +73,22 @@ describe("latestMetrics — surfaces staleness on every street", () => {
   });
 });
 
-describe("latestMetrics — totalCount is the true all-class total", () => {
-  it("includes suppressed classes (>= visible sum) and stays k-floored", async () => {
-    const rows = await mockStreetsRepo.latestMetrics({
-      city: "dublin",
-      metric: "counts",
-      window: "24h",
-    });
-    expect(rows.length).toBeGreaterThan(0);
-    for (const row of rows) {
-      // k-floor: never a re-identifiable small total.
-      if (row.totalCount !== null) {
-        expect(row.totalCount === 0 || row.totalCount >= 5).toBe(true);
-        // True total covers every class, so it is >= the sum of the
-        // visible (non-suppressed) per-class counts.
-        const visibleSum = Object.values(row.classBreakdown).reduce<number>(
-          (a, b) => a + (b ?? 0),
-          0
-        );
-        expect(row.totalCount).toBeGreaterThanOrEqual(visibleSum);
-      }
-    }
-  });
-
-  it("exceeds the visible sum on at least one street with suppressed classes", async () => {
-    // Short window keeps per-class sums small enough for the k-floor to bite.
+describe("latestMetrics — totalCount is the sum of published class counts", () => {
+  it("never exceeds what is shown, and flags hidden classes", async () => {
     const rows = await mockStreetsRepo.latestMetrics({
       city: "dublin",
       metric: "counts",
       window: "1h",
     });
-    const withSuppressed = rows.filter(
-      (r) =>
-        r.totalCount !== null &&
-        Object.values(r.classBreakdown).some((v) => v === null)
-    );
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      const shown = Object.values(row.classBreakdown);
+      const visibleSum = shown.reduce<number>((a, b) => a + (b ?? 0), 0);
+      // A true total next to a hidden class would reveal it by subtraction.
+      expect(row.totalCount).toBe(visibleSum);
+      expect(row.hasHidden).toBe(shown.some((v) => v === null));
+    }
     // Non-vacuous: the fixtures' quiet hour has low-count classes somewhere.
-    expect(withSuppressed.length).toBeGreaterThan(0);
-    const strict = withSuppressed.some((r) => {
-      const visibleSum = Object.values(r.classBreakdown).reduce<number>(
-        (a, b) => a + (b ?? 0),
-        0
-      );
-      return (r.totalCount as number) > visibleSum;
-    });
-    expect(strict).toBe(true);
+    expect(rows.some((r) => r.hasHidden)).toBe(true);
   });
 });

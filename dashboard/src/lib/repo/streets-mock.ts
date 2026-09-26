@@ -16,6 +16,7 @@ import {
   type StreetSummary,
   type TimeWindow,
 } from "@/lib/types";
+import { K_MIN, publishDirectionPair, publishedTotal, suppressCount } from "@/lib/privacy";
 import type { StreetsRepo } from "./types";
 
 function toSummary(s: MockStreet): StreetSummary {
@@ -42,16 +43,7 @@ function nullBreakdown(): Record<RoadUserClass, number | null> {
   >;
 }
 
-// k-anonymity floor: a published count identifies K_MIN or more individuals.
-// Counts of 1..(K_MIN-1) are re-identifiable, so they are suppressed to null.
-// 0 is safe to publish — there is no counted individual to re-identify.
-const K_MIN = 5;
-
-function suppressCount(n: number | null): number | null {
-  if (n === null) return null;
-  return n > 0 && n < K_MIN ? null : n;
-}
-
+// k-anonymity and complementary suppression rules live in src/lib/privacy.ts.
 function suppressBreakdown(
   b: Record<RoadUserClass, number>
 ): Record<RoadUserClass, number | null> {
@@ -75,6 +67,9 @@ export function isStale(lastSeen: string | null, now: Date): boolean {
 interface PresentBucket {
   counts: Record<RoadUserClass, number>;
   countsByDirection?: Record<"AB" | "BA", Record<RoadUserClass, number>>;
+  // Rows per class, and how many of them carried direction cells.
+  rows: Record<RoadUserClass, number>;
+  directionalRows: Record<RoadUserClass, number>;
   avgSpeedKmh: Partial<Record<RoadUserClass, number | null>>;
   speedCount: Partial<Record<RoadUserClass, number>>;
 }
@@ -138,11 +133,18 @@ export const mockStreetsRepo: StreetsRepo = {
       const bucketStart = Math.floor(t / bucketMs) * bucketMs;
       let row = present.get(bucketStart);
       if (!row) {
-        row = { counts: emptyBreakdown(), avgSpeedKmh: {}, speedCount: {} };
+        row = {
+          counts: emptyBreakdown(),
+          rows: emptyBreakdown(),
+          directionalRows: emptyBreakdown(),
+          avgSpeedKmh: {},
+          speedCount: {},
+        };
         present.set(bucketStart, row);
       }
       const cls = r.class_name as RoadUserClass;
       row.counts[cls] += r.count;
+      row.rows[cls] += 1;
       const directional = r as DirectionalMockReading;
       if (
         directional.direction_ab_count !== undefined &&
@@ -153,6 +155,7 @@ export const mockStreetsRepo: StreetsRepo = {
         row.countsByDirection ??= { AB: emptyBreakdown(), BA: emptyBreakdown() };
         row.countsByDirection.AB[cls] += directional.direction_ab_count;
         row.countsByDirection.BA[cls] += directional.direction_ba_count;
+        row.directionalRows[cls] += 1;
       }
       if (r.avg_speed_kmh !== null) {
         // Count-weighted running mean.
@@ -182,10 +185,7 @@ export const mockStreetsRepo: StreetsRepo = {
               // k-anonymity: null-out per-class counts below the k-floor.
               counts: suppressBreakdown(row.counts),
               countsByDirection: row.countsByDirection
-                ? {
-                    AB: suppressBreakdown(row.countsByDirection.AB),
-                    BA: suppressBreakdown(row.countsByDirection.BA),
-                  }
+                ? publishDirections(row, row.countsByDirection)
                 : undefined,
               avgSpeedKmh: Object.fromEntries(
                 requested.map((cls) => [
@@ -231,7 +231,6 @@ export const mockStreetsRepo: StreetsRepo = {
     // Numeric accumulators kept non-null while aggregating; k-anonymity
     // suppression is applied only on emit so partial sums stay correct.
     const rawBreakdown = new Map<string, Record<RoadUserClass, number>>();
-    const rawTotal = new Map<string, number>();
     const speedNumCls = new Map<string, Record<string, number>>();
     const speedDenCls = new Map<string, Record<string, number>>();
     for (const id of citySet) rawBreakdown.set(id, emptyBreakdown());
@@ -254,7 +253,6 @@ export const mockStreetsRepo: StreetsRepo = {
         const rb = rawBreakdown.get(streetId);
         if (!rb) continue;
         rb[r.class_name as RoadUserClass] += r.count;
-        rawTotal.set(streetId, (rawTotal.get(streetId) ?? 0) + r.count);
         if (r.avg_speed_kmh !== null) {
           const nc = speedNumCls.get(streetId) ?? {};
           const dc = speedDenCls.get(streetId) ?? {};
@@ -284,17 +282,17 @@ export const mockStreetsRepo: StreetsRepo = {
         }
       }
       const avgSpeedKmh = eligibleDen >= K_MIN ? eligibleNum / eligibleDen : null;
+      // Totals are the sum of published cells (src/lib/privacy.ts rule 3).
+      const classBreakdown = suppressBreakdown(counts);
+      const published = publishedTotal(Object.values(classBreakdown));
       const seen = lastSeenMs.get(streetId);
       const lastSeen = seen !== undefined ? new Date(seen).toISOString() : null;
       out.push({
         streetId,
-        // k-anonymity: suppress the street total only when metric === counts.
-        value:
-          metric === "counts"
-            ? suppressCount(rawTotal.get(streetId) ?? 0)
-            : avgSpeedKmh,
-        totalCount: suppressCount(rawTotal.get(streetId) ?? 0),
-        classBreakdown: suppressBreakdown(counts),
+        value: metric === "counts" ? published.total : avgSpeedKmh,
+        totalCount: published.total,
+        hasHidden: published.hasHidden,
+        classBreakdown,
         speedBreakdown,
         avgSpeedKmh,
         stale: isStale(lastSeen, now),
@@ -333,6 +331,24 @@ export const mockStreetsRepo: StreetsRepo = {
     };
   },
 };
+
+function publishDirections(
+  row: PresentBucket,
+  cells: Record<"AB" | "BA", Record<RoadUserClass, number>>
+): Record<"AB" | "BA", Record<RoadUserClass, number | null>> {
+  const AB = nullBreakdown();
+  const BA = nullBreakdown();
+  for (const cls of ROAD_USER_CLASSES) {
+    const pair = publishDirectionPair(
+      cells.AB[cls],
+      cells.BA[cls],
+      row.directionalRows[cls] === row.rows[cls]
+    );
+    AB[cls] = pair.AB;
+    BA[cls] = pair.BA;
+  }
+  return { AB, BA };
+}
 
 function deriveNow(readings: MockReading[]): Date {
   // Mock dataset is historical; "now" = most recent window in data so the

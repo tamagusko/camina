@@ -4,7 +4,9 @@ export const VIRIDIS_5 = ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"]
 
 export function streetPaintStatus(row: MetricValue | undefined): "live" | "suppressed" | "stale" {
   if (!row || row.stale || !row.lastSeen) return "stale";
-  return row.value === null ? "suppressed" : "live";
+  // Nothing publishable: every non-zero class is hidden below the k-floor.
+  if (row.value === null || (row.hasHidden && row.value === 0)) return "suppressed";
+  return "live";
 }
 
 // Default city centres — extend with DESIGN.md-specified locations.

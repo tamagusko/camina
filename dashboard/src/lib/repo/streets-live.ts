@@ -10,10 +10,10 @@ import {
   type StreetSummary,
   type TimeWindow,
 } from "@/lib/types";
+import { K_MIN, publishDirectionPair, publishedTotal, suppressCount as suppress } from "@/lib/privacy";
 import { isStale } from "./streets-mock";
 import type { StreetsRepo } from "./types";
 
-const K_MIN = 5;
 const WINDOW_MS: Record<TimeWindow, number> = {
   now: 15 * 60_000,
   "1h": 60 * 60_000,
@@ -28,10 +28,6 @@ function rows<T>(result: unknown): T[] {
 
 function number(value: string | number | null): number {
   return value === null ? 0 : Number(value);
-}
-
-function suppress(value: number): number | null {
-  return value > 0 && value < K_MIN ? null : value;
 }
 
 function emptyCounts(value: number | null): Record<RoadUserClass, number | null> {
@@ -72,6 +68,15 @@ interface ReadingAggregate {
   ab_count: string | number | null;
   ba_count: string | number | null;
   direction_rows: string | number;
+  class_rows: string | number;
+}
+
+interface DirectionAccumulator {
+  AB: Partial<Record<RoadUserClass, number>>;
+  BA: Partial<Record<RoadUserClass, number>>;
+  // Every row of the class in the bucket carried direction cells.
+  complete: Partial<Record<RoadUserClass, boolean>>;
+  any: boolean;
 }
 
 interface MetricAggregate {
@@ -113,7 +118,8 @@ export const liveStreetsRepo: StreetsRepo = {
              SUM(r.count) FILTER (WHERE r.avg_speed_kmh IS NOT NULL) AS speed_count,
              SUM(r.direction_ab_count) AS ab_count,
              SUM(r.direction_ba_count) AS ba_count,
-             COUNT(r.direction_ab_count) AS direction_rows
+             COUNT(r.direction_ab_count) AS direction_rows,
+             COUNT(*) AS class_rows
       FROM sensor_readings r
       JOIN sensor_street_coverage c ON c.sensor_id = r.sensor_id
       WHERE c.street_id = ${streetId}
@@ -131,6 +137,9 @@ export const liveStreetsRepo: StreetsRepo = {
       if (!coverage[0]?.covered) return [];
     }
     const present = new Map<number, StreetReading>();
+    // Raw direction cells per bucket; published only once the bucket is
+    // complete, because the pair rule looks at both cells together.
+    const directions = new Map<number, DirectionAccumulator>();
     for (const aggregate of aggregates) {
       const t = new Date(aggregate.bucket).getTime();
       let row = present.get(t);
@@ -150,11 +159,26 @@ export const liveStreetsRepo: StreetsRepo = {
       row.counts[cls] = suppress(count);
       row.avgSpeedKmh[cls] = count >= K_MIN && speedCount >= K_MIN
         ? number(aggregate.speed_sum) / speedCount : null;
-      if (number(aggregate.direction_rows) > 0) {
-        row.countsByDirection ??= { AB: emptyCounts(null), BA: emptyCounts(null) };
-        row.countsByDirection.AB[cls] = suppress(number(aggregate.ab_count));
-        row.countsByDirection.BA[cls] = suppress(number(aggregate.ba_count));
+      const acc = directions.get(t) ?? { AB: {}, BA: {}, complete: {}, any: false };
+      directions.set(t, acc);
+      const directionRows = number(aggregate.direction_rows);
+      acc.any ||= directionRows > 0;
+      acc.AB[cls] = number(aggregate.ab_count);
+      acc.BA[cls] = number(aggregate.ba_count);
+      acc.complete[cls] = directionRows === number(aggregate.class_rows);
+    }
+    for (const [t, acc] of directions) {
+      const row = present.get(t);
+      if (!row || !acc.any) continue;
+      const AB = emptyCounts(null);
+      const BA = emptyCounts(null);
+      for (const cls of ROAD_USER_CLASSES) {
+        // A class with no rows in the bucket is a complete 0/0 pair.
+        const pair = publishDirectionPair(acc.AB[cls] ?? 0, acc.BA[cls] ?? 0, acc.complete[cls] ?? true);
+        AB[cls] = pair.AB;
+        BA[cls] = pair.BA;
       }
+      row.countsByDirection = { AB, BA };
     }
     const out: StreetReading[] = [];
     for (let t = Math.floor(from.getTime() / bucketMs) * bucketMs; t < to.getTime(); t += bucketMs) {
@@ -204,7 +228,6 @@ export const liveStreetsRepo: StreetsRepo = {
     return streetRows.map(({ id }): MetricValue => {
       const counts = emptyCounts(0);
       const speeds: Partial<Record<RoadUserClass, number | null>> = {};
-      let totalCount = 0;
       let speedSum = 0;
       let speedCount = 0;
       for (const aggregate of byStreet.get(id) ?? []) {
@@ -213,7 +236,6 @@ export const liveStreetsRepo: StreetsRepo = {
         const count = number(aggregate.total_count);
         const speedDen = number(aggregate.speed_count);
         counts[cls] = suppress(count);
-        totalCount += count;
         if (count >= K_MIN && speedDen >= K_MIN) {
           speeds[cls] = number(aggregate.speed_sum) / speedDen;
           speedSum += number(aggregate.speed_sum);
@@ -223,12 +245,15 @@ export const liveStreetsRepo: StreetsRepo = {
         }
       }
       const avgSpeedKmh = speedCount >= K_MIN ? speedSum / speedCount : null;
+      // Totals are the sum of published cells (src/lib/privacy.ts rule 3).
+      const published = publishedTotal(Object.values(counts));
       const seen = lastSeenByStreet.get(id);
       const lastSeen = seen ? new Date(seen).toISOString() : null;
       return {
         streetId: id,
-        value: metric === "counts" ? suppress(totalCount) : avgSpeedKmh,
-        totalCount: suppress(totalCount),
+        value: metric === "counts" ? published.total : avgSpeedKmh,
+        totalCount: published.total,
+        hasHidden: published.hasHidden,
         classBreakdown: counts,
         speedBreakdown: speeds,
         avgSpeedKmh,

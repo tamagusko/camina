@@ -22,7 +22,8 @@ Pi camera → YOLO11n (NCNN) → tracker → count gate → 15-min counts → HT
 - **Count gate:** each track is counted once, when it crosses a screenline (with direction)
   or has moved far enough. Parked cars and street furniture never count.
 - **Privacy:** counts only; the public map never shows sensor locations; counts below 5
-  are suppressed.
+  are suppressed, and so is any value that would let one be recovered by subtraction
+  (see `dashboard/src/lib/privacy.ts`).
 
 ## Detected classes
 

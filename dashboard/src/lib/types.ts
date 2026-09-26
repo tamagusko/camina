@@ -37,11 +37,15 @@ export interface StreetReading {
 
 export interface MetricValue {
   streetId: string;
-  // null when the aggregate count falls below the k-anonymity floor (1..4).
+  // counts: sum of published class counts;
+  // speed: count-weighted mean over classes whose speed is published.
   value: number | null;
-  // True all-class total for the street window, independent of the selected
-  // metric. k-floored like `value`: null when the total falls in 1..4.
-  totalCount: number | null;
+  // Sum of the published per-class counts (src/lib/privacy.ts): a lower bound
+  // when `hasHidden`, never the true total. For metric "counts", `value`
+  // equals this.
+  totalCount: number;
+  // true when at least one class count is hidden below the k-floor.
+  hasHidden: boolean;
   // Per-class counts; null marks a value suppressed below the k-floor (1..4).
   // 0 is retained (no counted individual to re-identify).
   classBreakdown: Record<RoadUserClass, number | null>;
