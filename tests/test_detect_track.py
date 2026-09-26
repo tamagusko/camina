@@ -312,3 +312,21 @@ def test_closure_exposes_its_tracker_for_min_track_hits(monkeypatch: pytest.Monk
     )
     f = detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES)
     assert isinstance(f.tracker, Sort)  # type: ignore[attr-defined]
+
+
+def test_the_person_riding_a_bicycle_is_not_tracked_as_a_pedestrian(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from camina.service import detect_track
+
+    boxes = _FakeBoxes(
+        cls=[CLASSES.index("cyclist"), CLASSES.index("person")],
+        conf=[0.9, 0.9],
+        xyxy=[[100.0, 100.0, 160.0, 220.0], [110.0, 100.0, 150.0, 180.0]],
+    )
+    monkeypatch.setattr(detect_track, "NcnnDetector", _fake_detector_factory([boxes] * 5))
+    f = detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES)
+    frame = np.zeros((640, 640, 3), dtype=np.uint8)
+    seen = [cls for _ in range(5) for _, cls in f(frame)]
+
+    assert set(seen) == {"cyclist"}

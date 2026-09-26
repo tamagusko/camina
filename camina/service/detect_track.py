@@ -7,6 +7,8 @@
   ``configs/class_mapping.yaml`` (the TRA 2026 export lists classes
   alphabetically and says ``motorcycle``). An unknown, missing or duplicated
   class raises ``ValueError`` at build time; an out-of-range index at run time.
+- A ``person`` box lying mostly inside a cyclist, e-scooter or motorcyclist
+  box is the rider and is dropped (``camina.core.riders``).
 - One ``Sort`` tracks all classes; each track's class is its
   confidence-weighted majority vote, so a car/SUV flicker stays one track.
 - With a ``CountGate``, each track is yielded once, when it counts.
@@ -26,6 +28,7 @@ import numpy as np
 import yaml
 
 from camina.core.counting import CountGate
+from camina.core.riders import drop_riders
 from camina.core.tracker import Sort
 from camina.service.ncnn_detector import NcnnDetector
 from camina.utils.taxonomy import load_class_aliases
@@ -100,6 +103,7 @@ def make_detect_and_track(
 
     def detect_and_track(frame: np.ndarray) -> Iterable[DetectResult]:
         dets = _to_canonical(detector(frame), model_to_class, n_model_classes, conf)
+        dets = drop_riders(dets, classes)
         tracks = [
             (int(track_id), classes[int(cls)], (x1, y1, x2, y2))
             for x1, y1, x2, y2, track_id, cls in tracker.update(dets)
