@@ -290,6 +290,23 @@ export async function readSensorConfigVersion(
   return rows[0]?.configVersion ?? null;
 }
 
+// config_json is a jsonb object. Rows provisioned before that fix hold a
+// jsonb string containing the object's JSON; accept both. Anything else comes
+// back empty and fails the response schema (GET /config answers 500).
+function configObject(value: unknown): Record<string, unknown> {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return {};
+    }
+  }
+  return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
+
 export async function readSensorConfig(
   sensorId: string,
   database: Db = db()
@@ -305,7 +322,7 @@ export async function readSensorConfig(
   const row = rows[0];
   if (!row) return null;
   return {
-    config: row.configJson as Record<string, unknown>,
+    config: configObject(row.configJson),
     config_version: row.configVersion,
   };
 }

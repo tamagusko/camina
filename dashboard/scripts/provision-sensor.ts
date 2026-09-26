@@ -55,7 +55,7 @@ export async function provisionSensor(
       INSERT INTO sensors (id, display_name, latitude, longitude, install_date,
                            config_json, config_version, api_token_hash)
       VALUES (${options.id}, ${options.displayName}, ${options.latitude},
-              ${options.longitude}, ${options.installDate}, ${JSON.stringify(config)}::jsonb,
+              ${options.longitude}, ${options.installDate}, ${tx.json(config as postgres.JSONValue)},
               ${options.configVersion}, ${hash})
       ON CONFLICT (id) DO NOTHING RETURNING id
     `;
