@@ -29,14 +29,18 @@ class SendOutcome(str, Enum):
     """Tri-state result a sender reports for one outbox item.
 
     ``SENT``  → delivered; delete the row.
-    ``RETRY`` → transient failure (transport error / 5xx / 408/425/429); stop
-                draining and preserve FIFO order so we retry later.
+    ``RETRY`` → server answered with 5xx or 429; charge an attempt, stop
+                draining, and preserve FIFO order so we retry later.
+    ``STOP``   → no retryable server failure was observed (transport failure,
+                timeout, 408, or 425); stop draining without charging an
+                attempt and preserve FIFO order.
     ``DROP``  → permanent rejection (4xx other than 408/425/429); delete the
                 row so a poison message cannot wedge the queue forever.
     """
 
     SENT = "sent"
     RETRY = "retry"
+    STOP = "stop"
     DROP = "drop"
 
 
@@ -144,7 +148,9 @@ class OfflineBuffer:
           deleted and ``stats().poisoned`` is incremented so it cannot wedge
           the FIFO forever. Draining continues.
         - ``RETRY`` → the row's ``attempts`` counter is incremented and draining
-          stops, preserving FIFO order so we don't hammer a failing backend.
+          stops. This is reserved for server 5xx/429 responses.
+        - ``STOP`` → draining stops without incrementing attempts, for failures
+          where no eligible server response was received.
 
         Safety valve: any row whose ``attempts`` has reached ``max_attempts`` is
         dropped (counted as poisoned) before ``send_fn`` is called, so a row
@@ -174,7 +180,7 @@ class OfflineBuffer:
                     outcome = _normalize_outcome(send_fn(item))
                 except Exception:
                     logger.exception("send_fn raised on outbox item %d", item.id)
-                    outcome = SendOutcome.RETRY
+                    outcome = SendOutcome.STOP
                 if outcome is SendOutcome.SENT:
                     self._delete_locked(item.id)
                     sent += 1
@@ -187,11 +193,13 @@ class OfflineBuffer:
                         item.endpoint,
                         self._poisoned,
                     )
-                else:  # RETRY
+                elif outcome is SendOutcome.RETRY:
                     self._conn.execute(
                         "UPDATE outbox SET attempts = attempts + 1 WHERE id = ?",
                         (item.id,),
                     )
+                    break
+                else:  # STOP
                     break
         return sent
 

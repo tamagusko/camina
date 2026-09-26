@@ -186,14 +186,16 @@ class HttpsPublisher:
                 item.endpoint,
                 status,
             )
-            return SendOutcome.RETRY
+            if status == 429 or status >= 500:
+                return SendOutcome.RETRY
+            return SendOutcome.STOP
         except Exception:
             logger.warning(
                 "Outbox item %d (%s) failed to send; will retry",
                 item.id,
                 item.endpoint,
             )
-            return SendOutcome.RETRY
+            return SendOutcome.STOP
 
     @staticmethod
     def _parse_response(content: bytes) -> IngestResponse | None:
