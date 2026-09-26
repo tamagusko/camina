@@ -36,7 +36,7 @@ describeLive("daily reconciliation against Postgres", () => {
         sensor_id, window_start, window_end, class_name, count, partial
       ) VALUES
         (${sensorId}, '2026-09-25T00:00:00Z', '2026-09-25T00:15:00Z', 'car', 3, false),
-        (${sensorId}, '2026-09-25T00:15:00Z', '2026-09-25T00:30:00Z', 'car', 4, false)
+        (${sensorId}, '2026-09-25T00:15:00Z', '2026-09-25T00:30:00Z', 'car', 4, true)
     `;
     await client`
       INSERT INTO sensor_daily_totals (

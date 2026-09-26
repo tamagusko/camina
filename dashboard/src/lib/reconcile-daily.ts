@@ -77,7 +77,6 @@ export async function reconcileDay(
       .where(
         and(
           eq(sensorReadings.sensorId, daily.sensorId),
-          eq(sensorReadings.partial, false),
           gte(sensorReadings.windowStart, start),
           lt(sensorReadings.windowStart, end)
         )
@@ -89,7 +88,6 @@ export async function reconcileDay(
       .where(
         and(
           eq(sensorReadings.sensorId, daily.sensorId),
-          eq(sensorReadings.partial, false),
           gte(sensorReadings.windowStart, start),
           lt(sensorReadings.windowStart, end)
         )
