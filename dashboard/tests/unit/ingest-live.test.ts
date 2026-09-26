@@ -78,4 +78,14 @@ describeWithDatabase("ingest live persistence", () => {
       directionBaCount: 5,
     });
   });
+
+  it("rejects a direction pair with one missing cell at the database boundary", async () => {
+    await expect(client`
+      INSERT INTO sensor_readings
+        (sensor_id, window_start, window_end, class_name, count,
+         direction_ab_count, direction_ba_count)
+      VALUES (${sensorId}, '2026-09-26T00:00:00Z', '2026-09-26T00:15:00Z',
+              'car', 5, 5, NULL)
+    `).rejects.toThrow();
+  });
 });

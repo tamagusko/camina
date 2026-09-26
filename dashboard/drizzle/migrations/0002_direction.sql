@@ -6,7 +6,8 @@ ALTER TABLE sensor_readings
   ADD CONSTRAINT sensor_readings_direction_counts_valid CHECK (
     (direction_ab_count IS NULL AND direction_ba_count IS NULL)
     OR (
-      direction_ab_count >= 0 AND direction_ba_count >= 0
+      direction_ab_count IS NOT NULL AND direction_ba_count IS NOT NULL
+      AND direction_ab_count >= 0 AND direction_ba_count >= 0
       AND direction_ab_count + direction_ba_count = count
     )
   );
