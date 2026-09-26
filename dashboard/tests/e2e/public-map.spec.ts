@@ -29,3 +29,21 @@ test("privacy: no sensor fields leak into /api/streets", async ({ request }) => 
   expect(body).not.toMatch(/"latitude"/);
   expect(body).not.toMatch(/"longitude"/);
 });
+
+test("Streets list docks in the header and closes on Escape", async ({ page }) => {
+  await page.goto("/dublin");
+  const streets = page.getByRole("button", { name: "Streets" });
+  await streets.click();
+  const list = page.locator("#streets-list");
+  await expect(list).toBeVisible();
+  const [a, b] = [await list.boundingBox(), await streets.boundingBox()];
+  expect(a!.y).toBeGreaterThanOrEqual(b!.y + b!.height);
+  await page.keyboard.press("Escape");
+  await expect(list).toHaveCount(0);
+  await expect(streets).toBeFocused();
+});
+
+test("street page shows the mock street's last 24 h", async ({ page }) => {
+  await page.goto("/dublin/street/morehampton-rd-donnybrook");
+  await expect(page.locator(".recharts-area").first()).toBeVisible();
+});

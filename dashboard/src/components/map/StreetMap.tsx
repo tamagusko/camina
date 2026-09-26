@@ -6,6 +6,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { CITY_VIEWS, VIRIDIS_5, initialViewBounds, mapColourValue, rampExpression, streetPaintStatus } from "@/lib/geo";
 import { formatDublinUpdated } from "@/lib/format-time";
 import type { Metric, MetricValue, RoadUserClass, StreetSummary, TimeWindow } from "@/lib/types";
+import { MockBadge } from "@/components/layout/MockBadge";
 import { ClassFilter } from "./ClassFilter";
 import { ColourLegend } from "./ColourLegend";
 import { MetricToggle } from "./MetricToggle";
@@ -15,11 +16,13 @@ import { useMapQuery, type Viewport } from "./useMapQuery";
 const MAPLIBRE_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
 const BASEMAP = { light: "https://tiles.openfreemap.org/styles/positron", dark: "https://tiles.openfreemap.org/styles/dark" };
 interface Shown { rows: MetricValue[]; metric: Metric; timeWindow: TimeWindow; }
-interface Props { city: string; streets: StreetSummary[]; initialMetrics: MetricValue[]; onSelectStreet?: (streetId: string) => void; }
+interface Props { city: string; streets: StreetSummary[]; initialMetrics: MetricValue[]; mock?: boolean; onSelectStreet?: (streetId: string) => void; }
 
-export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Props) {
+export function StreetMap({ city, streets, initialMetrics, mock = false, onSelectStreet }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const streetsButtonRef = useRef<HTMLButtonElement>(null);
   const mapRef = useRef<MaplibreMap | null>(null);
   const mapViewRef = useRef<Viewport | null>(null);
   const [metric, setMetric] = useState<Metric>("counts");
@@ -35,7 +38,13 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Pro
   const { viewport, attachTo, pinned } = useMapQuery(fallback);
   const lastSeen = shown.rows.map((m) => m.lastSeen).filter((v): v is string => !!v).sort().at(-1);
 
-  useEffect(() => { if (streetsOpen) listRef.current?.querySelector("button")?.focus(); }, [streetsOpen]);
+  useEffect(() => {
+    if (!streetsOpen) return;
+    listRef.current?.querySelector("button")?.focus();
+    const outside = (event: PointerEvent) => { if (!headerRef.current?.contains(event.target as Node)) setStreetsOpen(false); };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [streetsOpen]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -97,14 +106,15 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Pro
   return <div className="relative h-[100dvh] w-full overflow-hidden bg-bg">
     <div ref={containerRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
     <div className="pointer-events-none absolute inset-0 z-10">
-      <div className="pointer-events-auto absolute left-4 top-4 w-[calc(100%-32px)] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:w-auto md:p-4">
-        <div className="flex items-center gap-3"><strong className="text-sm tracking-wide">CAMINA</strong><span className="hidden text-sm text-ink-2 md:inline">Street counts, Dublin</span><span className="text-xs text-ink-2">Updated {lastSeen ? formatDublinUpdated(lastSeen) : "—"}</span><button onClick={() => setStreetsOpen((open) => !open)} aria-expanded={streetsOpen} aria-controls="streets-list" className="ml-auto min-h-11 rounded-sm border border-line px-3 text-sm text-ink-1 md:hidden">Streets</button></div>
-        <div className="mt-2 hidden text-sm text-ink-2 md:block">Street counts across Dublin</div>
-        <button onClick={() => setStreetsOpen((open) => !open)} aria-expanded={streetsOpen} aria-controls="streets-list" className="mt-2 hidden min-h-11 rounded-sm border border-line px-3 text-sm text-ink-1 hover:opacity-70 md:block">Streets</button>
-      </div>
-      {streetsOpen && <div ref={listRef} id="streets-list" className="pointer-events-auto absolute left-4 top-32 max-h-[min(52dvh,450px)] w-[min(320px,calc(100%-32px))] overflow-y-auto rounded-md border border-line bg-surface p-2 shadow-[var(--card-shadow)]" role="group" aria-label="Streets">
-        {[...streets].sort((a, b) => a.displayName.localeCompare(b.displayName)).map((street) => <button key={street.id} className="block min-h-11 w-full rounded-sm px-3 py-2 text-left text-sm text-ink-1 hover:bg-line" onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const buttons = [...(listRef.current?.querySelectorAll("button") ?? [])]; const index = buttons.indexOf(event.currentTarget); buttons[(index + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length]?.focus(); } }} onClick={() => { onSelectStreet?.(street.id); setStreetsOpen(false); }}>{street.displayName}</button>)}
-      </div>}
+      <header ref={headerRef} onKeyDown={(event) => { if (event.key === "Escape" && streetsOpen) { event.stopPropagation(); setStreetsOpen(false); streetsButtonRef.current?.focus(); } }} className="pointer-events-auto absolute left-4 top-4 w-[calc(100%-32px)] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:w-auto md:p-4">
+        <div className="flex items-center gap-3 md:block">
+          <div className="flex items-center gap-3"><strong className="text-sm tracking-wide">CAMINA</strong><span className="hidden text-sm text-ink-2 md:inline">Street counts, Dublin</span><span className="whitespace-nowrap text-xs text-ink-2"><span className="max-md:sr-only">Updated </span>{lastSeen ? formatDublinUpdated(lastSeen) : "—"}</span>{mock && <MockBadge />}</div>
+          <button ref={streetsButtonRef} onClick={() => setStreetsOpen((open) => !open)} aria-expanded={streetsOpen} aria-controls="streets-list" className="ml-auto min-h-11 rounded-sm border border-line px-3 text-sm text-ink-1 hover:opacity-70 md:ml-0 md:mt-2">Streets</button>
+        </div>
+        {streetsOpen && <div ref={listRef} id="streets-list" className="mt-2 max-h-[min(50dvh,400px)] overflow-y-auto border-t border-line pt-2" role="group" aria-label="Streets">
+          {[...streets].sort((a, b) => a.displayName.localeCompare(b.displayName)).map((street) => <button key={street.id} className="block min-h-11 w-full rounded-sm px-3 py-2 text-left text-sm text-ink-1 hover:bg-line" onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const buttons = [...(listRef.current?.querySelectorAll("button") ?? [])]; const index = buttons.indexOf(event.currentTarget); buttons[(index + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length]?.focus(); } }} onClick={() => { onSelectStreet?.(street.id); setStreetsOpen(false); }}>{street.displayName}</button>)}
+        </div>}
+      </header>
       <div className="pointer-events-auto absolute right-4 top-4 hidden w-[250px] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:flex md:flex-col md:gap-2">
         <MetricToggle value={metric} onChange={setMetric} /><ClassFilter selected={selectedClass} onChange={setSelectedClass} /><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} />
       </div>

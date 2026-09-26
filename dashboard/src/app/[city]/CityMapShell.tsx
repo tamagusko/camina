@@ -26,9 +26,10 @@ interface Props {
   city: string;
   streets: StreetSummary[];
   initialMetrics: MetricValue[];
+  mock: boolean;
 }
 
-export function CityMapShell({ city, streets, initialMetrics }: Props) {
+export function CityMapShell({ city, streets, initialMetrics, mock }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const [panelMetric, setPanelMetric] = useState<MetricValue | null>(null);
@@ -68,6 +69,7 @@ export function CityMapShell({ city, streets, initialMetrics }: Props) {
         city={city}
         streets={streets}
         initialMetrics={initialMetrics}
+        mock={mock}
         onSelectStreet={selectStreet}
       />
       <StreetSidePanel

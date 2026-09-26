@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { MockDataPill } from "@/components/layout/MockDataPill";
+import { isMock } from "@/lib/data-source";
 import { streetsRepo } from "@/lib/repo";
 import { CITY_VIEWS } from "@/lib/geo";
 import { CityMapShell } from "./CityMapShell";
@@ -27,8 +27,7 @@ export default async function CityPage({ params }: Props) {
       className="relative h-screen w-screen"
       style={{ height: "100dvh", width: "100vw" }}
     >
-      <MockDataPill />
-      <CityMapShell city={city} streets={streets} initialMetrics={initialMetrics} />
+      <CityMapShell city={city} streets={streets} initialMetrics={initialMetrics} mock={isMock} />
     </main>
   );
 }

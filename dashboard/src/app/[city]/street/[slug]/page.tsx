@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { MockDataPill } from "@/components/layout/MockDataPill";
+import { MockBadge } from "@/components/layout/MockBadge";
 import { StreetTimeSeries } from "@/components/charts/StreetTimeSeries";
 import { streetsRepo } from "@/lib/repo";
+import { isMock } from "@/lib/data-source";
 
 interface Props {
   params: Promise<{ city: string; slug: string }>;
@@ -24,13 +25,15 @@ export default async function StreetDetailPage({ params }: Props) {
 
   return (
     <main className="mx-auto w-full max-w-[960px] px-4 py-8 sm:px-6 sm:py-10">
-      <MockDataPill placement="detail" />
-      <Link
-        href={`/${city}`}
-        className="inline-flex min-h-11 items-center text-sm font-medium text-[var(--ink-1)] underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]"
-      >
-        ← Map
-      </Link>
+      <div className="flex items-center gap-3">
+        <Link
+          href={`/${city}`}
+          className="inline-flex min-h-11 items-center text-sm font-medium text-[var(--ink-1)] underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]"
+        >
+          ← Map
+        </Link>
+        {isMock && <MockBadge />}
+      </div>
       <h1 className="mt-4 text-[length:var(--t-xl)] font-bold leading-[34px] text-[var(--ink-1)]">
         {street.displayName}
       </h1>
