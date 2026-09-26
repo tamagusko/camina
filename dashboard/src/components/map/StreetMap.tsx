@@ -72,8 +72,11 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
     const savedView = mapViewRef.current;
     const map = new maplibregl.Map({ container: containerRef.current, style: BASEMAP[theme], center: savedView?.center ?? viewport.center, zoom: savedView?.zoom ?? viewport.zoom,
       minZoom: 12, maxZoom: 18, pitch: 0, bearing: 0, dragRotate: false, pitchWithRotate: false, attributionControl: false });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
-    map.addControl(new maplibregl.AttributionControl({ compact: window.innerWidth < 768 }), "bottom-right");
+    // Phone: pinch and double-tap zoom; attribution is the sheet's last line.
+    if (window.matchMedia("(min-width: 768px)").matches) {
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+      map.addControl(new maplibregl.AttributionControl(), "bottom-right");
+    }
     map.on("load", () => {
       map.addSource("streets", { type: "geojson", data: featureCollection(streets, shown) });
       map.addLayer({ id: "streets-casing", type: "line", source: "streets", filter: ["==", ["get", "status"], "live"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(), "line-opacity": .9, "line-width": 7 } });
@@ -119,10 +122,11 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
         <MetricToggle value={metric} onChange={setMetric} /><ClassFilter selected={selectedClass} onChange={setSelectedClass} /><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} />
       </div>
       <div className="pointer-events-auto absolute bottom-4 left-4 hidden w-[300px] md:block"><ColourLegend metric={metric} timeWindow={timeWindow} /></div>
-      <div className="pointer-events-auto absolute bottom-4 left-4 right-4 rounded-md border border-line bg-surface p-2 shadow-[var(--card-shadow)] md:hidden">
+      <div className="pointer-events-auto absolute bottom-4 left-4 right-4 flex flex-col gap-2 rounded-md border border-line bg-surface p-2 shadow-[var(--card-shadow)] md:hidden">
         <ColourLegend metric={metric} timeWindow={timeWindow} compact />
-        <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-2"><MetricToggle value={metric} onChange={setMetric} /><ClassFilter selected={selectedClass} onChange={setSelectedClass} /></div>
-        <div className="mt-2 flex justify-center"><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} /></div>
+        <div className="flex justify-between gap-2"><MetricToggle value={metric} onChange={setMetric} /><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} /></div>
+        <ClassFilter selected={selectedClass} onChange={setSelectedClass} />
+        <p className="text-[11px] leading-tight text-ink-2"><a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noreferrer">© OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a></p>
       </div>
     </div>
   </div>;

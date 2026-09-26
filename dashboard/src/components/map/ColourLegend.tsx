@@ -8,9 +8,9 @@ const labels = {
 const WINDOW_LABEL: Record<TimeWindow, string> = { now: "", "1h": " · 1 h average", "24h": " · 24 h average", "7d": " · 7 d average", "30d": " · 30 d average" };
 export function ColourLegend({ metric, timeWindow = "now", compact = false }: { metric: Metric; timeWindow?: TimeWindow; compact?: boolean }) {
   return <div className={compact ? "text-ink-1" : "rounded-md border border-line bg-surface p-3 text-ink-1 shadow-[var(--card-shadow)]"}>
-    <p className="mb-2 text-xs font-semibold">{metric === "counts" ? `Road users per 15 min${WINDOW_LABEL[timeWindow]}` : "Speed · km/h"}</p>
+    <p className={compact ? "mb-1 text-xs font-semibold" : "mb-2 text-xs font-semibold"}>{metric === "counts" ? `Road users per 15 min${WINDOW_LABEL[timeWindow]}` : "Speed · km/h"}</p>
     <div className="flex gap-1" aria-hidden="true">{VIRIDIS_5.map((colour, i) => <div key={colour} className="min-w-0 flex-1"><div className="h-2 rounded-sm" style={{ backgroundColor: colour }} /><span className="mt-1 block whitespace-nowrap text-xs text-ink-2">{labels[metric][i]}</span></div>)}</div>
     <dl className="sr-only">{labels[metric].map((label, i) => <div key={label}><dt>{label}</dt><dd>{VIRIDIS_5[i]}</dd></div>)}</dl>
-    <div className="mt-2 flex gap-4 text-xs text-ink-2"><span>— Suppressed &lt;5</span><span>┄ No recent data</span></div>
+    {!compact && <div className="mt-2 flex gap-4 text-xs text-ink-2"><span>— Suppressed &lt;5</span><span>┄ No recent data</span></div>}
   </div>;
 }

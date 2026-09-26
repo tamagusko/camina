@@ -26,10 +26,3 @@
   }
 }
 
-@media (max-width: 767px) {
-  .maplibregl-ctrl-bottom-right { bottom: 238px !important; }
-  .maplibregl-ctrl button.maplibregl-ctrl-zoom-in,
-  .maplibregl-ctrl button.maplibregl-ctrl-zoom-out,
-  .maplibregl-ctrl-attrib button.maplibregl-ctrl-attrib-button { width: 44px !important; height: 44px !important; }
-  .maplibregl-ctrl-attrib a { display: inline-flex; min-width: 44px; min-height: 44px; align-items: center; }
-}
