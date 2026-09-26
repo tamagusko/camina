@@ -60,3 +60,19 @@ def test_separate_objects_keep_separate_tracks_and_classes() -> None:
 
 def test_no_detections_returns_an_empty_six_column_array() -> None:
     assert Sort().update(np.empty((0, 6))).shape == (0, 6)
+
+
+# ---------- IoU ----------
+
+
+def test_iou_matrix_matches_the_pairwise_definition() -> None:
+    from camina.core.tracker import iou_matrix
+
+    a = np.array([[0, 0, 10, 10], [5, 5, 15, 15], [100, 100, 110, 120]], dtype=float)
+    b = np.array([[0, 0, 10, 10], [5, 0, 15, 10]], dtype=float)
+
+    iou = iou_matrix(a, b)
+
+    assert iou.shape == (3, 2)
+    np.testing.assert_allclose(iou, [[1.0, 50 / 150], [25 / 175, 50 / 150], [0.0, 0.0]], rtol=1e-12)
+    assert iou_matrix(a, np.empty((0, 4))).shape == (3, 0)

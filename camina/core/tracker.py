@@ -125,19 +125,25 @@ def _associate(
     """Match detections to predicted boxes; return ``(matches, unmatched detections)``."""
     if len(boxes) == 0 or len(dets) == 0:
         return [], list(range(len(dets)))
-    iou = np.array([[_iou(d, b) for b in boxes] for d in dets])
+    iou = iou_matrix(dets[:, :4], boxes)
     rows, cols = linear_sum_assignment(-iou)
     matches = [(d, t) for d, t in zip(rows, cols, strict=True) if iou[d, t] >= iou_threshold]
     matched = {d for d, _ in matches}
     return matches, [d for d in range(len(dets)) if d not in matched]
 
 
-def _iou(a: np.ndarray, b: np.ndarray) -> float:
-    w = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
-    h = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+def iou_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``(N, M)`` IoU of boxes ``a`` ``(N, 4)`` and ``b`` ``(M, 4)``, rows ``[x1, y1, x2, y2]``."""
+    a, b = a[:, None, :4], b[None, :, :4]
+    w = np.clip(np.minimum(a[..., 2], b[..., 2]) - np.maximum(a[..., 0], b[..., 0]), 0.0, None)
+    h = np.clip(np.minimum(a[..., 3], b[..., 3]) - np.maximum(a[..., 1], b[..., 1]), 0.0, None)
     inter = w * h
-    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
-    return inter / union if union > 0 else 0.0
+    union = _area(a) + _area(b) - inter
+    return np.divide(inter, union, out=np.zeros_like(inter), where=union > 0)
+
+
+def _area(box: np.ndarray) -> np.ndarray:
+    return (box[..., 2] - box[..., 0]) * (box[..., 3] - box[..., 1])
 
 
 def _box_to_z(box: np.ndarray) -> np.ndarray:
