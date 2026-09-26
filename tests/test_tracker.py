@@ -137,7 +137,7 @@ def _hidden_then(tracker: Sort, walk_s: float, hide_s: float, speed: float, row:
 def test_a_track_hidden_and_shifted_beyond_iou_is_relinked_with_its_id() -> None:
     """Walking at 2 px/frame, hidden 3 s, reappearing 30 px off the straight line:
     the IoU with the prediction is below 0.3, the re-link keeps the ID."""
-    tracker = Sort()
+    tracker = Sort(relink=True)
     speed, walk, hide = 2.0, 1.0, 3.0
     expected_x = 100.0 + speed * (walk + hide) * FPS
     before, after = _hidden_then(tracker, walk, hide, speed, _person(expected_x + 30.0))
@@ -147,8 +147,20 @@ def test_a_track_hidden_and_shifted_beyond_iou_is_relinked_with_its_id() -> None
     assert tracker.relinks == 1
 
 
-def test_a_relinked_track_restarts_from_the_observation_not_the_prediction() -> None:
+def test_relinking_is_off_by_default() -> None:
+    """Off until a second hand-counted clip shows it helps: on videos/test.mov it
+    re-linked static false-positive 'person' tracks to passers-by (benchmark doc)."""
     tracker = Sort()
+    speed, walk, hide = 2.0, 1.0, 3.0
+    expected_x = 100.0 + speed * (walk + hide) * FPS
+    before, after = _hidden_then(tracker, walk, hide, speed, _person(expected_x + 30.0))
+
+    assert tracker.relinks == 0
+    assert after.shape[0] == 0 or int(after[0, 4]) != int(before[0, 4])
+
+
+def test_a_relinked_track_restarts_from_the_observation_not_the_prediction() -> None:
+    tracker = Sort(relink=True)
     row = _person(100.0 + 2.0 * 4.0 * FPS + 30.0)
     _, after = _hidden_then(tracker, 1.0, 3.0, 2.0, row)
 
@@ -159,7 +171,7 @@ def test_a_detection_too_far_from_the_extrapolated_track_starts_a_new_track() ->
     # Gate after 3 s: RELINK_K * 100 * (1 + 3) = 200 px; this one is 400 px off.
     from camina.core.tracker import RELINK_K
 
-    tracker = Sort()
+    tracker = Sort(relink=True)
     off = RELINK_K * PERSON_H * 4.0 * 2.0
     before, after = _hidden_then(tracker, 1.0, 3.0, 2.0, _person(100.0 + 2.0 * 4 * FPS + off))
 
@@ -168,7 +180,7 @@ def test_a_detection_too_far_from_the_extrapolated_track_starts_a_new_track() ->
 
 
 def test_a_detection_of_a_very_different_size_is_not_relinked() -> None:
-    tracker = Sort()
+    tracker = Sort(relink=True)
     row = _person(100.0 + 2.0 * 4.0 * FPS + 30.0, w=2.2 * PERSON_W, h=2.2 * PERSON_H)
     _hidden_then(tracker, 1.0, 3.0, 2.0, row)
 
@@ -176,7 +188,7 @@ def test_a_detection_of_a_very_different_size_is_not_relinked() -> None:
 
 
 def test_an_incompatible_class_is_not_relinked() -> None:
-    tracker = Sort()
+    tracker = Sort(relink=True)
     _hidden_then(tracker, 1.0, 3.0, 2.0, _person(100.0 + 2.0 * 4.0 * FPS + 30.0, cls=CAR))
 
     assert tracker.relinks == 0
@@ -196,7 +208,7 @@ def test_car_and_suv_are_compatible_for_relinking() -> None:
         "delivery_van",
         "truck",
     ]
-    tracker = Sort(compatible_classes=class_groups(classes))
+    tracker = Sort(compatible_classes=class_groups(classes), relink=True)
     n, hidden = int(FPS), int(3 * FPS)
     _play(tracker, [[_person(100.0 + 2.0 * i, cls=CAR)] for i in range(n)])
     _play(tracker, [[]] * hidden, t0=n / FPS)
@@ -236,7 +248,7 @@ def test_relinking_is_an_optimal_assignment_not_greedy() -> None:
     """Two parked people A (x=0) and B (x=100) vanish for 0.5 s. Detections come
     back at 55 and 160. Greedy would take the cheapest pair B-55 first and leave
     160 too far from A; the optimal assignment gives A-55 and B-160."""
-    tracker = Sort()
+    tracker = Sort(relink=True)
     frames = [[_person(0.0), _person(100.0)]] * int(FPS)
     seen = _play(tracker, frames)[-1]
     id_at = {float(r[0]): int(r[4]) for r in seen}

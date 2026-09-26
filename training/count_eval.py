@@ -115,7 +115,7 @@ def compare(
 
 
 def count_clip(
-    video: Path, model: Path, line: Screenline, min_move: float = 1.0
+    video: Path, model: Path, line: Screenline, min_move: float = 1.0, relink: bool = False
 ) -> tuple[Counter[tuple[str, str]], dict[str, int]]:
     """Run the sensor pipeline over ``video``.
 
@@ -134,7 +134,9 @@ def count_clip(
     from camina.utils.taxonomy import load_canonical_classes
 
     gate = CountGate(screenline=line, min_move=min_move)
-    detect_and_track = make_detect_and_track(model, load_canonical_classes(), gate=gate)
+    detect_and_track = make_detect_and_track(
+        model, load_canonical_classes(), gate=gate, relink=relink
+    )
     counts: Counter[tuple[str, str]] = Counter()
     cap = cv2.VideoCapture(str(video))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -162,12 +164,13 @@ def main() -> None:
     ap.add_argument("--truth", type=Path, required=True, help="hand-count CSV")
     ap.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     ap.add_argument("--min-move", type=float, default=1.0)
+    ap.add_argument("--relink", action="store_true", help="re-link tracks after occlusion")
     args = ap.parse_args()
 
     line, truth, complete = read_truth(args.truth)
     if not complete:
         raise SystemExit(f"No class in {args.truth} has a complete hand count yet")
-    counted, stats = count_clip(args.video, args.model, line, args.min_move)
+    counted, stats = count_clip(args.video, args.model, line, args.min_move, args.relink)
     rows = compare(truth, counted, complete)
     logger.info("Hand-counted classes: %s", ", ".join(sorted(complete)))
     logger.info("%-14s %-3s %6s %8s %6s  %s", "class", "dir", "truth", "counted", "error", "S7")

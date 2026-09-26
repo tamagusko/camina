@@ -383,6 +383,19 @@ def test_the_tracker_may_relink_across_confused_vehicle_classes(
     assert not f.tracker._compatible(car, person)  # type: ignore[attr-defined]
 
 
+def test_relinking_is_off_unless_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    from camina.service import detect_track
+
+    monkeypatch.setattr(
+        detect_track, "NcnnDetector", _fake_detector_factory([_FakeBoxes([], [], [])])
+    )
+    off = detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES)
+    on = detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES, relink=True)
+
+    assert off.tracker.relink is False  # type: ignore[attr-defined]
+    assert on.tracker.relink is True  # type: ignore[attr-defined]
+
+
 def test_a_car_is_counted_only_once_its_class_is_confirmed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

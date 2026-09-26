@@ -73,3 +73,13 @@ Still pending (crossed, class unconfirmed) at the end of the clip: 0 in every ru
   B→A +7). These point at the mechanism (static tracks), but picking any of them from this
   clip would be fitting the clip. Deciding whether static tracks may be re-linked needs a
   second hand-counted clip.
+
+## Decision (2026-09-27)
+
+Re-linking ships **off** (`relink: false` in `configs/sensor.yaml`; `Sort(relink=False)`).
+With it off, `count_eval` on this clip gives the base counts exactly (summed error 11,
+re-links 0), while keeping the other rules: occlusion in seconds (5 s), class
+confirmation (3 detections), the rider rule and the faster tracker. Turn it on only after
+a second hand-counted clip with real occlusions (a bus stopping at the line) shows it
+lowers the error; `count_eval --relink` measures it. The underlying problem it exposed,
+static false-positive `person` tracks next to the line, is a detector issue (S13).

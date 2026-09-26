@@ -104,6 +104,7 @@ class DaemonConfig:
     # detections of its class a track needs before it counts under that class.
     max_occlusion_s: float = 5.0
     min_class_hits: int = 3
+    relink: bool = False  # re-link after occlusion; off until measured on a second clip
 
     @classmethod
     def from_yaml(cls, path: Path) -> DaemonConfig:
@@ -128,6 +129,7 @@ class DaemonConfig:
             min_move=float(data.get("min_move", 1.0)),
             max_occlusion_s=float(data.get("max_occlusion_s", 5.0)),
             min_class_hits=int(data.get("min_class_hits", 3)),
+            relink=bool(data.get("relink", False)),
         )
 
 

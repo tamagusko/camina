@@ -40,7 +40,7 @@ def test_sort_update_stays_within_budget_at_60_objects() -> None:
     rng = np.random.default_rng(0)
     x0, y0 = rng.uniform(0, 1800, N_OBJECTS), rng.uniform(0, 1000, N_OBJECTS)
     frames = [_frame(i, x0, y0) for i in range(N_FRAMES)]
-    tracker = Sort()
+    tracker = Sort(relink=True)  # worst case: the re-link pass runs
     times = []
     for i, dets in enumerate(frames):
         start = time.perf_counter()

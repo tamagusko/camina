@@ -78,6 +78,7 @@ def compose(
         ),
         max_occlusion_s=cfg.max_occlusion_s,
         min_class_hits=cfg.min_class_hits,
+        relink=cfg.relink,
     )
     return SensorDaemon(
         config=cfg,

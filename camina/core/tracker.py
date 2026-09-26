@@ -146,6 +146,10 @@ class Sort:
             (``class_groups``); by default a re-link keeps the class.
         min_class_hits: Detections of its winning class a track needs before
             its class is confirmed.
+        relink: Re-link unmatched detections to lost tracks after an
+            occlusion. Off by default: on the hand-counted clip it handed
+            static false-positive tracks (bollards as 'person') to passers-by
+            and doubled the error (docs/benchmarks/2026-09-27_tracker_occlusion.md).
 
     Attributes:
         relinks: Detections re-linked to a lost track since start.
@@ -160,6 +164,7 @@ class Sort:
         iou_threshold: float = IOU_THRESHOLD,
         compatible_classes: Iterable[Iterable[int]] = (),
         min_class_hits: int = MIN_CLASS_HITS,
+        relink: bool = False,
     ) -> None:
         if max_occlusion_s <= 0:
             raise ValueError(f"max_occlusion_s must be > 0, got {max_occlusion_s}")
@@ -171,6 +176,7 @@ class Sort:
         self.frame_count = 0
         self.relinks = 0
         self.min_class_hits = min_class_hits
+        self.relink = relink
         self.unconfirmed_ids: set[int] = set()
 
     def update(self, dets: np.ndarray | None = None, t: float | None = None) -> np.ndarray:
@@ -200,7 +206,7 @@ class Sort:
         for d, k in matches:
             self.trackers[k].update(dets[d], t)
         matched = {k for _, k in matches}
-        lost = [k for k in range(len(self.trackers)) if k not in matched]
+        lost = [k for k in range(len(self.trackers)) if k not in matched and self.relink]
         for d, k in self._relink(dets, unmatched, lost, t):
             self.trackers[k].relink(dets[d], t)
             self.relinks += 1

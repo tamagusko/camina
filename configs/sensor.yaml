@@ -52,3 +52,5 @@ min_move: 1.0
 # Tracking (camina/core/tracker.py).
 max_occlusion_s: 5.0   # seconds a hidden road user keeps its track (any frame rate)
 min_class_hits: 3      # detections of its winning class before a track counts under it
+relink: false          # re-link a track after an occlusion: off, it doubled the error on
+                       # the hand-counted clip (docs/benchmarks/2026-09-27_tracker_occlusion.md)

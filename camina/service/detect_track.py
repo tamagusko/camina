@@ -69,6 +69,7 @@ def make_detect_and_track(
     gate: CountGate | None = None,
     max_occlusion_s: float = MAX_OCCLUSION_S,
     min_class_hits: int = MIN_CLASS_HITS,
+    relink: bool = False,
 ) -> Callable[..., Iterable[DetectResult]]:
     """Build a ``detect_and_track(frame)`` closure wiring YOLO NCNN -> Sort.
 
@@ -87,6 +88,8 @@ def make_detect_and_track(
         max_occlusion_s: Seconds a track survives without a detection.
         min_class_hits: Detections of its winning class a track needs before
             the gate counts it under that class.
+        relink: Re-link detections to tracks lost behind an occlusion (off
+            by default; see ``Sort``).
 
     Returns:
         A closure ``detect_and_track(frame, t=None)`` that runs YOLO inference,
@@ -119,6 +122,7 @@ def make_detect_and_track(
         max_occlusion_s=max_occlusion_s,
         compatible_classes=class_groups(classes),
         min_class_hits=min_class_hits,
+        relink=relink,
     )
     n_model_classes = len(model_names)
 

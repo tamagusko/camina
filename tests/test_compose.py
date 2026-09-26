@@ -254,13 +254,15 @@ def test_daemon_config_reads_the_tracking_rules(tmp_path: Path) -> None:
     from camina.service.sensor_daemon import DaemonConfig
 
     yaml_path = tmp_path / "sensor.yaml"
-    yaml_path.write_text(_MINIMAL_YAML + "max_occlusion_s: 3.5\nmin_class_hits: 4\n")
+    yaml_path.write_text(_MINIMAL_YAML + "max_occlusion_s: 3.5\nmin_class_hits: 4\nrelink: true\n")
     cfg = DaemonConfig.from_yaml(yaml_path)
     assert cfg.max_occlusion_s == pytest.approx(3.5) and cfg.min_class_hits == 4
+    assert cfg.relink is True
 
     yaml_path.write_text(_MINIMAL_YAML)
     cfg = DaemonConfig.from_yaml(yaml_path)
     assert cfg.max_occlusion_s == pytest.approx(5.0) and cfg.min_class_hits == 3
+    assert cfg.relink is False
 
 
 def test_the_shipped_sensor_yaml_sets_the_tracking_rules() -> None:
@@ -268,6 +270,7 @@ def test_the_shipped_sensor_yaml_sets_the_tracking_rules() -> None:
 
     cfg = DaemonConfig.from_yaml(Path(__file__).parents[1] / "configs" / "sensor.yaml")
     assert cfg.max_occlusion_s == pytest.approx(5.0) and cfg.min_class_hits == 3
+    assert cfg.relink is False
 
 
 def test_compose_passes_the_tracking_rules_and_a_gate_that_outlives_occlusion(
@@ -277,7 +280,7 @@ def test_compose_passes_the_tracking_rules_and_a_gate_that_outlives_occlusion(
 
     from camina.service.compose import compose
 
-    cfg = replace(_make_cfg(tmp_path), max_occlusion_s=7.0, min_class_hits=5)
+    cfg = replace(_make_cfg(tmp_path), max_occlusion_s=7.0, min_class_hits=5, relink=True)
     captured: dict = {}
 
     def _capturing_detect_factory(**kwargs):
@@ -293,6 +296,7 @@ def test_compose_passes_the_tracking_rules_and_a_gate_that_outlives_occlusion(
     try:
         assert captured["max_occlusion_s"] == pytest.approx(7.0)
         assert captured["min_class_hits"] == 5
+        assert captured["relink"] is True
         assert captured["gate"].forget_after_s >= 7.0
     finally:
         daemon._outbox.close()
