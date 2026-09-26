@@ -40,9 +40,9 @@ def test_sort_update_stays_within_budget_at_60_objects() -> None:
     frames = [_frame(i, x0, y0) for i in range(N_FRAMES)]
     tracker = Sort()
     times = []
-    for dets in frames:
+    for i, dets in enumerate(frames):
         start = time.perf_counter()
-        tracker.update(dets)
+        tracker.update(dets, t=i / FPS)
         times.append(time.perf_counter() - start)
 
     mean_ms = 1e3 * float(np.mean(times[int(FPS) :]))  # skip the warm-up second

@@ -20,6 +20,7 @@ model run at another size returns garbage boxes.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,7 +30,7 @@ import yaml
 
 from camina.core.counting import CountGate
 from camina.core.riders import drop_riders
-from camina.core.tracker import Sort
+from camina.core.tracker import MAX_OCCLUSION_S, Sort
 from camina.service.ncnn_detector import NcnnDetector
 from camina.utils.taxonomy import load_class_aliases
 
@@ -64,7 +65,8 @@ def make_detect_and_track(
     imgsz: int = 640,
     conf: float = 0.3,
     gate: CountGate | None = None,
-) -> Callable[[np.ndarray], Iterable[DetectResult]]:
+    max_occlusion_s: float = MAX_OCCLUSION_S,
+) -> Callable[..., Iterable[DetectResult]]:
     """Build a ``detect_and_track(frame)`` closure wiring YOLO NCNN -> Sort.
 
     Args:
@@ -79,18 +81,28 @@ def make_detect_and_track(
         gate: When set, yield each track once, on the frame it crosses the
             screenline or has moved far enough (``CountGate``). When ``None``,
             yield every confirmed track on every frame.
+        max_occlusion_s: Seconds a track survives without a detection.
 
     Returns:
-        A closure ``detect_and_track(frame)`` that runs YOLO inference,
+        A closure ``detect_and_track(frame, t=None)`` that runs YOLO inference,
         feeds boxes into one ``Sort`` tracker, and yields
         ``(track_id_str, class_name)`` tuples for each confirmed track on
-        the current frame, or only for the tracks ``gate`` counts.
+        the current frame, or only for the tracks ``gate`` counts. ``t`` is
+        the frame's capture time in seconds; ``None`` stamps the frame with
+        ``time.monotonic()`` on entry, which in the daemon is right after the
+        camera returned it.
 
     Raises:
-        ValueError: when ``imgsz`` differs from the export's recorded size, or
-            when the model's class names do not map onto ``classes``.
+        ValueError: when ``imgsz`` differs from the export's recorded size,
+            when the model's class names do not map onto ``classes``, or when
+            the gate would forget a track the tracker can still revive.
     """
     _check_export_imgsz(Path(ncnn_model_path), imgsz)
+    if gate is not None and gate.forget_after_s < max_occlusion_s:
+        raise ValueError(
+            f"gate forget_after_s ({gate.forget_after_s}) must be >= max_occlusion_s "
+            f"({max_occlusion_s}): a revived track would be counted twice"
+        )
 
     detector = NcnnDetector(ncnn_model_path, imgsz=imgsz, conf=conf)
     model_names = [detector.names[i] for i in sorted(detector.names.keys())]
@@ -98,22 +110,23 @@ def make_detect_and_track(
 
     # One tracker for all classes: a class flicker (car/SUV) stays one track,
     # and the track's class is its confidence-weighted majority vote.
-    tracker = Sort()
+    tracker = Sort(max_occlusion_s=max_occlusion_s)
     n_model_classes = len(model_names)
 
-    def detect_and_track(frame: np.ndarray) -> Iterable[DetectResult]:
+    def detect_and_track(frame: np.ndarray, t: float | None = None) -> Iterable[DetectResult]:
+        t = time.monotonic() if t is None else t
         dets = _to_canonical(detector(frame), model_to_class, n_model_classes, conf)
         dets = drop_riders(dets, classes)
         tracks = [
             (int(track_id), classes[int(cls)], (x1, y1, x2, y2))
-            for x1, y1, x2, y2, track_id, cls in tracker.update(dets)
+            for x1, y1, x2, y2, track_id, cls in tracker.update(dets, t)
         ]
         if gate is None:
             yield from ((f"{name}-{tid}", name) for tid, name, _ in tracks)
             return
         class_of = {str(tid): name for tid, name, _ in tracks}
         size = (frame.shape[1], frame.shape[0])
-        for event in gate.step(((str(tid), box) for tid, _, box in tracks), size):
+        for event in gate.step(((str(tid), box) for tid, _, box in tracks), size, t):
             name = class_of[event.key]
             logger.debug("counted %s-%s direction=%s", name, event.key, event.direction)
             if event.direction is None:

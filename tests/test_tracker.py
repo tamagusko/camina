@@ -76,3 +76,32 @@ def test_iou_matrix_matches_the_pairwise_definition() -> None:
     assert iou.shape == (3, 2)
     np.testing.assert_allclose(iou, [[1.0, 50 / 150], [25 / 175, 50 / 150], [0.0, 0.0]], rtol=1e-12)
     assert iou_matrix(a, np.empty((0, 4))).shape == (3, 0)
+
+
+# ---------- Occlusion, in seconds ----------
+
+
+def _ids_after_gap(fps: float, gap_s: float, max_occlusion_s: float = 5.0) -> set[int]:
+    """A parked car seen for 1 s, hidden for ``gap_s``, then seen again for 1 s."""
+    tracker = Sort(min_hits=3, max_occlusion_s=max_occlusion_s)
+    n, hidden = int(fps), round(gap_s * fps)
+    ids: set[int] = set()
+    for i in range(2 * n + hidden):
+        visible = i < n or i >= n + hidden
+        dets = np.asarray([_det(10, 0.9, CAR)] if visible else [], dtype=float).reshape(-1, 6)
+        ids |= {int(r[4]) for r in tracker.update(dets, t=i / fps)}
+    return ids
+
+
+def test_a_track_survives_an_occlusion_shorter_than_max_occlusion_s_at_any_fps() -> None:
+    for fps in (5.0, 15.0, 60.0):
+        assert len(_ids_after_gap(fps, gap_s=4.8)) == 1, fps
+
+
+def test_a_track_is_dropped_after_max_occlusion_s_at_any_fps() -> None:
+    for fps in (5.0, 15.0, 60.0):
+        assert len(_ids_after_gap(fps, gap_s=5.4)) == 2, fps
+
+
+def test_max_occlusion_s_is_configurable() -> None:
+    assert len(_ids_after_gap(30.0, gap_s=2.0, max_occlusion_s=1.0)) == 2

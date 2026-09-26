@@ -159,12 +159,12 @@ def main() -> int:
         dets = detector(frame)
         tracks = []
         for x1, y1, x2, y2, tid, c in tracker.update(
-            _to_canonical(dets, to_class, len(model_names), args.conf)
+            _to_canonical(dets, to_class, len(model_names), args.conf), t=n / fps
         ):
             seen[int(tid)] = int(c)
             tracks.append((int(c), int(tid), (x1, y1, x2, y2)))
         class_of = {str(tid): c for c, tid, _ in tracks}
-        for ev in gate.step(((str(tid), box) for _, tid, box in tracks), (w, h)):
+        for ev in gate.step(((str(tid), box) for _, tid, box in tracks), (w, h), t=n / fps):
             c = class_of[ev.key]
             direction = ev.direction or "moved"
             counted[c][direction] = counted[c].get(direction, 0) + 1

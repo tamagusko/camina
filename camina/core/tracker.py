@@ -3,15 +3,21 @@
 One tracker serves every class. Association ignores the class, so a detector
 that flips an object between two classes (car/SUV) keeps one track; each track
 keeps confidence-weighted class votes and reports the majority.
+
+Time is in seconds, from the frame timestamps passed to ``Sort.update``: a
+track survives ``max_occlusion_s`` without a detection whatever the frame
+rate, so a slow Pi and a 60 fps clip lose a hidden object after the same time.
 """
 
 from __future__ import annotations
+
+import time
 
 import numpy as np
 from filterpy.kalman import KalmanFilter
 from scipy.optimize import linear_sum_assignment
 
-MAX_AGE = 90  # frames a track survives without a detection
+MAX_OCCLUSION_S = 5.0  # seconds a track survives without a detection
 IOU_THRESHOLD = 0.3  # minimum IoU to match a detection to a track
 
 
@@ -20,7 +26,7 @@ class KalmanBoxTracker:
 
     count = 0
 
-    def __init__(self, det: np.ndarray) -> None:
+    def __init__(self, det: np.ndarray, t: float) -> None:
         self.kf = KalmanFilter(dim_x=7, dim_z=4)
         self.kf.F = np.eye(7) + np.eye(7, k=4)
         self.kf.H = np.eye(4, 7)
@@ -33,7 +39,8 @@ class KalmanBoxTracker:
 
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
-        self.time_since_update = 0
+        self.time_since_update = 0  # frames since the last detection
+        self.t_obs = t  # time of the last detection, seconds
         self.hits = 0
         self.votes: dict[int, float] = {}
         self._vote(det)
@@ -43,9 +50,10 @@ class KalmanBoxTracker:
         """The class with the highest summed confidence so far."""
         return max(self.votes, key=self.votes.get)
 
-    def update(self, det: np.ndarray) -> None:
-        """Correct the filter with a matched detection ``[x1, y1, x2, y2, score, cls]``."""
+    def update(self, det: np.ndarray, t: float) -> None:
+        """Correct the filter with a detection ``[x1, y1, x2, y2, score, cls]`` seen at ``t``."""
         self.time_since_update = 0
+        self.t_obs = t
         self.hits += 1
         self.kf.update(_box_to_z(det))
         self._vote(det)
@@ -73,49 +81,58 @@ class Sort:
 
     Args:
         min_hits: Detections a track needs before it is reported.
-        max_age: Frames a track survives without a detection.
+        max_occlusion_s: Seconds a track survives without a detection.
         iou_threshold: Minimum IoU to match a detection to a track.
     """
 
     def __init__(
-        self, min_hits: int = 3, max_age: int = MAX_AGE, iou_threshold: float = IOU_THRESHOLD
+        self,
+        min_hits: int = 3,
+        max_occlusion_s: float = MAX_OCCLUSION_S,
+        iou_threshold: float = IOU_THRESHOLD,
     ) -> None:
+        if max_occlusion_s <= 0:
+            raise ValueError(f"max_occlusion_s must be > 0, got {max_occlusion_s}")
         self.min_hits = min_hits
-        self.max_age = max_age
+        self.max_occlusion_s = max_occlusion_s
         self.iou_threshold = iou_threshold
         self.trackers: list[KalmanBoxTracker] = []
         self.frame_count = 0
 
-    def update(self, dets: np.ndarray | None = None) -> np.ndarray:
+    def update(self, dets: np.ndarray | None = None, t: float | None = None) -> np.ndarray:
         """Advance one frame.
 
         Args:
             dets: ``(N, 6)`` rows ``[x1, y1, x2, y2, score, class]``.
+            t: Frame timestamp in seconds, on any clock that does not jump
+                (capture time); ``None`` reads ``time.monotonic()``.
 
         Returns:
             ``(M, 6)`` rows ``[x1, y1, x2, y2, track_id, class]`` for the
             confirmed tracks matched on this frame; ``class`` is the vote.
         """
         dets = np.empty((0, 6)) if dets is None else dets
+        t = time.monotonic() if t is None else t
         self.frame_count += 1
 
-        predictions = [t.predict() for t in self.trackers]
+        # Past max_occlusion_s unseen, a track is gone: it cannot match any more.
+        self.trackers = [k for k in self.trackers if t - k.t_obs <= self.max_occlusion_s]
+        predictions = [k.predict() for k in self.trackers]
         alive = [i for i, p in enumerate(predictions) if not np.any(np.isnan(p))]
         self.trackers = [self.trackers[i] for i in alive]
         predictions = np.asarray([predictions[i] for i in alive]).reshape(-1, 4)
 
         matches, unmatched = _associate(dets, predictions, self.iou_threshold)
-        for d, t in matches:
-            self.trackers[t].update(dets[d])
-        self.trackers += [KalmanBoxTracker(dets[d]) for d in unmatched]
+        for d, k in matches:
+            self.trackers[k].update(dets[d], t)
+        self.trackers += [KalmanBoxTracker(dets[d], t) for d in unmatched]
 
         confirmed = [
-            [*t.box, t.id, t.cls]
-            for t in self.trackers
-            if t.time_since_update == 0
-            and (t.hits >= self.min_hits or self.frame_count <= self.min_hits)
+            [*k.box, k.id, k.cls]
+            for k in self.trackers
+            if k.time_since_update == 0
+            and (k.hits >= self.min_hits or self.frame_count <= self.min_hits)
         ]
-        self.trackers = [t for t in self.trackers if t.time_since_update <= self.max_age]
         return np.asarray(confirmed, dtype=float).reshape(-1, 6)
 
 

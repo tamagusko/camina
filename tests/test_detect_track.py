@@ -330,3 +330,39 @@ def test_the_person_riding_a_bicycle_is_not_tracked_as_a_pedestrian(
     seen = [cls for _ in range(5) for _, cls in f(frame)]
 
     assert set(seen) == {"cyclist"}
+
+
+def test_the_gate_must_remember_tracks_at_least_as_long_as_the_tracker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A gate forgetting a track the tracker still holds would count it twice."""
+    from camina.core.counting import CountGate
+    from camina.service import detect_track
+
+    monkeypatch.setattr(
+        detect_track, "NcnnDetector", _fake_detector_factory([_FakeBoxes([], [], [])])
+    )
+    with pytest.raises(ValueError, match="forget_after_s"):
+        detect_track.make_detect_and_track(
+            ncnn_model_path="ignored",
+            classes=CLASSES,
+            gate=CountGate(forget_after_s=4.0),
+            max_occlusion_s=5.0,
+        )
+
+
+def test_frame_timestamps_drive_the_occlusion_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Frames stamped 6 s apart: the car's track is gone and a new one starts."""
+    from camina.service import detect_track
+
+    car, empty = _car_at(100.0), _FakeBoxes([], [], [])
+    frames = [car] * 4 + [empty, car, car, car, car]
+    monkeypatch.setattr(detect_track, "NcnnDetector", _fake_detector_factory(frames))
+    f = detect_track.make_detect_and_track(
+        ncnn_model_path="ignored", classes=CLASSES, max_occlusion_s=5.0
+    )
+    frame = np.zeros((480, 480, 3), dtype=np.uint8)
+    stamps = [0.0, 0.1, 0.2, 0.3, 0.4, 6.5, 6.6, 6.7, 6.8]
+    ids = {tid for t in stamps for tid, _ in f(frame, t=t)}
+
+    assert len(ids) == 2

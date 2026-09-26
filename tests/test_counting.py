@@ -143,12 +143,13 @@ def test_tracks_are_independent() -> None:
 # ---------- Memory ----------
 
 
-def test_tracks_not_seen_for_a_while_are_forgotten() -> None:
-    gate = CountGate(forget_after=3)
-    gate.step([("person-1", _box(500, 500))], FRAME)
-    for _ in range(4):
-        gate.step([], FRAME)
+def test_tracks_are_forgotten_after_forget_after_s_seconds_unseen() -> None:
+    gate = CountGate(forget_after_s=10.0)
+    gate.step([("person-1", _box(500, 500))], FRAME, t=100.0)
+    gate.step([], FRAME, t=109.9)
+    assert gate.n_tracks == 1
 
+    gate.step([], FRAME, t=110.1)
     assert gate.n_tracks == 0
 
 

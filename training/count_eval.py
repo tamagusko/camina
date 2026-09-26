@@ -117,32 +117,31 @@ def compare(
 def count_clip(
     video: Path, model: Path, line: Screenline, min_move: float = 1.0
 ) -> Counter[tuple[str, str]]:
-    """Run the sensor pipeline over ``video``; crossings per (class, direction)."""
+    """Run the sensor pipeline over ``video``; crossings per (class, direction).
+
+    The pipeline is the daemon's own ``make_detect_and_track`` closure. Each
+    frame is stamped with its time in the clip (index / fps), so time-based
+    rules see the clip's real time however slowly it is processed.
+    """
     import cv2
 
-    from camina.core.tracker import Sort
-    from camina.service.detect_track import _map_model_classes, _to_canonical
-    from camina.service.ncnn_detector import NcnnDetector
+    from camina.service.detect_track import make_detect_and_track
     from camina.utils.taxonomy import load_canonical_classes
 
-    classes = load_canonical_classes()
-    detector = NcnnDetector(model)
-    model_names = [detector.names[i] for i in sorted(detector.names)]
-    to_class = _map_model_classes(model_names, classes)
-    tracker, gate = Sort(), CountGate(screenline=line, min_move=min_move)
+    detect_and_track = make_detect_and_track(
+        model, load_canonical_classes(), gate=CountGate(screenline=line, min_move=min_move)
+    )
     counts: Counter[tuple[str, str]] = Counter()
-
     cap = cv2.VideoCapture(str(video))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    i = 0
     while True:
         ok, frame = cap.read()
         if not ok:
             break
-        dets = _to_canonical(detector(frame), to_class, len(model_names), detector.conf)
-        tracks = tracker.update(dets)
-        class_of = {str(int(t)): classes[int(c)] for *_, t, c in tracks}
-        boxes = [(str(int(t)), (x1, y1, x2, y2)) for x1, y1, x2, y2, t, _ in tracks]
-        for event in gate.step(boxes, (frame.shape[1], frame.shape[0])):
-            counts[class_of[event.key], event.direction] += 1
+        for counted in detect_and_track(frame, t=i / fps):
+            counts[counted.class_name, counted.direction] += 1
+        i += 1
     return counts
 
 
