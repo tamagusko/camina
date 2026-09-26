@@ -74,6 +74,7 @@ export function isStale(lastSeen: string | null, now: Date): boolean {
 // aggregating and only widened to `number | null` on the emitted StreetReading.
 interface PresentBucket {
   counts: Record<RoadUserClass, number>;
+  countsByDirection?: Record<"AB" | "BA", Record<RoadUserClass, number>>;
   avgSpeedKmh: Partial<Record<RoadUserClass, number | null>>;
   speedCount: Partial<Record<RoadUserClass, number>>;
 }
@@ -109,6 +110,17 @@ export const mockStreetsRepo: StreetsRepo = {
     const sensorIds = coverage.filter((c) => c.street_id === streetId).map((c) => c.sensor_id);
     if (sensorIds.length === 0) return [];
 
+    type DirectionalMockReading = MockReading & {
+      direction_ab_count?: number | null;
+      direction_ba_count?: number | null;
+    };
+    const hasDirectionalData = readings.some((reading) => {
+      const directional = reading as DirectionalMockReading;
+      return sensorIds.includes(reading.sensor_id) &&
+        directional.direction_ab_count !== undefined &&
+        directional.direction_ba_count !== undefined;
+    });
+
     const requested = classes ?? [...ROAD_USER_CLASSES];
     const fromMs = from.getTime();
     const toMs = to.getTime();
@@ -131,6 +143,17 @@ export const mockStreetsRepo: StreetsRepo = {
       }
       const cls = r.class_name as RoadUserClass;
       row.counts[cls] += r.count;
+      const directional = r as DirectionalMockReading;
+      if (
+        directional.direction_ab_count !== undefined &&
+        directional.direction_ab_count !== null &&
+        directional.direction_ba_count !== undefined &&
+        directional.direction_ba_count !== null
+      ) {
+        row.countsByDirection ??= { AB: emptyBreakdown(), BA: emptyBreakdown() };
+        row.countsByDirection.AB[cls] += directional.direction_ab_count;
+        row.countsByDirection.BA[cls] += directional.direction_ba_count;
+      }
       if (r.avg_speed_kmh !== null) {
         // Count-weighted running mean.
         const prev = row.avgSpeedKmh[cls] ?? null;
@@ -158,6 +181,12 @@ export const mockStreetsRepo: StreetsRepo = {
               missing: false,
               // k-anonymity: null-out per-class counts below the k-floor.
               counts: suppressBreakdown(row.counts),
+              countsByDirection: row.countsByDirection
+                ? {
+                    AB: suppressBreakdown(row.countsByDirection.AB),
+                    BA: suppressBreakdown(row.countsByDirection.BA),
+                  }
+                : undefined,
               avgSpeedKmh: Object.fromEntries(
                 requested.map((cls) => [
                   cls,
@@ -169,6 +198,9 @@ export const mockStreetsRepo: StreetsRepo = {
               bucket: new Date(t).toISOString(),
               missing: true,
               counts: nullBreakdown(),
+              countsByDirection: hasDirectionalData
+                ? { AB: nullBreakdown(), BA: nullBreakdown() }
+                : undefined,
               avgSpeedKmh: {},
             }
       );

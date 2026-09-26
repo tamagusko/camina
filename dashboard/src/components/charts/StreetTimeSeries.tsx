@@ -16,26 +16,23 @@ interface Props {
   readings: StreetReading[];
 }
 
-// DESIGN.md-aligned greys so the chart doesn't inject brand colour — we only
-// differentiate classes by ramp position (not hue). Class names stay in the
-// legend for clarity.
 const SERIES_COLOURS = [
-  "#000000",
-  "#4b4b4b",
-  "#6e6e6e",
-  "#8a8a8a",
-  "#a5a5a5",
-  "#c0c0c0",
-  "#d4d4d4",
-  "#e2e2e2",
-  "#efefef",
+  "#e69f00",
+  "#56b4e9",
+  "#009e73",
+  "#f0e442",
+  "#0072b2",
+  "#d55e00",
+  "#cc79a7",
+  "#999999",
+  "var(--ink-1)",
 ];
 
 export function StreetTimeSeries({ readings }: Props) {
-  if (readings.length === 0) {
+  if (!readings.some((row) => !row.missing && Object.values(row.counts).some((count) => count !== null && count > 0))) {
     return (
-      <div className="card flex h-64 items-center justify-center text-body-gray">
-        No data in the selected window
+      <div className="card flex h-64 items-center justify-center border border-[var(--line)] bg-[var(--surface)] px-6 text-center text-[var(--ink-2)]">
+        No published counts in the last 24 h
       </div>
     );
   }
@@ -45,15 +42,21 @@ export function StreetTimeSeries({ readings }: Props) {
   }));
 
   return (
-    <div className="card p-6">
+    <div className="card border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-6">
       <ResponsiveContainer width="100%" height={320}>
         <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
-          <CartesianGrid stroke="#efefef" vertical={false} />
-          <XAxis dataKey="t" stroke="#4b4b4b" fontSize={12} tickMargin={8} />
-          <YAxis stroke="#4b4b4b" fontSize={12} tickMargin={8} allowDecimals={false} />
+          <CartesianGrid stroke="var(--line)" vertical={false} />
+          <XAxis dataKey="t" stroke="var(--ink-2)" fontSize={12} tickMargin={8} />
+          <YAxis stroke="var(--ink-2)" fontSize={12} tickMargin={8} allowDecimals={false} />
           <Tooltip
-            contentStyle={{ borderRadius: 8, border: "1px solid #000", fontSize: 12 }}
-            labelStyle={{ color: "#000" }}
+            contentStyle={{
+              background: "var(--surface)",
+              borderRadius: 6,
+              border: "1px solid var(--line)",
+              color: "var(--ink-1)",
+              fontSize: 12,
+            }}
+            labelStyle={{ color: "var(--ink-1)" }}
           />
           <Legend wrapperStyle={{ fontSize: 12 }} />
           {ROAD_USER_CLASSES.map((cls: RoadUserClass, i) => (
@@ -70,7 +73,7 @@ export function StreetTimeSeries({ readings }: Props) {
           ))}
         </AreaChart>
       </ResponsiveContainer>
-      <p className="mt-3 text-micro text-muted-gray">
+      <p className="mt-3 text-micro text-[var(--ink-2)]">
         Gaps indicate no data (sensor offline) or a count suppressed below the
         privacy floor (fewer than 5).
       </p>

@@ -241,6 +241,35 @@ describe("k-anonymity floor — no published count in 1..4", () => {
     assertNoSmallCounts(rows);
   });
 
+  it("publishes optional direction counts with per-cell suppression", async () => {
+    const rows = await mockStreetsRepo.readings({
+      streetId: "ucd-stillorgan-rd-entrance",
+      from,
+      to,
+      bucketMinutes: 15,
+    });
+    const directional = rows.filter((row) => row.countsByDirection !== undefined);
+    expect(directional.length).toBeGreaterThan(0);
+    expect(
+      directional.some((row) =>
+        [...Object.values(row.countsByDirection!.AB), ...Object.values(row.countsByDirection!.BA)]
+          .some((count) => count === null)
+      )
+    ).toBe(true);
+    assertNoSmallCounts(directional);
+  });
+
+  it("omits direction counts for streets without direction data", async () => {
+    const rows = await mockStreetsRepo.readings({
+      streetId: "ranelagh-rd",
+      from,
+      to,
+      bucketMinutes: 15,
+    });
+    expect(rows.some((row) => !row.missing)).toBe(true);
+    expect(rows.every((row) => row.countsByDirection === undefined)).toBe(true);
+  });
+
   it("latestMetrics(counts) suppresses value + classBreakdown below the floor", async () => {
     const rows = await mockStreetsRepo.latestMetrics({
       city: "dublin",

@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import "@/styles/globals.css";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
 
 export const metadata: Metadata = {
   title: "CAMINA — Urban mobility counter",
@@ -18,8 +21,8 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-white text-black antialiased">{children}</body>
+    <html lang="en" className={inter.variable}>
+      <body className="min-h-screen antialiased">{children}</body>
     </html>
   );
 }

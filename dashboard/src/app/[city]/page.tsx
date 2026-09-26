@@ -19,7 +19,7 @@ export default async function CityPage({ params }: Props) {
 
   const [streets, initialMetrics] = await Promise.all([
     streetsRepo.list(city),
-    streetsRepo.latestMetrics({ city, metric: "counts", window: "1h" }),
+    streetsRepo.latestMetrics({ city, metric: "counts", window: "now" }),
   ]);
 
   return (
