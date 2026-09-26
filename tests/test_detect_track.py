@@ -366,3 +366,18 @@ def test_frame_timestamps_drive_the_occlusion_clock(monkeypatch: pytest.MonkeyPa
     ids = {tid for t in stamps for tid, _ in f(frame, t=t)}
 
     assert len(ids) == 2
+
+
+def test_the_tracker_may_relink_across_confused_vehicle_classes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from camina.service import detect_track
+
+    monkeypatch.setattr(
+        detect_track, "NcnnDetector", _fake_detector_factory([_FakeBoxes([], [], [])])
+    )
+    f = detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES)
+    car, suv, person = CLASSES.index("car"), CLASSES.index("SUV"), CLASSES.index("person")
+
+    assert f.tracker._compatible(car, suv)  # type: ignore[attr-defined]
+    assert not f.tracker._compatible(car, person)  # type: ignore[attr-defined]

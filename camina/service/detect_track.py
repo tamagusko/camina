@@ -9,7 +9,8 @@
   class raises ``ValueError`` at build time; an out-of-range index at run time.
 - A ``person`` box lying mostly inside a cyclist, e-scooter or motorcyclist
   box is the rider and is dropped (``camina.core.riders``).
-- One ``Sort`` tracks all classes; each track's class is its
+- One ``Sort`` tracks all classes, re-linking a track after an occlusion
+  (``camina.core.tracker``); each track's class is its
   confidence-weighted majority vote, so a car/SUV flicker stays one track.
 - With a ``CountGate``, each track is yielded once, when it counts.
 
@@ -30,7 +31,7 @@ import yaml
 
 from camina.core.counting import CountGate
 from camina.core.riders import drop_riders
-from camina.core.tracker import MAX_OCCLUSION_S, Sort
+from camina.core.tracker import MAX_OCCLUSION_S, Sort, class_groups
 from camina.service.ncnn_detector import NcnnDetector
 from camina.utils.taxonomy import load_class_aliases
 
@@ -110,7 +111,7 @@ def make_detect_and_track(
 
     # One tracker for all classes: a class flicker (car/SUV) stays one track,
     # and the track's class is its confidence-weighted majority vote.
-    tracker = Sort(max_occlusion_s=max_occlusion_s)
+    tracker = Sort(max_occlusion_s=max_occlusion_s, compatible_classes=class_groups(classes))
     n_model_classes = len(model_names)
 
     def detect_and_track(frame: np.ndarray, t: float | None = None) -> Iterable[DetectResult]:

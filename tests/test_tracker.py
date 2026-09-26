@@ -105,3 +105,144 @@ def test_a_track_is_dropped_after_max_occlusion_s_at_any_fps() -> None:
 
 def test_max_occlusion_s_is_configurable() -> None:
     assert len(_ids_after_gap(30.0, gap_s=2.0, max_occlusion_s=1.0)) == 2
+
+
+# ---------- Re-link after occlusion ----------
+
+FPS = 30.0
+PERSON_W, PERSON_H = 40.0, 100.0
+
+
+def _person(x: float, cls: int = PERSON, w: float = PERSON_W, h: float = PERSON_H) -> list[float]:
+    return [x, 300.0, x + w, 300.0 + h, 0.9, cls]
+
+
+def _play(tracker: Sort, frames: list[list[list[float]]], t0: float = 0.0) -> list[np.ndarray]:
+    out = []
+    for i, rows in enumerate(frames):
+        dets = np.asarray(rows, dtype=float).reshape(-1, 6)
+        out.append(tracker.update(dets, t=t0 + i / FPS))
+    return out
+
+
+def _hidden_then(tracker: Sort, walk_s: float, hide_s: float, speed: float, row: list[float]):
+    """Walk ``walk_s`` at ``speed`` px/frame from x=100, hide ``hide_s``, then show ``row``."""
+    n = int(walk_s * FPS)
+    seen = _play(tracker, [[_person(100.0 + speed * i)] for i in range(n)])
+    hidden = int(hide_s * FPS)
+    _play(tracker, [[]] * hidden, t0=n / FPS)
+    return seen[-1], tracker.update(np.asarray([row], dtype=float), t=(n + hidden) / FPS)
+
+
+def test_a_track_hidden_and_shifted_beyond_iou_is_relinked_with_its_id() -> None:
+    """Walking at 2 px/frame, hidden 3 s, reappearing 30 px off the straight line:
+    the IoU with the prediction is below 0.3, the re-link keeps the ID."""
+    tracker = Sort()
+    speed, walk, hide = 2.0, 1.0, 3.0
+    expected_x = 100.0 + speed * (walk + hide) * FPS
+    before, after = _hidden_then(tracker, walk, hide, speed, _person(expected_x + 30.0))
+
+    assert after.shape[0] == 1
+    assert int(after[0, 4]) == int(before[0, 4])
+    assert tracker.relinks == 1
+
+
+def test_a_relinked_track_restarts_from_the_observation_not_the_prediction() -> None:
+    tracker = Sort()
+    row = _person(100.0 + 2.0 * 4.0 * FPS + 30.0)
+    _, after = _hidden_then(tracker, 1.0, 3.0, 2.0, row)
+
+    np.testing.assert_allclose(after[0, :4], row[:4], atol=1e-6)
+
+
+def test_a_detection_too_far_from_the_extrapolated_track_starts_a_new_track() -> None:
+    # Gate after 3 s: RELINK_K * 100 * (1 + 3) = 200 px; this one is 400 px off.
+    from camina.core.tracker import RELINK_K
+
+    tracker = Sort()
+    off = RELINK_K * PERSON_H * 4.0 * 2.0
+    before, after = _hidden_then(tracker, 1.0, 3.0, 2.0, _person(100.0 + 2.0 * 4 * FPS + off))
+
+    assert int(after[0, 4]) != int(before[0, 4]) if len(after) else True
+    assert tracker.relinks == 0
+
+
+def test_a_detection_of_a_very_different_size_is_not_relinked() -> None:
+    tracker = Sort()
+    row = _person(100.0 + 2.0 * 4.0 * FPS + 30.0, w=2.2 * PERSON_W, h=2.2 * PERSON_H)
+    _hidden_then(tracker, 1.0, 3.0, 2.0, row)
+
+    assert tracker.relinks == 0
+
+
+def test_an_incompatible_class_is_not_relinked() -> None:
+    tracker = Sort()
+    _hidden_then(tracker, 1.0, 3.0, 2.0, _person(100.0 + 2.0 * 4.0 * FPS + 30.0, cls=CAR))
+
+    assert tracker.relinks == 0
+
+
+def test_car_and_suv_are_compatible_for_relinking() -> None:
+    from camina.core.tracker import class_groups
+
+    classes = [
+        "person",
+        "cyclist",
+        "car",
+        "e-scooter",
+        "SUV",
+        "motorcyclist",
+        "bus",
+        "delivery_van",
+        "truck",
+    ]
+    tracker = Sort(compatible_classes=class_groups(classes))
+    n, hidden = int(FPS), int(3 * FPS)
+    _play(tracker, [[_person(100.0 + 2.0 * i, cls=CAR)] for i in range(n)])
+    _play(tracker, [[]] * hidden, t0=n / FPS)
+    x = 100.0 + 2.0 * (n + hidden) + 30.0
+    tracker.update(np.asarray([_person(x, cls=SUV)], dtype=float), t=(n + hidden) / FPS)
+
+    assert tracker.relinks == 1
+
+
+def test_class_groups_follow_the_owner_rule() -> None:
+    from camina.core.tracker import class_groups
+
+    classes = [
+        "person",
+        "cyclist",
+        "car",
+        "e-scooter",
+        "SUV",
+        "motorcyclist",
+        "bus",
+        "delivery_van",
+        "truck",
+    ]
+    groups = class_groups(classes)
+    ok = {frozenset((a, b)) for g in groups for a in g for b in g if a != b}
+    idx = classes.index
+
+    assert frozenset((idx("car"), idx("SUV"))) in ok
+    assert frozenset((idx("delivery_van"), idx("truck"))) in ok
+    assert frozenset((idx("delivery_van"), idx("car"))) in ok
+    assert frozenset((idx("truck"), idx("car"))) in ok
+    assert frozenset((idx("SUV"), idx("truck"))) not in ok
+    assert frozenset((idx("person"), idx("cyclist"))) not in ok
+
+
+def test_relinking_is_an_optimal_assignment_not_greedy() -> None:
+    """Two parked people A (x=0) and B (x=100) vanish for 0.5 s. Detections come
+    back at 55 and 160. Greedy would take the cheapest pair B-55 first and leave
+    160 too far from A; the optimal assignment gives A-55 and B-160."""
+    tracker = Sort()
+    frames = [[_person(0.0), _person(100.0)]] * int(FPS)
+    seen = _play(tracker, frames)[-1]
+    id_at = {float(r[0]): int(r[4]) for r in seen}
+    _play(tracker, [[]] * int(0.5 * FPS), t0=1.0)
+    out = tracker.update(np.asarray([_person(55.0), _person(160.0)], dtype=float), t=1.0 + 0.5)
+
+    got = {round(float(r[0])): int(r[4]) for r in out}
+    assert got == {55: id_at[0.0], 160: id_at[100.0]}
+    assert tracker.relinks == 2
