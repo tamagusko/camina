@@ -264,8 +264,12 @@ class SensorDaemon:
             if self._shutdown.is_set():
                 break
             now = datetime.now(tz=timezone.utc)
-            for track_id, class_name in self._detect_and_track(frame):
-                self._counter.add(track_id=track_id, class_name=class_name, now=now)
+            for counted in self._detect_and_track(frame):
+                track_id, class_name = counted
+                direction = getattr(counted, "direction", None)
+                self._counter.add(
+                    track_id=track_id, class_name=class_name, now=now, direction=direction
+                )
 
             snapshot = self._counter.maybe_rollover(now)
             if snapshot is not None:

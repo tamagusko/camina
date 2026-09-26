@@ -1,6 +1,6 @@
 # CAMINA Ingest Protocol
 
-Version: 1.0
+Version: 1.1
 
 This document specifies the wire protocol between a CAMINA edge sensor and
 the backend. The protocol is plain HTTPS with Bearer-token auth — no MQTT, no
@@ -9,7 +9,7 @@ persistent connection. Rationale and alternatives are discussed in
 
 ## 1. Base URL
 
-    https://{HOST}/api/ingest
+    https://{HOST}
 
 All paths below are relative to that base. TLS 1.2 or newer is required.
 
@@ -33,30 +33,42 @@ MUST deduplicate based on the natural primary keys listed in
 
 ## 4. Endpoints
 
-### 4.1 `POST /v1/sensors/{id}/counts`
+### 4.1 `POST /api/ingest/sensors/{id}/counts`
 
 Windowed per-class counts produced by `WindowedCounter.maybe_rollover`.
 
 **Request body**:
 
     {
-      "schema_version": "1.0",
+      "schema_version": "1.1",
       "sensor_id": "cam-dub-01",
       "window_start": "2026-04-21T10:00:00Z",
       "window_end":   "2026-04-21T10:15:00Z",
       "partial": false,
-      "counts": {"person": 68, "cyclist": 91, "car": 310, "...": 0},
-      "avg_speed_kmh": {"person": 4.1, "cyclist": 18.3, "car": 32.7},
+      "counts": {"cyclist": 91, "car": 352},
+      "counts_by_direction": {
+        "AB": {"cyclist": 52, "car": 210},
+        "BA": {"cyclist": 39, "car": 142}
+      },
+      "avg_speed_kmh": {"car": 32.7},
       "config_version": "abc123",
       "fw_version": "0.2.0",
       "produced_at": "2026-04-21T10:15:00.342Z"
     }
 
+Screenline sensors include `counts_by_direction` with only `AB` and/or `BA`.
+For every class, its published direction values sum to `counts[class]`.
+Movement-mode sensors omit the field and use schema version `1.0`; old `1.0`
+payloads remain accepted. `avg_speed_kmh` is per class and is not directional.
+The edge suppresses every published count, daily total, direction cell, and
+speed below `k_min = 5`; a speed is included only when its published class
+count in that window is at least five.
+
 **Response 200**:
 
     { "ok": true, "latest_config_version": "abc123" }
 
-### 4.2 `POST /v1/sensors/{id}/daily`
+### 4.2 `POST /api/ingest/sensors/{id}/daily`
 
 Per-day cumulative totals published at 00:00 UTC, or on next boot with
 `"late": true` if the device missed the boundary.
@@ -75,7 +87,7 @@ Per-day cumulative totals published at 00:00 UTC, or on next boot with
       "produced_at": "2026-04-22T00:00:00.021Z"
     }
 
-### 4.3 `POST /v1/sensors/{id}/heartbeat`
+### 4.3 `POST /api/ingest/sensors/{id}/heartbeat`
 
 Observability signal emitted every ~5 min regardless of counts activity.
 
@@ -91,7 +103,7 @@ Observability signal emitted every ~5 min regardless of counts activity.
       "config_error": false
     }
 
-### 4.4 `GET /v1/sensors/{id}/config`
+### 4.4 `GET /api/ingest/sensors/{id}/config`
 
 Returns the latest configuration the backend wants the device to apply.
 The device fetches this lazily — only when a previous ingest response
@@ -137,7 +149,8 @@ dropped and a counter is surfaced in heartbeats.
 
 ## 8. Forward compatibility
 
-Payloads carry `schema_version` (current value `"1.0"`). The backend MUST
+Payloads carry `schema_version` (current counts versions are `"1.0"` and
+`"1.1"`). The backend MUST
 accept minor-version bumps that add optional fields without breaking older
 devices. Major-version bumps are coordinated via config rollout followed by
 firmware update.

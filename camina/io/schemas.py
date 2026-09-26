@@ -9,7 +9,9 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from camina.utils.taxonomy import load_canonical_classes
 
 SCHEMA_VERSION = "1.0"
 
@@ -28,10 +30,68 @@ class CountsPayload(BaseModel):
     window_end: datetime
     partial: bool
     counts: dict[str, int] = Field(default_factory=dict)
+    counts_by_direction: dict[str, dict[str, int]] | None = None
     avg_speed_kmh: dict[str, float] = Field(default_factory=dict)
     config_version: str
     fw_version: str
     produced_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+
+    @field_validator("counts")
+    @classmethod
+    def _valid_class_keys_and_values(cls, values: dict[str, Any]) -> dict[str, Any]:
+        allowed = set(load_canonical_classes())
+        for name, value in values.items():
+            if name not in allowed:
+                raise ValueError(f"unknown class: {name}")
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} counts must be nonnegative integers")
+            if value > 65535:
+                raise ValueError(f"{name} count exceeds 65535")
+        return values
+
+    @field_validator("avg_speed_kmh")
+    @classmethod
+    def _valid_speed_keys_and_values(cls, values: dict[str, float]) -> dict[str, float]:
+        allowed = set(load_canonical_classes())
+        for name, value in values.items():
+            if name not in allowed:
+                raise ValueError(f"unknown class: {name}")
+            if isinstance(value, bool) or value < 0:
+                raise ValueError(f"{name} speeds must be nonnegative")
+        return values
+
+    @field_validator("counts_by_direction")
+    @classmethod
+    def _valid_direction_records(
+        cls, value: dict[str, dict[str, int]] | None
+    ) -> dict[str, dict[str, int]] | None:
+        if value is None:
+            return value
+        if not value or set(value) - {"AB", "BA"}:
+            raise ValueError("counts_by_direction must contain AB and/or BA")
+        allowed = set(load_canonical_classes())
+        for direction, counts in value.items():
+            for name, count in counts.items():
+                if name not in allowed:
+                    raise ValueError(f"unknown class in {direction}: {name}")
+                if isinstance(count, bool) or not 0 <= count <= 65535:
+                    raise ValueError(f"{direction}.{name} must be between 0 and 65535")
+        return value
+
+    @model_validator(mode="after")
+    def _direction_invariant(self) -> CountsPayload:
+        if self.counts_by_direction is None:
+            self.schema_version = "1.0"
+            return self
+        self.schema_version = "1.1"
+        directional_totals: dict[str, int] = {}
+        for values in self.counts_by_direction.values():
+            for name, count in values.items():
+                directional_totals[name] = directional_totals.get(name, 0) + count
+        for name in set(self.counts) | set(directional_totals):
+            if self.counts.get(name, 0) != directional_totals.get(name, 0):
+                raise ValueError(f"AB+BA sum must equal counts for {name}")
+        return self
 
     @field_validator("window_start", "window_end", "produced_at")
     @classmethod

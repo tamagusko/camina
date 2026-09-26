@@ -18,7 +18,8 @@ model run at another size returns garbage boxes.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -32,6 +33,25 @@ from camina.utils.taxonomy import load_class_aliases
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class CountedTrack:
+    """Count-gate result that preserves the established two-value iteration API."""
+
+    track_id: str
+    class_name: str
+    direction: str
+
+    def __iter__(self) -> Iterator[str]:
+        yield self.track_id
+        yield self.class_name
+
+    def __getitem__(self, index: int | slice) -> str | tuple[str, ...]:
+        return (self.track_id, self.class_name)[index]
+
+
+DetectResult = tuple[str, str] | CountedTrack
+
+
 # ---------- Public API ----------
 
 
@@ -41,7 +61,7 @@ def make_detect_and_track(
     imgsz: int = 640,
     conf: float = 0.3,
     gate: CountGate | None = None,
-) -> Callable[[np.ndarray], Iterable[tuple[str, str]]]:
+) -> Callable[[np.ndarray], Iterable[DetectResult]]:
     """Build a ``detect_and_track(frame)`` closure wiring YOLO NCNN -> Sort.
 
     Args:
@@ -78,7 +98,7 @@ def make_detect_and_track(
     tracker = Sort()
     n_model_classes = len(model_names)
 
-    def detect_and_track(frame: np.ndarray) -> Iterable[tuple[str, str]]:
+    def detect_and_track(frame: np.ndarray) -> Iterable[DetectResult]:
         dets = _to_canonical(detector(frame), model_to_class, n_model_classes, conf)
         tracks = [
             (int(track_id), classes[int(cls)], (x1, y1, x2, y2))
@@ -92,7 +112,10 @@ def make_detect_and_track(
         for event in gate.step(((str(tid), box) for tid, _, box in tracks), size):
             name = class_of[event.key]
             logger.debug("counted %s-%s direction=%s", name, event.key, event.direction)
-            yield (f"{name}-{event.key}", name)
+            if event.direction is None:
+                yield (f"{name}-{event.key}", name)
+            else:
+                yield CountedTrack(f"{name}-{event.key}", name, event.direction)
 
     return detect_and_track
 

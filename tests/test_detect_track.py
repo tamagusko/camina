@@ -299,3 +299,4 @@ def test_a_vehicle_flickering_between_car_and_suv_is_counted_once_as_its_majorit
     seen = _run(monkeypatch, frames, gate)
 
     assert [cls for _, cls in seen] == ["car"]
+    assert seen[0].direction == "AB"
