@@ -27,6 +27,11 @@ from camina.io.schemas import (
 
 logger = logging.getLogger(__name__)
 
+# The server answers 422 {"error": "timestamp_in_future"} when a timestamp is
+# more than 60 s ahead of its clock (docs/PROTOCOL.md section 5). That is this
+# device's clock running fast, not a bad row: keep it and retry later.
+CLOCK_SKEW_ERROR = "timestamp_in_future"
+
 
 @dataclass(frozen=True)
 class PublisherResult:
@@ -54,6 +59,12 @@ class HttpsPublisher:
         self._sensor_id = sensor_id
         self._http = http_client
         self._outbox = outbox
+        self._clock_skew = False
+
+    @property
+    def clock_skew(self) -> bool:
+        """True while the server rejects this device's timestamps as in the future."""
+        return self._clock_skew
 
     # ---------- Public high-level API ----------
 
@@ -167,9 +178,19 @@ class HttpsPublisher:
                 content=item.payload,
                 idempotency_key=f"outbox-{item.id}",
             )
+            self._clock_skew = False
             return SendOutcome.SENT
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
+            if status == 422 and _error_code(exc.response) == CLOCK_SKEW_ERROR:
+                if not self._clock_skew:
+                    # No outbox calls here: drain holds the outbox lock.
+                    logger.error(
+                        "Server rejects timestamps as in the future: the device clock is "
+                        "fast. Keeping buffered rows until it is corrected."
+                    )
+                self._clock_skew = True
+                return SendOutcome.STOP
             # Permanent client errors (4xx, except transient 408/425/429) will
             # never succeed on replay — drop them so they can't wedge the FIFO.
             if 400 <= status < 500 and status not in (408, 425, 429):
@@ -206,6 +227,14 @@ class HttpsPublisher:
         except Exception:
             logger.warning("Unparseable ingest response: %r", content[:200])
             return None
+
+
+def _error_code(response: httpx.Response) -> str | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return body.get("error") if isinstance(body, dict) else None
 
 
 __all__ = ["HttpsPublisher", "PublisherResult"]

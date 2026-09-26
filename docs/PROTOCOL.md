@@ -148,6 +148,7 @@ applied.
 | 400 | Bad payload — **do not retry**; dead-letter locally. |
 | 401 / 403 | Auth failure — **do not retry**; surface in next heartbeat `auth_error=true`; admin must rotate the token. |
 | 404 | Unknown sensor — same as 401. |
+| 422 | Timestamp outside the server's window (counts `window_end`, heartbeat `ts`, daily `produced_at`; see §7). Body `{"error": "timestamp_in_future"}`: the device clock is fast — **keep the row** in the outbox, do not charge an attempt, log the clock skew, retry later. Body `{"error": "timestamp_too_old"}` or `"invalid_timestamp"`: permanent — drop the row. |
 | 408 / 425 / 429 / 5xx | Retry with exponential backoff (1 s → 60 s). Honour `Retry-After` on 429. |
 
 ## 6. Offline handling
@@ -167,6 +168,14 @@ branch.
 - All timestamps are ISO-8601 with an explicit `Z` UTC suffix.
 - The device requires NTP at boot. `produced_at` lets the backend detect and
   correct ordering when wall-clock drift occurs.
+- The server rejects with 422 a counts `window_end`, heartbeat `ts` or daily
+  `produced_at` more than 60 s ahead of its own clock (`timestamp_in_future`)
+  or more than 10 days behind it (`timestamp_too_old`). A fast device clock
+  therefore stops counts, dailies and heartbeats: the server sees the sensor go
+  silent, and the device keeps its counts and dailies buffered and logs the
+  skew until the clock is corrected (`HttpsPublisher.clock_skew`). A row is
+  accepted once server time reaches its timestamp minus 60 s, and dropped once
+  it is more than 10 days old.
 
 ## 8. Forward compatibility
 

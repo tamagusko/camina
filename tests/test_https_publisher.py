@@ -459,3 +459,57 @@ def test_publisher_drain_outbox_explicit_call(outbox: OfflineBuffer) -> None:
     assert drained == 2
     assert outbox.stats().pending == 0
     client.close()
+
+
+def _skew_publisher(outbox: OfflineBuffer, responses: list[httpx.Response]) -> HttpsPublisher:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return responses.pop(0)
+
+    client = HttpClient(
+        "https://api.test", token="t", retry=_fast_retry(), transport=httpx.MockTransport(handler)
+    )
+    return HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
+
+
+def test_outbox_item_rejected_for_clock_skew_is_kept_and_flagged(outbox: OfflineBuffer) -> None:
+    """A 422 timestamp_in_future means the device clock runs fast, not a bad row."""
+    outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
+    publisher = _skew_publisher(
+        outbox,
+        [
+            httpx.Response(422, json={"error": "timestamp_in_future"}),
+            httpx.Response(200, json={"ok": True, "latest_config_version": "v1"}),
+        ],
+    )
+
+    assert publisher.drain_outbox() == 0
+    assert outbox.stats().pending == 1
+    assert outbox.stats().poisoned == 0
+    assert outbox.peek(1)[0].attempts == 0
+    assert publisher.clock_skew is True
+
+    assert publisher.drain_outbox() == 1
+    assert outbox.stats().pending == 0
+    assert publisher.clock_skew is False
+
+
+def test_outbox_item_too_old_is_dropped(outbox: OfflineBuffer) -> None:
+    """A 422 timestamp_too_old can never be accepted; it is dropped as before."""
+    outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
+    publisher = _skew_publisher(outbox, [httpx.Response(422, json={"error": "timestamp_too_old"})])
+
+    assert publisher.drain_outbox() == 0
+    assert outbox.stats().pending == 0
+    assert outbox.stats().poisoned == 1
+    assert publisher.clock_skew is False
+
+
+def test_fresh_counts_rejected_for_clock_skew_stay_buffered(outbox: OfflineBuffer) -> None:
+    skew = httpx.Response(422, json={"error": "timestamp_in_future"})
+    publisher = _skew_publisher(outbox, [skew, skew])
+
+    result = publisher.post_counts(_window({"car": 3}), config_version="v1", fw_version="0.1.0")
+    assert result.buffered is True
+    assert publisher.drain_outbox() == 0
+    assert outbox.stats().pending == 1
+    assert publisher.clock_skew is True
