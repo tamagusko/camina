@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { Map as MaplibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { CITY_VIEWS, VIRIDIS_5, initialViewBounds, rampExpression, streetPaintStatus } from "@/lib/geo";
+import { CITY_VIEWS, VIRIDIS_5, initialViewBounds, mapColourValue, rampExpression, streetPaintStatus } from "@/lib/geo";
 import { formatDublinTime } from "@/lib/format-time";
 import type { Metric, MetricValue, RoadUserClass, StreetSummary, TimeWindow } from "@/lib/types";
 import { ClassFilter } from "./ClassFilter";
@@ -14,6 +14,7 @@ import { useMapQuery, type Viewport } from "./useMapQuery";
 
 const MAPLIBRE_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
 const BASEMAP = { light: "https://tiles.openfreemap.org/styles/positron", dark: "https://tiles.openfreemap.org/styles/dark" };
+interface Shown { rows: MetricValue[]; metric: Metric; timeWindow: TimeWindow; }
 interface Props { city: string; streets: StreetSummary[]; initialMetrics: MetricValue[]; onSelectStreet?: (streetId: string) => void; }
 
 export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Props) {
@@ -24,13 +25,15 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Pro
   const [metric, setMetric] = useState<Metric>("counts");
   const [selectedClass, setSelectedClass] = useState<RoadUserClass | null>(null);
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("now");
-  const [metrics, setMetrics] = useState(initialMetrics);
+  // Rows are kept with the metric and window they were fetched for, so the map
+  // never colours old rows by a newly selected window's scale.
+  const [shown, setShown] = useState<Shown>({ rows: initialMetrics, metric: "counts", timeWindow: "now" });
   const [mapReady, setMapReady] = useState(false);
   const [streetsOpen, setStreetsOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   const fallback = useMemo<Viewport>(() => CITY_VIEWS[city] ?? { center: [-6.26, 53.35], zoom: 13 }, [city]);
   const { viewport, attachTo, pinned } = useMapQuery(fallback);
-  const lastSeen = metrics.map((m) => m.lastSeen).filter((v): v is string => !!v).sort().at(-1);
+  const lastSeen = shown.rows.map((m) => m.lastSeen).filter((v): v is string => !!v).sort().at(-1);
 
   useEffect(() => { if (streetsOpen) listRef.current?.querySelector("button")?.focus(); }, [streetsOpen]);
 
@@ -48,7 +51,7 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Pro
     url.searchParams.set("window", timeWindow);
     if (selectedClass) url.searchParams.set("class", selectedClass);
     let cancelled = false;
-    const run = () => fetch(url.toString(), { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("Metrics unavailable"); return r.json() as Promise<MetricValue[]>; }).then((data) => { if (!cancelled) setMetrics(data); }).catch(() => {});
+    const run = () => fetch(url.toString(), { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("Metrics unavailable"); return r.json() as Promise<MetricValue[]>; }).then((rows) => { if (!cancelled) setShown({ rows, metric, timeWindow }); }).catch(() => {});
     run();
     const refresh = setInterval(run, 5 * 60_000);
     return () => { cancelled = true; clearInterval(refresh); };
@@ -63,9 +66,9 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Pro
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     map.addControl(new maplibregl.AttributionControl({ compact: window.innerWidth < 768 }), "bottom-right");
     map.on("load", () => {
-      map.addSource("streets", { type: "geojson", data: featureCollection(streets, metrics) });
+      map.addSource("streets", { type: "geojson", data: featureCollection(streets, shown) });
       map.addLayer({ id: "streets-casing", type: "line", source: "streets", filter: ["==", ["get", "status"], "live"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": getComputedStyle(document.documentElement).getPropertyValue("--ink-1").trim(), "line-opacity": .85, "line-width": 7 } });
-      map.addLayer({ id: "streets-visible", type: "line", source: "streets", filter: ["!=", ["get", "status"], "stale"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["case", ["==", ["get", "status"], "suppressed"], getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim(), rampExpression(VIRIDIS_5, metric)] as unknown as maplibregl.ExpressionSpecification, "line-width": ["case", ["==", ["get", "status"], "suppressed"], 3, 4] as maplibregl.ExpressionSpecification } });
+      map.addLayer({ id: "streets-visible", type: "line", source: "streets", filter: ["!=", ["get", "status"], "stale"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["case", ["==", ["get", "status"], "suppressed"], getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim(), rampExpression(VIRIDIS_5, shown.metric)] as unknown as maplibregl.ExpressionSpecification, "line-width": ["case", ["==", ["get", "status"], "suppressed"], 3, 4] as maplibregl.ExpressionSpecification } });
       map.addLayer({ id: "streets-stale", type: "line", source: "streets", filter: ["==", ["get", "status"], "stale"], layout: { "line-cap": "butt" }, paint: { "line-color": getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim(), "line-width": 3, "line-dasharray": [2, 2] } });
       map.addLayer({ id: "streets-hit", type: "line", source: "streets", paint: { "line-color": "#000", "line-opacity": 0, "line-width": 22 } });
       map.on("click", "streets-hit", (event) => { const id = event.features?.[0]?.properties?.street_id as string | undefined; if (id) onSelectStreet?.(id); });
@@ -87,9 +90,9 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Pro
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    (map.getSource("streets") as maplibregl.GeoJSONSource).setData(featureCollection(streets, metrics));
-    map.setPaintProperty("streets-visible", "line-color", ["case", ["==", ["get", "status"], "suppressed"], getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim(), rampExpression(VIRIDIS_5, metric)] as unknown as maplibregl.ExpressionSpecification);
-  }, [streets, metrics, metric, mapReady]);
+    (map.getSource("streets") as maplibregl.GeoJSONSource).setData(featureCollection(streets, shown));
+    map.setPaintProperty("streets-visible", "line-color", ["case", ["==", ["get", "status"], "suppressed"], getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim(), rampExpression(VIRIDIS_5, shown.metric)] as unknown as maplibregl.ExpressionSpecification);
+  }, [streets, shown, mapReady]);
 
   return <div className="relative h-[100dvh] w-full overflow-hidden bg-bg">
     <div ref={containerRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
@@ -105,9 +108,9 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Pro
       <div className="pointer-events-auto absolute right-4 top-4 hidden w-[250px] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:flex md:flex-col md:gap-2">
         <MetricToggle value={metric} onChange={setMetric} /><ClassFilter selected={selectedClass} onChange={setSelectedClass} /><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} />
       </div>
-      <div className="pointer-events-auto absolute bottom-4 left-4 hidden w-[300px] md:block"><ColourLegend metric={metric} /></div>
+      <div className="pointer-events-auto absolute bottom-4 left-4 hidden w-[300px] md:block"><ColourLegend metric={metric} timeWindow={timeWindow} /></div>
       <div className="pointer-events-auto absolute bottom-4 left-4 right-4 rounded-md border border-line bg-surface p-2 shadow-[var(--card-shadow)] md:hidden">
-        <ColourLegend metric={metric} compact />
+        <ColourLegend metric={metric} timeWindow={timeWindow} compact />
         <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-2"><MetricToggle value={metric} onChange={setMetric} /><ClassFilter selected={selectedClass} onChange={setSelectedClass} /></div>
         <div className="mt-2 flex justify-center"><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} /></div>
       </div>
@@ -115,11 +118,11 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Pro
   </div>;
 }
 
-function featureCollection(streets: StreetSummary[], metrics: MetricValue[]): GeoJSON.FeatureCollection<GeoJSON.MultiLineString> {
-  const byId = new Map(metrics.map((row) => [row.streetId, row]));
+function featureCollection(streets: StreetSummary[], { rows, metric, timeWindow }: Shown): GeoJSON.FeatureCollection<GeoJSON.MultiLineString> {
+  const byId = new Map(rows.map((row) => [row.streetId, row]));
   return { type: "FeatureCollection", features: streets.map((street) => {
     const row = byId.get(street.id);
     const status = streetPaintStatus(row);
-    return { type: "Feature", id: street.id, geometry: street.geom, properties: { street_id: street.id, status, metric: row?.value ?? 0 } };
+    return { type: "Feature", id: street.id, geometry: street.geom, properties: { street_id: street.id, status, metric: mapColourValue(row?.value ?? 0, metric, timeWindow) } };
   }) };
 }

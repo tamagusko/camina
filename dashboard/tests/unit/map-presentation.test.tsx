@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ColourLegend } from "@/components/map/ColourLegend";
-import { rampExpression, streetPaintStatus, VIRIDIS_5 } from "@/lib/geo";
+import { mapColourValue, rampExpression, streetPaintStatus, VIRIDIS_5 } from "@/lib/geo";
 import { ROAD_USER_CLASSES, type MetricValue } from "@/lib/types";
 
 const zeros = Object.fromEntries(ROAD_USER_CLASSES.map((c) => [c, 0])) as MetricValue["classBreakdown"];
@@ -36,6 +36,24 @@ describe("map colour ramp", () => {
     expect(evaluate(counts, { metric: 300 })).toBe(VIRIDIS_5[3]);
     expect(evaluate(counts, { metric: 900 })).toBe(VIRIDIS_5[4]);
     expect(evaluate(rampExpression(VIRIDIS_5, "speed"), { metric: 25 })).toBe(VIRIDIS_5[2]);
+  });
+});
+
+describe("legend stays true in every window", () => {
+  it("colours counts by the mean per 15 min", () => {
+    expect(mapColourValue(40, "counts", "now")).toBe(40);
+    expect(mapColourValue(96 * 40, "counts", "24h")).toBe(40);
+    expect(mapColourValue(672 * 300, "counts", "7d")).toBe(300);
+    expect(evaluate(rampExpression(VIRIDIS_5, "counts"), { metric: mapColourValue(100_000, "counts", "7d") })).toBe(VIRIDIS_5[2]);
+  });
+  it("leaves speed alone (already an average)", () => {
+    expect(mapColourValue(25, "speed", "7d")).toBe(25);
+  });
+  it("names the average in the legend title", () => {
+    expect(renderToStaticMarkup(<ColourLegend metric="counts" timeWindow="now" />)).toContain("Road users per 15 min</p>");
+    expect(renderToStaticMarkup(<ColourLegend metric="counts" timeWindow="24h" />)).toContain("Road users per 15 min · 24 h average");
+    expect(renderToStaticMarkup(<ColourLegend metric="counts" timeWindow="7d" />)).toContain("Road users per 15 min · 7 d average");
+    expect(renderToStaticMarkup(<ColourLegend metric="speed" timeWindow="7d" />)).toContain("Speed · km/h");
   });
 });
 

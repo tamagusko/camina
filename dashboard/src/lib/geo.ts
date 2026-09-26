@@ -1,4 +1,4 @@
-import type { MetricValue, StreetSummary } from "./types";
+import type { Metric, MetricValue, StreetSummary, TimeWindow } from "./types";
 
 export const VIRIDIS_5 = ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"];
 
@@ -63,4 +63,12 @@ export function rampExpression(ramp: readonly string[], metric: "counts" | "spee
   const thresholds = metric === "counts" ? [25, 75, 200, 500] : [10, 20, 30, 50];
   return ["step", ["coalesce", ["to-number", ["get", "metric"]], 0], ramp[0],
     ...thresholds.flatMap((threshold, index) => [threshold, ramp[index + 1]])];
+}
+
+const BUCKETS_PER_WINDOW: Record<TimeWindow, number> = { now: 1, "1h": 4, "24h": 96, "7d": 672, "30d": 2880 };
+
+/** The value a street is coloured by: counts as the mean per 15 min, so one
+ *  legend holds in every window; speed is already an average. */
+export function mapColourValue(value: number, metric: Metric, window: TimeWindow): number {
+  return metric === "counts" ? value / BUCKETS_PER_WINDOW[window] : value;
 }
