@@ -182,8 +182,12 @@ def test_publisher_posts_counts_successfully(outbox: OfflineBuffer) -> None:
     assert received[-1]["sensor_id"] == "cam-01"
     assert received[-1]["schema_version"] == "1.0"
     assert "counts_by_direction" not in received[-1]
-    assert received[-1]["counts"] == {"person": 5, "car": 10}
-    assert received[-1]["avg_speed_kmh"] == {"person": 4.0, "car": 28.0}
+    assert received[-1]["counts"] == {"person": 5, "cyclist": 2, "car": 10}
+    assert received[-1]["avg_speed_kmh"] == {
+        "person": 4.0,
+        "cyclist": 12.0,
+        "car": 28.0,
+    }
     client.close()
 
 
@@ -202,16 +206,19 @@ def test_publisher_emits_directional_schema_version(outbox: OfflineBuffer) -> No
         snapshot=WindowSnapshot(
             window_start=datetime(2026, 4, 21, 10, tzinfo=UTC),
             window_end=datetime(2026, 4, 21, 10, 15, tzinfo=UTC),
-            counts={"car": 10, "person": 7},
+            counts={"car": 7, "person": 7},
             partial=False,
-            counts_by_direction={"AB": {"car": 5, "person": 2}, "BA": {"car": 4, "person": 5}},
+            counts_by_direction={"AB": {"car": 3, "person": 2}, "BA": {"car": 4, "person": 5}},
         ),
         config_version="v1",
         fw_version="0.2.0",
     )
     assert received[0]["schema_version"] == "1.1"
-    assert received[0]["counts"] == {"car": 5, "person": 5}
-    assert received[0]["counts_by_direction"] == {"AB": {"car": 5}, "BA": {"person": 5}}
+    assert received[0]["counts"] == {"car": 7, "person": 7}
+    assert received[0]["counts_by_direction"] == {
+        "AB": {"car": 3, "person": 2},
+        "BA": {"car": 4, "person": 5},
+    }
     client.close()
 
 
@@ -291,7 +298,7 @@ def test_publisher_drains_outbox_on_next_success(outbox: OfflineBuffer) -> None:
     assert outbox.stats().pending == 0
     # Server saw: the two buffered payloads (person=1, then person=2), then the fresh (person=99).
     person_values = [r["counts"].get("person", 0) for r in state["received"]]
-    assert person_values == [0, 0, 99]
+    assert person_values == [1, 2, 99]
     client.close()
 
 
@@ -318,7 +325,7 @@ def test_publisher_posts_daily(outbox: OfflineBuffer) -> None:
     assert payloads[-1]["day"] == "2026-04-21"
     assert payloads[-1]["late"] is True
     assert payloads[-1]["totals"]["person"] == 100
-    assert "e-scooter" not in payloads[-1]["totals"]
+    assert payloads[-1]["totals"]["e-scooter"] == 4
     client.close()
 
 

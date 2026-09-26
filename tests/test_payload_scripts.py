@@ -31,21 +31,22 @@ def test_one_day_stream_is_deterministic_and_covers_all_endpoints() -> None:
     )
 
 
-def test_published_payloads_respect_direction_and_speed_privacy() -> None:
+def test_edge_payloads_preserve_raw_direction_and_speed_values() -> None:
     rows = generate_payloads(days=1, seed=0)
     counts = [row["body"] for row in rows if row["endpoint"] == "counts"]
+    small_cells: list[int] = []
     for body in counts:
         for direction in body["counts_by_direction"].values():
-            assert all(value >= 5 for value in direction.values())
-        totals: dict[str, int] = {}
+            small_cells.extend(value for value in direction.values() if 1 <= value <= 4)
+        totals = dict.fromkeys(body["counts"], 0)
         for direction in body["counts_by_direction"].values():
             for name, value in direction.items():
                 totals[name] = totals.get(name, 0) + value
         assert body["counts"] == totals
-        assert all(body["counts"].get(name, 0) >= 5 for name in body["avg_speed_kmh"])
         assert set(body["avg_speed_kmh"]).issubset(
             {"cyclist", "e-scooter", "car", "SUV", "motorcyclist", "bus", "delivery_van", "truck"}
         )
+    assert small_cells
 
 
 def test_replay_uses_bearer_token_and_posts_in_file_order(

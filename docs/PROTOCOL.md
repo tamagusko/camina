@@ -57,12 +57,15 @@ Windowed per-class counts produced by `WindowedCounter.maybe_rollover`.
     }
 
 Screenline sensors include `counts_by_direction` with only `AB` and/or `BA`.
-For every class, its published direction values sum to `counts[class]`.
+For every class, its raw direction values sum to `counts[class]`.
 Movement-mode sensors omit the field and use schema version `1.0`; old `1.0`
 payloads remain accepted. `avg_speed_kmh` is per class and is not directional.
-The edge suppresses every published count, daily total, direction cell, and
-speed below `k_min = 5`; a speed is included only when its published class
-count in that window is at least five.
+The edge sends raw measured window counts, direction cells, daily totals, and
+average speeds to its authenticated server. It does not apply `k_min` on the
+wire. The dashboard applies `k_min = 5` at public API read time, after summing
+the relevant windows, so small per-window cells contribute to larger displayed
+aggregates. The edge sends an average speed for every class it measured; the
+server hides that speed when the class count in the displayed bucket is below 5.
 
 **Response 200**:
 

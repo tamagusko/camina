@@ -26,7 +26,6 @@ from camina.io.schemas import (
 )
 
 logger = logging.getLogger(__name__)
-K_MIN = 5
 
 
 @dataclass(frozen=True)
@@ -65,33 +64,14 @@ class HttpsPublisher:
         fw_version: str,
         avg_speed_kmh: dict[str, float] | None = None,
     ) -> PublisherResult:
-        counts_by_direction = None
-        if snapshot.counts_by_direction is None:
-            counts = {name: count for name, count in snapshot.counts.items() if count >= K_MIN}
-        else:
-            counts_by_direction = {
-                direction: {
-                    name: count for name, count in direction_counts.items() if count >= K_MIN
-                }
-                for direction, direction_counts in snapshot.counts_by_direction.items()
-            }
-            counts = {}
-            for direction_counts in counts_by_direction.values():
-                for name, count in direction_counts.items():
-                    counts[name] = counts.get(name, 0) + count
-        safe_speeds = {
-            name: speed
-            for name, speed in (avg_speed_kmh or {}).items()
-            if counts.get(name, 0) >= K_MIN
-        }
         payload = CountsPayload(
             sensor_id=self._sensor_id,
             window_start=snapshot.window_start,
             window_end=snapshot.window_end,
             partial=snapshot.partial,
-            counts=counts,
-            counts_by_direction=counts_by_direction,
-            avg_speed_kmh=safe_speeds,
+            counts=snapshot.counts,
+            counts_by_direction=snapshot.counts_by_direction,
+            avg_speed_kmh=avg_speed_kmh or {},
             config_version=config_version,
             fw_version=fw_version,
         )
@@ -106,7 +86,7 @@ class HttpsPublisher:
         payload = DailyPayload(
             sensor_id=self._sensor_id,
             day=snapshot.day,
-            totals={name: count for name, count in snapshot.totals.items() if count >= K_MIN},
+            totals=snapshot.totals,
             window_count=snapshot.window_count,
             late=snapshot.late,
             config_version=config_version,

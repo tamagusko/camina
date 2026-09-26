@@ -81,7 +81,7 @@ def test_windowed_counter_feeds_publisher_end_to_end(tmp_path: Path) -> None:
     assert len(received) == 1
     body = received[0]
     assert body["sensor_id"] == "cam-01"
-    assert body["counts"] == {}  # Both class cells are below k_min=5.
+    assert body["counts"] == {"person": 2, "cyclist": 1, "car": 0}
 
     outbox.close()
     client.close()
@@ -200,7 +200,7 @@ def test_stop_flushes_open_window(tmp_path: Path) -> None:
 
     assert len(received) == 1
     assert received[0]["partial"] is True
-    assert received[0]["counts"] == {}  # Both class cells are below k_min=5.
+    assert received[0]["counts"]["person"] == 1
     assert len(recorded) == 1
     assert recorded[0].counts["person"] == 1
     daemon._test_client.close()  # type: ignore[attr-defined]
@@ -289,7 +289,7 @@ def test_publish_worker_drains_enqueued_counts_on_stop(tmp_path: Path) -> None:
         daemon.stop()  # sentinel drains the queue and joins the worker
 
         assert len(received) == 1
-        assert received[0]["counts"] == {}  # The class cell is below k_min=5.
+        assert received[0]["counts"]["person"] == 4
         assert daemon._publish_queue.empty()
         assert not daemon._worker_thread.is_alive()
     finally:

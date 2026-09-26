@@ -102,24 +102,20 @@ def _window_body(
         total = _poisson(rng, rate * factor)
         raw[road_user_class] = _split_direction(rng, total, midpoint)
 
-    # Apply k_min to each direction cell first. Counts reflect only published
-    # direction cells so AB + BA remains exact after privacy suppression.
+    # Preserve raw window values on the authenticated edge-to-server wire.
+    # Public-read suppression happens after windows have been aggregated.
     directional: dict[str, dict[str, int]] = {"AB": {}, "BA": {}}
     counts: dict[str, int] = {}
     for road_user_class, (ab, ba) in raw.items():
-        if ab >= 5:
+        if ab:
             directional["AB"][road_user_class] = ab
-        if ba >= 5:
+        if ba:
             directional["BA"][road_user_class] = ba
-        published = directional["AB"].get(road_user_class, 0) + directional["BA"].get(
-            road_user_class, 0
-        )
-        if published:
-            counts[road_user_class] = published
+        counts[road_user_class] = ab + ba
 
     speeds: dict[str, float] = {}
     for road_user_class, count in counts.items():
-        if road_user_class in VEHICLE_CLASSES and count >= 5:
+        if road_user_class in VEHICLE_CLASSES and count > 0:
             mean_speed = {
                 "car": 31,
                 "cyclist": 16,
@@ -198,11 +194,10 @@ def generate_payloads(
 
         if window_end.hour == 0 and window_end.minute == 0:
             day = (window_end - timedelta(days=1)).date()
-            daily_totals = {name: count for name, count in totals.items() if count >= 5}
             daily = DailyPayload(
                 sensor_id=SENSOR_ID,
                 day=day,
-                totals=daily_totals,
+                totals=totals,
                 window_count=96,
                 late=False,
                 config_version=CONFIG_VERSION,
