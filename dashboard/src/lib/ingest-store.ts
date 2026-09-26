@@ -23,7 +23,7 @@ type Db = ReturnType<typeof db>;
 // zod already caps window_end at 24 h in the future; this is the tighter
 // server policy. Past bound is generous to accept buffered replays.
 const MAX_FUTURE_SKEW_MS = 60 * 1000; // 60 s
-const MAX_PAST_SKEW_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const MAX_PAST_SKEW_MS = 10 * 24 * 60 * 60 * 1000; // 10 days
 
 export interface SkewRejection {
   status: 422;
@@ -136,6 +136,8 @@ export interface ReadingRow {
   className: string;
   count: number;
   avgSpeedKmh: number | null;
+  directionAbCount: number | null;
+  directionBaCount: number | null;
   partial: boolean;
 }
 
@@ -148,6 +150,7 @@ export function buildCountsRows(
   const windowEnd = new Date(payload.window_end);
   const speeds = payload.avg_speed_kmh as Record<string, number | undefined>;
   const counts = payload.counts as Record<string, number | undefined>;
+  const directions = payload.counts_by_direction;
   return Object.entries(counts).map(([className, count]) => ({
     sensorId,
     windowStart,
@@ -155,6 +158,10 @@ export function buildCountsRows(
     className,
     count: count ?? 0,
     avgSpeedKmh: speeds[className] ?? null,
+    directionAbCount: directions?.AB?.[className as keyof typeof directions.AB] ??
+      (directions ? 0 : null),
+    directionBaCount: directions?.BA?.[className as keyof typeof directions.BA] ??
+      (directions ? 0 : null),
     partial: payload.partial,
   }));
 }
@@ -191,6 +198,8 @@ export async function persistCounts(
         windowEnd: sql`excluded.window_end`,
         count: sql`excluded.count`,
         avgSpeedKmh: sql`excluded.avg_speed_kmh`,
+        directionAbCount: sql`excluded.direction_ab_count`,
+        directionBaCount: sql`excluded.direction_ba_count`,
         partial: sql`excluded.partial`,
         receivedAt: sql`now()`,
       },

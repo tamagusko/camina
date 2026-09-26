@@ -4,6 +4,7 @@ import {
   dailyPayloadSchema,
   heartbeatPayloadSchema,
   readingsQuerySchema,
+  sensorConfigResponseSchema,
 } from "@/lib/schemas";
 
 describe("countsPayloadSchema", () => {
@@ -80,6 +81,101 @@ describe("countsPayloadSchema", () => {
   it("rejects missing sensor_id", () => {
     const { sensor_id: _omit, ...rest } = valid;
     expect(() => countsPayloadSchema.parse(rest)).toThrow();
+  });
+
+  it("accepts schema 1.1 direction counts whose cells sum to each class total", () => {
+    const directional = {
+      ...valid,
+      schema_version: "1.1",
+      counts_by_direction: {
+        AB: { person: 40, cyclist: 91 },
+        BA: { person: 28 },
+      },
+    };
+    expect(() => countsPayloadSchema.parse(directional)).not.toThrow();
+  });
+
+  it("rejects unknown direction and class keys", () => {
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        schema_version: "1.1",
+        counts_by_direction: { north: { person: 68 } },
+      })
+    ).toThrow();
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        schema_version: "1.1",
+        counts_by_direction: { AB: { unicycle: 68 } },
+      })
+    ).toThrow();
+  });
+
+  it("rejects direction cells outside the count bounds", () => {
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        schema_version: "1.1",
+        counts_by_direction: { AB: { person: 65536 } },
+      })
+    ).toThrow();
+  });
+
+  it("rejects direction totals that do not equal counts", () => {
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        schema_version: "1.1",
+        counts_by_direction: { AB: { person: 40 }, BA: { person: 27 } },
+      })
+    ).toThrow();
+  });
+
+  it("requires schema 1.1 when direction is present and 1.0 when absent", () => {
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        counts_by_direction: { AB: { person: 68, cyclist: 91 } },
+      })
+    ).toThrow();
+    expect(() =>
+      countsPayloadSchema.parse({ ...valid, schema_version: "1.1" })
+    ).toThrow();
+  });
+});
+
+describe("sensorConfigResponseSchema", () => {
+  const config = {
+    config_version: "cfg-2",
+    publish_interval_minutes: 15,
+    heartbeat_interval_minutes: 5,
+    daily_publish_time_utc: "00:00",
+    detection_zone: null,
+    frame_skip: 5,
+    min_track_hits: 3,
+  };
+
+  it("accepts the config response consumed by the edge poller", () => {
+    expect(sensorConfigResponseSchema.parse(config)).toEqual(config);
+  });
+
+  it("applies the edge schema defaults", () => {
+    const { daily_publish_time_utc: _time, detection_zone: _zone, ...minimal } =
+      config;
+    expect(sensorConfigResponseSchema.parse(minimal)).toMatchObject({
+      daily_publish_time_utc: "00:00",
+      detection_zone: null,
+    });
+  });
+
+  it("rejects invalid or unknown config fields", () => {
+    expect(() =>
+      sensorConfigResponseSchema.parse({ ...config, frame_skip: 0 })
+    ).toThrow();
+    expect(() =>
+      sensorConfigResponseSchema.parse({ ...config, debug: true })
+    ).toThrow();
   });
 });
 

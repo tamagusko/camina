@@ -1,6 +1,6 @@
 # CAMINA Ingest Protocol
 
-Version: 1.0
+Version: 1.1
 
 This document specifies the wire protocol between a CAMINA edge sensor and
 the backend. The protocol is plain HTTPS with Bearer-token auth — no MQTT, no
@@ -40,17 +40,29 @@ Windowed per-class counts produced by `WindowedCounter.maybe_rollover`.
 **Request body**:
 
     {
-      "schema_version": "1.0",
+      "schema_version": "1.1",
       "sensor_id": "cam-dub-01",
       "window_start": "2026-04-21T10:00:00Z",
       "window_end":   "2026-04-21T10:15:00Z",
       "partial": false,
-      "counts": {"person": 68, "cyclist": 91, "car": 310, "...": 0},
+      "counts": {"person": 68, "cyclist": 91, "car": 310},
+      "counts_by_direction": {
+        "AB": {"person": 40, "cyclist": 51, "car": 170},
+        "BA": {"person": 28, "cyclist": 40, "car": 140}
+      },
       "avg_speed_kmh": {"person": 4.1, "cyclist": 18.3, "car": 32.7},
       "config_version": "abc123",
       "fw_version": "0.2.0",
       "produced_at": "2026-04-21T10:15:00.342Z"
     }
+
+`counts_by_direction` is optional. A sensor using a screenline sends it and
+sets `schema_version` to `"1.1"`; a sensor using movement mode omits it and
+continues to send `"1.0"`. Its only allowed direction keys are `AB` and `BA`,
+and its inner keys use the same road-user classes and integer range (0–65535)
+as `counts`. For every class, a missing direction cell counts as zero and
+`AB + BA` MUST equal `counts[class]`. The backend rejects violations with 400.
+`avg_speed_kmh` remains per class rather than per direction.
 
 **Response 200**:
 
@@ -137,7 +149,7 @@ dropped and a counter is surfaced in heartbeats.
 
 ## 8. Forward compatibility
 
-Payloads carry `schema_version` (current value `"1.0"`). The backend MUST
-accept minor-version bumps that add optional fields without breaking older
-devices. Major-version bumps are coordinated via config rollout followed by
+Payloads carry `schema_version` (current value `"1.1"` for directional counts;
+legacy non-directional counts remain `"1.0"`). The backend accepts both forms.
+Future major-version bumps are coordinated via config rollout followed by
 firmware update.

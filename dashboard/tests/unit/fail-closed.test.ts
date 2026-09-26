@@ -71,6 +71,18 @@ describe("verifyCron — fail closed in production (M3)", () => {
 });
 
 describe("verifyIngestToken — timing-safe dev token (H6)", () => {
+  it("never accepts the shared dev token in live mode", async () => {
+    vi.stubEnv("CAMINA_DATA_SOURCE", "live");
+    vi.stubEnv("CAMINA_DEV_INGEST_TOKEN", "dev-token");
+    vi.resetModules();
+    const { verifyIngestToken } = await import("@/lib/ingest-auth");
+    const deps = {
+      getSensorTokenHash: async () => null,
+      findSensorIdByTokenHash: async () => null,
+    };
+    expect((await verifyIngestToken(req("Bearer dev-token"), "D01", deps))?.status).toBe(401);
+  });
+
   it("accepts the dev token", async () => {
     vi.stubEnv("CAMINA_DEV_INGEST_TOKEN", "dev-token");
     vi.resetModules();

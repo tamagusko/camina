@@ -27,6 +27,15 @@ const classCountsSchema = z.record(
   z.number().int().min(0).max(MAX_COUNT)
 );
 const classSpeedsSchema = z.record(classSchema, z.number().nonnegative());
+const directionCountsSchema = z
+  .object({
+    AB: classCountsSchema.optional(),
+    BA: classCountsSchema.optional(),
+  })
+  .strict()
+  .refine((value) => value.AB !== undefined || value.BA !== undefined, {
+    message: "counts_by_direction must contain AB and/or BA",
+  });
 
 export const countsPayloadSchema = z
   .object({
@@ -36,6 +45,7 @@ export const countsPayloadSchema = z
     window_end: z.string().datetime(),
     partial: z.boolean(),
     counts: classCountsSchema,
+    counts_by_direction: directionCountsSchema.optional(),
     avg_speed_kmh: classSpeedsSchema.default({}),
     config_version: z.string(),
     fw_version: z.string(),
@@ -64,7 +74,51 @@ export const countsPayloadSchema = z
         message: "window must not lie more than 24 h in the future",
       });
     }
+    const expectedVersion = p.counts_by_direction ? "1.1" : "1.0";
+    if (p.schema_version !== expectedVersion) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["schema_version"],
+        message: `schema_version must be ${expectedVersion}`,
+      });
+    }
+    if (p.counts_by_direction) {
+      const ab = p.counts_by_direction.AB ?? {};
+      const ba = p.counts_by_direction.BA ?? {};
+      const classes = new Set([
+        ...Object.keys(p.counts),
+        ...Object.keys(ab),
+        ...Object.keys(ba),
+      ]);
+      for (const className of classes) {
+        const total = p.counts[className as keyof typeof p.counts] ?? 0;
+        const directionTotal =
+          (ab[className as keyof typeof ab] ?? 0) +
+          (ba[className as keyof typeof ba] ?? 0);
+        if (directionTotal !== total) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["counts_by_direction", className],
+            message: "AB + BA must equal counts for every class",
+          });
+        }
+      }
+    }
   });
+
+const utcTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+
+export const sensorConfigResponseSchema = z
+  .object({
+    config_version: z.string(),
+    publish_interval_minutes: z.number().int().min(1).max(1440),
+    heartbeat_interval_minutes: z.number().int().min(1).max(60),
+    daily_publish_time_utc: utcTimeSchema.default("00:00"),
+    detection_zone: z.record(z.string(), z.unknown()).nullable().default(null),
+    frame_skip: z.number().int().min(1).max(120),
+    min_track_hits: z.number().int().min(1).max(20),
+  })
+  .strict();
 
 export const dailyPayloadSchema = z.object({
   schema_version: z.string(),
@@ -97,3 +151,4 @@ export const heartbeatPayloadSchema = z
 export type CountsPayload = z.infer<typeof countsPayloadSchema>;
 export type DailyPayload = z.infer<typeof dailyPayloadSchema>;
 export type HeartbeatPayload = z.infer<typeof heartbeatPayloadSchema>;
+export type SensorConfigResponse = z.infer<typeof sensorConfigResponseSchema>;

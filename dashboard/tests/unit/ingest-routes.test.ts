@@ -11,6 +11,10 @@ interface CountsBody {
   window_end: string;
   partial: boolean;
   counts: Record<string, number>;
+  counts_by_direction?: {
+    AB?: Record<string, number>;
+    BA?: Record<string, number>;
+  };
   avg_speed_kmh: Record<string, number>;
   config_version: string;
   fw_version: string;
@@ -20,7 +24,7 @@ interface CountsBody {
 function countsBody(overrides: Partial<CountsBody> = {}): CountsBody {
   const now = Date.now();
   return {
-    schema_version: "1",
+    schema_version: "1.0",
     sensor_id: "D01",
     window_start: new Date(now - 901_000).toISOString(),
     window_end: new Date(now - 1_000).toISOString(),
@@ -112,6 +116,26 @@ describe("POST /api/ingest/sensors/[id]/counts — mock mode", () => {
     );
     expect(res.status).toBe(400);
   });
+
+  it("rejects direction totals that violate the counts invariant (400)", async () => {
+    vi.stubEnv("CAMINA_DEV_INGEST_TOKEN", DEV_TOKEN);
+    vi.resetModules();
+    const { POST } = await import(
+      "@/app/api/ingest/sensors/[id]/counts/route"
+    );
+    const res = await POST(
+      postRequest(
+        countsBody({
+          schema_version: "1.1",
+          counts_by_direction: { AB: { car: 2 }, BA: { car: 2 } },
+        }),
+        DEV_TOKEN
+      ),
+      ctx
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "bad_payload" });
+  });
 });
 
 describe("verifyIngestToken — per-sensor lookup (H6)", () => {
@@ -175,6 +199,31 @@ describe("ingest-store — pure upsert/skew logic (H2/H5)", () => {
     expect(person?.avgSpeedKmh).toBeNull();
   });
 
+  it("fans direction cells into nullable AB/BA columns", async () => {
+    const { buildCountsRows } = await import("@/lib/ingest-store");
+    const directional = countsBody({
+      schema_version: "1.1",
+      counts_by_direction: {
+        AB: { car: 2, person: 1 },
+        BA: { car: 1 },
+      },
+    });
+    const rows = buildCountsRows(directional, "D01");
+    expect(rows.find((r) => r.className === "car")).toMatchObject({
+      directionAbCount: 2,
+      directionBaCount: 1,
+    });
+    expect(rows.find((r) => r.className === "person")).toMatchObject({
+      directionAbCount: 1,
+      directionBaCount: 0,
+    });
+    const legacy = buildCountsRows(countsBody(), "D01");
+    expect(legacy[0]).toMatchObject({
+      directionAbCount: null,
+      directionBaCount: null,
+    });
+  });
+
   it("enforces the partial-promotion rule", async () => {
     const { shouldOverwrite } = await import("@/lib/ingest-store");
     // Only the final←partial demotion is blocked.
@@ -184,7 +233,7 @@ describe("ingest-store — pure upsert/skew logic (H2/H5)", () => {
     expect(shouldOverwrite(true, false)).toBe(true);
   });
 
-  it("checks timestamp skew: 60 s future / 7 day past bounds", async () => {
+  it("checks timestamp skew: 60 s future / 10 day past bounds", async () => {
     const { checkTimestampSkew } = await import("@/lib/ingest-store");
     const now = Date.now();
     expect(checkTimestampSkew(new Date(now).toISOString(), now)).toBeNull();
@@ -193,7 +242,13 @@ describe("ingest-store — pure upsert/skew logic (H2/H5)", () => {
     ).toBe("timestamp_in_future");
     expect(
       checkTimestampSkew(
-        new Date(now - 8 * 24 * 3600_000).toISOString(),
+        new Date(now - 10 * 24 * 3600_000).toISOString(),
+        now
+      )
+    ).toBeNull();
+    expect(
+      checkTimestampSkew(
+        new Date(now - 10 * 24 * 3600_000 - 1).toISOString(),
         now
       )?.error
     ).toBe("timestamp_too_old");
@@ -206,14 +261,22 @@ describe("ingest-store — pure upsert/skew logic (H2/H5)", () => {
     const { persistCounts } = await import("@/lib/ingest-store");
     const captured: {
       rows?: unknown[];
-      conflict?: { target?: unknown[]; setWhere?: unknown };
+      conflict?: {
+        target?: unknown[];
+        set?: Record<string, unknown>;
+        setWhere?: unknown;
+      };
     } = {};
     const chain = {
       values(rows: unknown[]) {
         captured.rows = rows;
         return chain;
       },
-      onConflictDoUpdate(cfg: { target?: unknown[]; setWhere?: unknown }) {
+      onConflictDoUpdate(cfg: {
+        target?: unknown[];
+        set?: Record<string, unknown>;
+        setWhere?: unknown;
+      }) {
         captured.conflict = cfg;
         return Promise.resolve();
       },
@@ -226,6 +289,10 @@ describe("ingest-store — pure upsert/skew logic (H2/H5)", () => {
     );
     expect(captured.rows).toHaveLength(2);
     expect(captured.conflict?.target).toHaveLength(3);
+    expect(captured.conflict?.set).toMatchObject({
+      directionAbCount: expect.anything(),
+      directionBaCount: expect.anything(),
+    });
     // Promotion rule enforced in SQL via setWhere.
     expect(captured.conflict?.setWhere).toBeTruthy();
   });

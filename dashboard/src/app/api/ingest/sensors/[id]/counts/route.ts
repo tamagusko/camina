@@ -31,7 +31,7 @@ export async function POST(request: Request, { params }: Ctx) {
   if (parsed.data.sensor_id !== id) {
     return NextResponse.json({ error: "sensor_id_mismatch" }, { status: 400 });
   }
-  // Server-side skew policy (tighter than zod): 60 s future, 7 day past (H5).
+  // Server-side skew policy (tighter than zod): 60 s future, 10 day past (H5).
   const skew = checkTimestampSkew(parsed.data.window_end);
   if (skew) return NextResponse.json({ error: skew.error }, { status: skew.status });
 
