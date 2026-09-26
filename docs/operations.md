@@ -114,8 +114,9 @@ window reset cannot affect. `GET /api/cron/reconcile-daily` (01:00 UTC) compares
 sensor and day, the sum of the windows with the daily total. Any per-class difference sets
 `sensor_daily_totals.reconciled = FALSE` with the diff in `mismatch_json`, and the day
 appears in `/admin/events`.
-The scheduled run reconciles yesterday in UTC, including partial windows that the edge
-adds to its daily total. A later
+Each run re-checks the last 10 UTC days (the ingest past-skew bound), so a missed run, a
+late daily and a late window are all picked up; partial windows that the edge adds to its
+daily total are included. A later
 successful run sets `reconciled = TRUE` and clears `mismatch_json`, so resolved events leave
 the admin event list. Each mismatch records the daily value, summed-window value, and signed
 `windows - daily` difference per class, plus the reported and observed distinct window count.

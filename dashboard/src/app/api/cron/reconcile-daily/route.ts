@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyCron } from "@/lib/cron-auth";
 import { isMock } from "@/lib/data-source";
-import { reconcileDay } from "@/lib/reconcile-daily";
+import { reconcileRecent } from "@/lib/reconcile-daily";
 
 export async function GET(request: Request) {
   const authError = verifyCron(request);
@@ -9,5 +9,5 @@ export async function GET(request: Request) {
   if (isMock) {
     return NextResponse.json({ ok: true, note: "mock mode — reconciliation skipped" });
   }
-  return NextResponse.json({ ok: true, ...(await reconcileDay()) });
+  return NextResponse.json({ ok: true, ...(await reconcileRecent()) });
 }

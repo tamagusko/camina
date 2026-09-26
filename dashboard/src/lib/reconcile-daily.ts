@@ -104,3 +104,28 @@ export async function reconcileDay(
   }
   return { checked: dailyRows.length, mismatched, day };
 }
+
+// Windows and dailies may arrive up to 10 days late (the ingest past-skew
+// bound in ingest-store.ts), so every run re-checks each of the last 10 days,
+// not only yesterday. Re-checking is idempotent and covers days never
+// reconciled, days still mismatched, and reconciled days a late window changed.
+export const RECONCILE_LOOKBACK_DAYS = 10;
+
+export async function reconcileRecent(
+  now: Date = new Date(),
+  database: Db = db()
+): Promise<{ days: string[]; checked: number; mismatched: number }> {
+  const days: string[] = [];
+  let checked = 0;
+  let mismatched = 0;
+  for (let back = 1; back <= RECONCILE_LOOKBACK_DAYS; back++) {
+    const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - back))
+      .toISOString()
+      .slice(0, 10);
+    const result = await reconcileDay(day, database);
+    days.push(day);
+    checked += result.checked;
+    mismatched += result.mismatched;
+  }
+  return { days, checked, mismatched };
+}

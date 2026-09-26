@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { reconcileDay } from "@/lib/reconcile-daily";
+import { RECONCILE_LOOKBACK_DAYS, reconcileDay, reconcileRecent } from "@/lib/reconcile-daily";
 import * as schema from "../../drizzle/schema";
 
 const databaseUrl = process.env.DATABASE_URL_TEST;
@@ -69,5 +69,48 @@ describeLive("daily reconciliation against Postgres", () => {
       WHERE sensor_id = ${sensorId} AND day = ${day}
     `;
     expect(stored).toMatchObject({ reconciled: true, mismatch_json: null });
+  });
+
+  it("sweeps unreconciled and late days in the lookback window, idempotently", async () => {
+    // Far from other fixtures: "now" is 2020-01-15, so the window is 01-05..01-14.
+    const now = new Date("2020-01-15T02:00:00Z");
+    expect(RECONCILE_LOOKBACK_DAYS).toBe(10);
+    const days = ["2020-01-14", "2020-01-10", "2020-01-05", "2020-01-04"];
+    for (const d of days) {
+      await client`
+        INSERT INTO sensor_readings (sensor_id, window_start, window_end, class_name, count)
+        VALUES (${sensorId}, ${`${d}T08:00:00Z`}, ${`${d}T08:15:00Z`}, 'car', 9)
+      `;
+      await client`
+        INSERT INTO sensor_daily_totals (sensor_id, day, totals_json, window_count)
+        VALUES (${sensorId}, ${d}, '{"car": 9}'::jsonb, 1)
+      `;
+    }
+    // A late window on an already reconciled day must be re-checked.
+    await client`UPDATE sensor_daily_totals SET reconciled = true
+      WHERE sensor_id = ${sensorId} AND day = '2020-01-10'`;
+    await client`
+      INSERT INTO sensor_readings (sensor_id, window_start, window_end, class_name, count)
+      VALUES (${sensorId}, '2020-01-10T09:00:00Z', '2020-01-10T09:15:00Z', 'car', 2)
+    `;
+
+    const read = async () => Object.fromEntries((await client`
+      SELECT day::text AS day, reconciled, mismatch_json FROM sensor_daily_totals
+      WHERE sensor_id = ${sensorId} AND day < '2020-02-01'
+    `).map((row) => [row.day, [row.reconciled, row.mismatch_json === null]]));
+
+    const first = await reconcileRecent(now, database);
+    expect(first.days).toHaveLength(10);
+    expect(first.days[0]).toBe("2020-01-14");
+    expect(first.days.at(-1)).toBe("2020-01-05");
+    const expected = {
+      "2020-01-14": [true, true],
+      "2020-01-10": [false, false],
+      "2020-01-05": [true, true],
+      "2020-01-04": [false, true], // outside the window: untouched
+    };
+    expect(await read()).toEqual(expected);
+    await reconcileRecent(now, database);
+    expect(await read()).toEqual(expected);
   });
 });
