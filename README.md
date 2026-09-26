@@ -1,5 +1,7 @@
 # CAMINA
 
+[![CI](https://github.com/tamagusko/camina/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/tamagusko/camina/actions/workflows/ci.yml)
+
 **Citizen-led Automated Modal INfrastructure Analytics** — a privacy-first traffic sensor.
 A Raspberry Pi counts nine road-user classes on-device and publishes only the counts to a
 public map of Dublin. No image or video is stored or uploaded.
