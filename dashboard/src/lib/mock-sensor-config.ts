@@ -5,6 +5,6 @@ export const MOCK_CONFIG = {
   heartbeat_interval_minutes: 5,
   daily_publish_time_utc: "00:00",
   detection_zone: null,
-  frame_skip: 5,
+  frame_skip: 1,
   min_track_hits: 3,
 } as const;

@@ -300,3 +300,15 @@ def test_a_vehicle_flickering_between_car_and_suv_is_counted_once_as_its_majorit
 
     assert [cls for _, cls in seen] == ["car"]
     assert seen[0].direction == "AB"
+
+
+def test_closure_exposes_its_tracker_for_min_track_hits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The daemon applies the server's ``min_track_hits`` through this handle."""
+    from camina.core.tracker import Sort
+    from camina.service import detect_track
+
+    monkeypatch.setattr(
+        detect_track, "NcnnDetector", _fake_detector_factory([_FakeBoxes([], [], [])])
+    )
+    f = detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES)
+    assert isinstance(f.tracker, Sort)  # type: ignore[attr-defined]

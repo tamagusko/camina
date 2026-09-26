@@ -30,6 +30,7 @@ from camina.core.counter import (
     WindowSnapshot,
 )
 from camina.io.config_poller import ConfigPoller
+from camina.io.config_state import config_state_path, load_config_state, save_config_state
 from camina.io.http_client import HttpClient, RetryPolicy
 from camina.io.https_publisher import HttpsPublisher
 from camina.io.offline_buffer import OfflineBuffer
@@ -180,12 +181,18 @@ class SensorDaemon:
             http_client=self._http,
             outbox=self._outbox,
         )
+        # Restore the last applied server config before the first connection.
+        self._config_state_path = config_state_path(config.state_db_path)
+        self._applied_config: SensorConfig | None = None
+        saved = load_config_state(self._config_state_path)
+        if saved is not None:
+            self._apply_config(saved)
         self._poller = ConfigPoller(
             sensor_id=config.sensor_id,
             http_client=self._http,
-            current_version="",
+            current_version=saved.config_version if saved is not None else "",
             apply=self._apply_config,
-            persist=lambda v: logger.info("Persisted config version %s", v),
+            persist=self._persist_config,
         )
 
         self._shutdown = Event()
@@ -440,6 +447,41 @@ class SensorDaemon:
             )
         self._config.publish_interval_seconds = new_window
         self._config.heartbeat_interval_seconds = config.heartbeat_interval_minutes * 60
+
+        tracker = getattr(self._detect_and_track, "tracker", None)
+        if tracker is not None:
+            tracker.min_hits = config.min_track_hits
+        else:
+            logger.warning(
+                "min_track_hits=%d not applied: the detector exposes no tracker",
+                config.min_track_hits,
+            )
+        # Not supported by this firmware; say so rather than ignore them.
+        if config.frame_skip != 1:
+            logger.warning(
+                "frame_skip=%d rejected: detection runs on every frame, the rate the "
+                "tracker and count gate were validated at; set frame_skip to 1",
+                config.frame_skip,
+            )
+        if config.daily_publish_time_utc != "00:00":
+            logger.warning(
+                "daily_publish_time_utc=%s rejected: daily totals roll over at 00:00 UTC",
+                config.daily_publish_time_utc,
+            )
+        if config.detection_zone is not None:
+            logger.warning(
+                "detection_zone rejected: counting uses the screenline in the local "
+                "sensor config; set detection_zone to null"
+            )
+        self._applied_config = config
+
+    def _persist_config(self, version: str) -> None:
+        """ConfigPoller persist callback: save the config ``_apply_config`` took."""
+        config = self._applied_config
+        if config is None or config.config_version != version:
+            logger.error("No applied config for version %s; nothing persisted", version)
+            return
+        save_config_state(self._config_state_path, config)
 
     def _on_signal(self, signum: int, _frame) -> None:
         logger.info("Received signal %d, shutting down", signum)

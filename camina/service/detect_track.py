@@ -117,6 +117,8 @@ def make_detect_and_track(
             else:
                 yield CountedTrack(f"{name}-{event.key}", name, event.direction)
 
+    # Handle for the daemon to apply the server's ``min_track_hits``.
+    detect_and_track.tracker = tracker  # type: ignore[attr-defined]
     return detect_and_track
 
 

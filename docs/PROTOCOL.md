@@ -134,10 +134,18 @@ applied.
       "publish_interval_minutes": 15,
       "heartbeat_interval_minutes": 5,
       "daily_publish_time_utc": "00:00",
-      "detection_zone": {"type": "polygon", "points": [[x1, y1], [x2, y2]]},
-      "frame_skip": 5,
+      "detection_zone": null,
+      "frame_skip": 1,
       "min_track_hits": 3
     }
+
+The device applies `publish_interval_minutes`, `heartbeat_interval_minutes`
+and `min_track_hits` (the tracker's confirmation count), and saves the applied
+config next to its `state.db` so a reboot keeps it. This firmware rejects, with
+a logged warning, a `frame_skip` other than 1 (detection runs on every frame),
+a `daily_publish_time_utc` other than `"00:00"` (daily totals roll over at
+midnight UTC) and a non-null `detection_zone` (counting uses the screenline in
+the local sensor config); the rest of the config still applies.
 
 ## 5. Status codes
 
