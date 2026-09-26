@@ -113,7 +113,11 @@ The sensor sends two streams: 15-minute windows and a per-day running total, whi
 window reset cannot affect. `GET /api/cron/reconcile-daily` (01:00 UTC) compares, for each
 sensor and day, the sum of the windows with the daily total. Any per-class difference sets
 `sensor_daily_totals.reconciled = FALSE` with the diff in `mismatch_json`, and the day
-appears in `/admin/events`. Late daily payloads (`late = true`) are re-checked on arrival.
+appears in `/admin/events`.
+The scheduled run reconciles yesterday in UTC and counts finalized windows only. A later
+successful run sets `reconciled = TRUE` and clears `mismatch_json`, so resolved events leave
+the admin event list. Each mismatch records the daily value, summed-window value, and signed
+`windows - daily` difference per class, plus the reported and observed distinct window count.
 
 | Pattern | Likely cause |
 |---|---|
