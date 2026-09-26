@@ -120,6 +120,8 @@ export const heartbeatPayloadSchema = z
     fw_version: z.string(),
     auth_error: z.boolean().default(false),
     config_error: z.boolean().default(false),
+    outbox_depth: z.number().int().nonnegative().optional(),
+    outbox_dropped_total: z.number().int().nonnegative().optional(),
   })
   .strict();
 

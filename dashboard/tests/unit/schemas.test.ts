@@ -146,6 +146,15 @@ describe("heartbeatPayloadSchema", () => {
     expect(() => heartbeatPayloadSchema.parse(minimal)).not.toThrow();
   });
 
+  it("accepts outbox telemetry and rejects negative values", () => {
+    expect(() =>
+      heartbeatPayloadSchema.parse({ ...minimal, outbox_depth: 12, outbox_dropped_total: 3 })
+    ).not.toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, outbox_depth: -1 })).toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, outbox_dropped_total: -1 })).toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, outbox_depth: 1.5 })).toThrow();
+  });
+
   it("rejects unknown keys (strict)", () => {
     const bad = { ...minimal, debug_field: true };
     expect(() => heartbeatPayloadSchema.parse(bad)).toThrow();

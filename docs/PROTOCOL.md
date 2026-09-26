@@ -103,7 +103,9 @@ Observability signal emitted every ~5 min regardless of counts activity.
       "config_version": "abc123",
       "fw_version": "0.2.0",
       "auth_error": false,
-      "config_error": false
+      "config_error": false,
+      "outbox_depth": 12,
+      "outbox_dropped_total": 3
     }
 
 ### 4.4 `GET /api/ingest/sensors/{id}/config`
@@ -142,7 +144,11 @@ When a write fails after exhausting retries, the device enqueues the payload
 to a local SQLite outbox. On the next successful request, the device drains
 up to 50 outbox rows in FIFO order before sending the fresh payload. The
 outbox is capped (default 10 000 rows); beyond the cap the oldest rows are
-dropped and a counter is surfaced in heartbeats.
+dropped and a counter is surfaced in heartbeats. Heartbeats may include the
+nonnegative integer fields `outbox_depth` (currently queued rows) and
+`outbox_dropped_total` (rows dropped by the cap or permanently rejected during
+drain). The dashboard validates these fields but does not persist them in this
+branch.
 
 ## 7. Clock
 

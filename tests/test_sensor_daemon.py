@@ -101,6 +101,30 @@ def test_daemon_preserves_count_gate_direction(tmp_path: Path) -> None:
         daemon.stop()
 
 
+def test_heartbeat_reports_outbox_depth_and_loss(tmp_path: Path) -> None:
+    received: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        received.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True, "latest_config_version": ""})
+
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(handler))
+    daemon._outbox._max_rows = 2
+    for value in range(3):
+        daemon._outbox.enqueue("counts", str(value).encode())
+
+    try:
+        daemon._send_heartbeat()
+        body = received[-1]
+        assert body["sensor_id"] == "cam-01"
+        assert body["uptime_s"] >= 0
+        assert body["outbox_depth"] == 2
+        assert body["outbox_dropped_total"] == 1
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
+
+
 def test_config_poller_reconfigures_counter(tmp_path: Path) -> None:
     """When backend advertises a new config_version, the counter's window changes."""
 

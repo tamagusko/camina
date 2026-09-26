@@ -372,6 +372,25 @@ def test_failed_heartbeat_is_not_enqueued(outbox: OfflineBuffer) -> None:
     client.close()
 
 
+def test_heartbeat_outbox_fields_must_be_nonnegative() -> None:
+    shared = {
+        "sensor_id": "cam-01",
+        "uptime_s": 10,
+        "config_version": "v1",
+        "fw_version": "0.2.0",
+    }
+    hb = HeartbeatPayload(**shared, outbox_depth=12, outbox_dropped_total=3)
+    assert hb.outbox_depth == 12
+    assert hb.outbox_dropped_total == 3
+
+    with pytest.raises(ValueError):
+        HeartbeatPayload(**shared, outbox_depth=-1)
+    with pytest.raises(ValueError):
+        HeartbeatPayload(**shared, outbox_dropped_total=-1)
+    with pytest.raises(ValueError):
+        HeartbeatPayload(**shared, outbox_depth=1.5)
+
+
 def test_outbox_item_4xx_is_dropped_as_poison(outbox: OfflineBuffer) -> None:
     """F3: a permanently-rejected (4xx) buffered item is dropped, not retried."""
     outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')

@@ -138,6 +138,8 @@ class HeartbeatPayload(BaseModel):
     fw_version: str
     auth_error: bool = False
     config_error: bool = False
+    outbox_depth: int | None = Field(default=None, ge=0)
+    outbox_dropped_total: int | None = Field(default=None, ge=0)
 
     @field_validator("ts", "last_window_end")
     @classmethod
