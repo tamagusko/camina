@@ -27,6 +27,7 @@ const classCountsSchema = z.record(
   z.number().int().min(0).max(MAX_COUNT)
 );
 const classSpeedsSchema = z.record(classSchema, z.number().nonnegative());
+const directionalCountsSchema = z.record(z.enum(["AB", "BA"]), classCountsSchema);
 
 export const countsPayloadSchema = z
   .object({
@@ -36,6 +37,7 @@ export const countsPayloadSchema = z
     window_end: z.string().datetime(),
     partial: z.boolean(),
     counts: classCountsSchema,
+    counts_by_direction: directionalCountsSchema.optional(),
     avg_speed_kmh: classSpeedsSchema.default({}),
     config_version: z.string(),
     fw_version: z.string(),
@@ -63,6 +65,33 @@ export const countsPayloadSchema = z
         path: ["window_end"],
         message: "window must not lie more than 24 h in the future",
       });
+    }
+    if (p.counts_by_direction) {
+      if (p.schema_version !== "1.1") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["schema_version"],
+          message: "directional counts require schema_version 1.1",
+        });
+      }
+      const directionalTotals = new Map<string, number>();
+      for (const direction of Object.values(p.counts_by_direction)) {
+        for (const [roadUserClass, count] of Object.entries(direction)) {
+          directionalTotals.set(roadUserClass, (directionalTotals.get(roadUserClass) ?? 0) + count);
+        }
+      }
+      for (const roadUserClass of new Set([
+        ...Object.keys(p.counts),
+        ...directionalTotals.keys(),
+      ])) {
+        if ((p.counts[roadUserClass as keyof typeof p.counts] ?? 0) !== (directionalTotals.get(roadUserClass) ?? 0)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["counts_by_direction", roadUserClass],
+            message: "AB+BA must equal counts for each class",
+          });
+        }
+      }
     }
   });
 
