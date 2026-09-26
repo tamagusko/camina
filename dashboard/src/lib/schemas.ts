@@ -5,13 +5,53 @@ export const metricSchema = z.enum(["counts", "speed"]);
 export const timeWindowSchema = z.enum(["now", "1h", "24h", "7d", "30d"]);
 export const classSchema = z.enum(ROAD_USER_CLASSES);
 
-// Query params for /api/streets/[id]/readings.
-export const readingsQuerySchema = z.object({
+// Query params for /api/streets/[id]/readings. The response has one row per
+// bucket, so the range is bounded by a row cap: 30 days at 15 min, 120 days
+// hourly, ~7.9 years daily. Defaults: the hour before `to`, `to` = now.
+export const READING_BUCKETS = [15, 60, 1440] as const;
+export const MAX_READING_ROWS = 2880;
+const DEFAULT_RANGE_MS = 60 * 60_000;
+
+export const readingsQuerySchema = z
+  .object({
+    metric: metricSchema.default("counts"),
+    class: z.array(classSchema).optional(),
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+    bucket: z.coerce
+      .number()
+      .int()
+      .refine((b) => (READING_BUCKETS as readonly number[]).includes(b), {
+        message: `bucket must be one of ${READING_BUCKETS.join(", ")}`,
+      })
+      .default(15),
+  })
+  .transform((q, ctx) => {
+    const to = q.to ? new Date(q.to) : new Date();
+    const from = q.from ? new Date(q.from) : new Date(to.getTime() - DEFAULT_RANGE_MS);
+    const bucketMs = q.bucket * 60_000;
+    if (from.getTime() >= to.getTime()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["from"], message: "from must be before to" });
+      return z.NEVER;
+    }
+    const rows = Math.ceil((to.getTime() - Math.floor(from.getTime() / bucketMs) * bucketMs) / bucketMs);
+    if (rows > MAX_READING_ROWS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["from"],
+        message: `range must be at most ${MAX_READING_ROWS} buckets`,
+      });
+      return z.NEVER;
+    }
+    return { metric: q.metric, class: q.class, from, to, bucket: q.bucket };
+  });
+
+// Query params for /api/metrics.
+export const metricsQuerySchema = z.object({
+  city: z.string().min(1).max(64).default("dublin"),
   metric: metricSchema.default("counts"),
+  window: timeWindowSchema.default("1h"),
   class: z.array(classSchema).optional(),
-  from: z.string().datetime().optional(),
-  to: z.string().datetime().optional(),
-  bucket: z.coerce.number().int().positive().default(15),
 });
 
 // Ingest POST bodies — mirror camina/io/schemas.py on the device side.
