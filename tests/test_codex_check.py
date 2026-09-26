@@ -6,12 +6,17 @@ import json
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from training.codex_check import (
+    BOX_COLOUR,
+    MIN_CROP_SIDE,
+    boxed_crop,
     build_command,
     build_prompt,
     crop_region,
     flagged_images,
+    labelled_crop,
     parse_reply,
     verdict,
 )
@@ -82,3 +87,22 @@ def test_command_uses_absolute_image_paths() -> None:
     assert Path(image).is_absolute()
     for flag in ("--output-schema", "-o"):
         assert Path(cmd[cmd.index(flag) + 1]).is_absolute()
+
+
+def test_labelled_crop_is_enlarged_and_keeps_the_id_off_the_object() -> None:
+    small = Image.new("RGB", (20, 10), (255, 0, 0))
+    out = labelled_crop(small, 7)
+    assert min(out.size) >= MIN_CROP_SIDE  # a far-away vehicle is still visible
+    strip = out.height - out.width * small.height // small.width
+    assert strip > 0  # the id sits in a strip above the crop...
+    body = out.crop((0, strip, out.width, out.height))
+    assert body.getpixel((0, 0)) == (255, 0, 0)  # ...and does not cover it
+
+
+def test_boxed_crop_outlines_the_labelled_object_inside_its_context() -> None:
+    img = Image.new("RGB", (200, 100), (0, 0, 0))
+    out = boxed_crop(img, (50, 20, 150, 80), margin=0.5)
+    # context: 50 px each side of a 100 px wide box -> the whole width, 30 px of 60 above/below
+    assert out.size == (200, 100)
+    assert out.getpixel((50, 50)) == BOX_COLOUR  # left edge of the box is outlined
+    assert out.getpixel((100, 50)) == (0, 0, 0)  # the object itself is not covered

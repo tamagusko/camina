@@ -37,12 +37,16 @@ logger = logging.getLogger(__name__)
 DEFAULT_CLASSES = "car,SUV,delivery_van,truck,cyclist,e-scooter,motorcyclist"
 EXTRA_LABELS = ["none", "unsure"]
 MAX_CROP_SIDE = 512
+MIN_CROP_SIDE = 160  # far-away vehicles are a few pixels wide
+ID_STRIP = 22
+BOX_COLOUR = (0, 255, 0)
 
 PROMPT = """<task>
-There are exactly {n} images attached, ids 1 to {n}, in the order attached; each also
-shows its id in its top-left corner. Each is a crop around one auto-labelled road user.
-Say which class each crop shows, judging the object at the centre of the crop. Answer
-from the images alone; do not run any command.
+There are exactly {n} images attached, ids 1 to {n}, in the order attached; each shows
+its id in a black strip along its top edge. Each is a crop around one auto-labelled road
+user, whose box is outlined in green. Say which class the object inside the green box
+shows; other road users around it are context only. Answer from the images alone; do
+not run any command.
 </task>
 <classes>
 person: anyone on foot, including someone pushing a bicycle or scooter.
@@ -144,6 +148,31 @@ def verdict(current: str, vlm_label: str) -> str:
     return "agree" if vlm_label == current else "disagree"
 
 
+def boxed_crop(
+    img: Image.Image, box: tuple[float, float, float, float], margin: float
+) -> Image.Image:
+    """The box with ``margin`` of context, the box itself outlined in green.
+
+    Without the outline, a rider in front of a labelled car sits at the crop's centre and
+    gets classified instead of the car.
+    """
+    img = img.convert("RGB")
+    ImageDraw.Draw(img).rectangle(box, outline=BOX_COLOUR, width=max(2, img.width // 400))
+    return img.crop(crop_region(*box, img.width, img.height, margin))
+
+
+def labelled_crop(crop: Image.Image, n: int) -> Image.Image:
+    """Enlarge a small crop and put its id in a strip above it, clear of the object."""
+    crop = crop.convert("RGB")
+    scale = max(1.0, MIN_CROP_SIDE / min(crop.size))
+    if scale > 1:
+        crop = crop.resize((round(crop.width * scale), round(crop.height * scale)), Image.LANCZOS)
+    out = Image.new("RGB", (crop.width, crop.height + ID_STRIP), (0, 0, 0))
+    out.paste(crop, (0, ID_STRIP))
+    ImageDraw.Draw(out).text((4, 5), str(n), fill=(255, 255, 0))
+    return out
+
+
 def flagged_images(rows: list[dict]) -> list[str]:
     """Images with at least one checked box that Codex did not agree with."""
     return sorted({r["image"] for r in rows if r.get("vlm_verdict") in ("disagree", "unsure")})
@@ -163,12 +192,8 @@ def _ask_codex_once(crops: list[Path], args: argparse.Namespace) -> dict[int, tu
     with tempfile.TemporaryDirectory() as tmp:
         numbered = []
         for i, crop in enumerate(crops, 1):
-            img = Image.open(crop).convert("RGB")
-            draw = ImageDraw.Draw(img)
-            draw.rectangle((0, 0, 34, 20), fill=(0, 0, 0))
-            draw.text((4, 4), str(i), fill=(255, 255, 0))
             numbered.append(Path(tmp) / f"{i}.jpg")
-            img.save(numbered[-1], quality=90)
+            labelled_crop(Image.open(crop), i).save(numbered[-1], quality=90)
         schema, out = Path(tmp) / "schema.json", Path(tmp) / "reply.json"
         schema.write_text(json.dumps(output_schema(labels)))
         cmd = build_command(numbered, schema, out, args.model, args.effort)
@@ -200,9 +225,9 @@ def _write_rows(path: Path, rows: list[dict]) -> None:
 def _crop(row: dict, run: Path, crops: Path, margin: float) -> Path:
     path = crops / f"{Path(row['image']).stem}__{row['box']}.jpg"
     if not path.exists():
-        img = Image.open(run / "images" / row["image"]).convert("RGB")
-        coords = [float(row[k]) for k in ("x1", "y1", "x2", "y2")]
-        crop = img.crop(crop_region(*coords, img.width, img.height, margin))
+        img = Image.open(run / "images" / row["image"])
+        coords = tuple(float(row[k]) for k in ("x1", "y1", "x2", "y2"))
+        crop = boxed_crop(img, coords, margin)
         crop.thumbnail((MAX_CROP_SIDE, MAX_CROP_SIDE))
         crop.save(path, quality=90)
     return path
@@ -265,7 +290,7 @@ def main() -> None:
     parser.add_argument("--model", default="gpt-6-astra", help="Codex model with image input")
     parser.add_argument("--effort", default="medium", help="Codex reasoning effort")
     parser.add_argument("--batch", type=int, default=20, help="crops per Codex call")
-    parser.add_argument("--margin", type=float, default=0.15, help="context around each box")
+    parser.add_argument("--margin", type=float, default=0.4, help="context around each box")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     run(parser.parse_args())
 
