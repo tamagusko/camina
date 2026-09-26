@@ -24,7 +24,7 @@ export default async function StreetDetailPage({ params }: Props) {
 
   return (
     <main className="mx-auto w-full max-w-[960px] px-4 py-8 sm:px-6 sm:py-10">
-      <MockDataPill />
+      <MockDataPill placement="detail" />
       <Link
         href={`/${city}`}
         className="inline-flex min-h-11 items-center text-sm font-medium text-[var(--ink-1)] underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]"

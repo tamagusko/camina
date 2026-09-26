@@ -29,7 +29,7 @@ const SERIES_COLOURS = [
 ];
 
 export function StreetTimeSeries({ readings }: Props) {
-  if (readings.length === 0) {
+  if (!readings.some((row) => !row.missing && Object.values(row.counts).some((count) => count !== null && count > 0))) {
     return (
       <div className="card flex h-64 items-center justify-center border border-[var(--line)] bg-[var(--surface)] px-6 text-center text-[var(--ink-2)]">
         No published counts in the last 24 h
