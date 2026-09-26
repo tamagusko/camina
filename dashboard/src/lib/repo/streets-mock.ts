@@ -75,6 +75,7 @@ export function isStale(lastSeen: string | null, now: Date): boolean {
 interface PresentBucket {
   counts: Record<RoadUserClass, number>;
   avgSpeedKmh: Partial<Record<RoadUserClass, number | null>>;
+  speedCount: Partial<Record<RoadUserClass, number>>;
 }
 
 function windowCutoff(window: TimeWindow, now: Date): Date {
@@ -125,7 +126,7 @@ export const mockStreetsRepo: StreetsRepo = {
       const bucketStart = Math.floor(t / bucketMs) * bucketMs;
       let row = present.get(bucketStart);
       if (!row) {
-        row = { counts: emptyBreakdown(), avgSpeedKmh: {} };
+        row = { counts: emptyBreakdown(), avgSpeedKmh: {}, speedCount: {} };
         present.set(bucketStart, row);
       }
       const cls = r.class_name as RoadUserClass;
@@ -133,12 +134,13 @@ export const mockStreetsRepo: StreetsRepo = {
       if (r.avg_speed_kmh !== null) {
         // Count-weighted running mean.
         const prev = row.avgSpeedKmh[cls] ?? null;
-        const prevCount = prev === null ? 0 : row.counts[cls] - r.count;
+        const prevCount = row.speedCount[cls] ?? 0;
         const total = prevCount + r.count;
         row.avgSpeedKmh[cls] =
           total > 0
             ? ((prev ?? 0) * prevCount + r.avg_speed_kmh * r.count) / total
             : r.avg_speed_kmh;
+        row.speedCount[cls] = total;
       }
     }
 
@@ -156,7 +158,12 @@ export const mockStreetsRepo: StreetsRepo = {
               missing: false,
               // k-anonymity: null-out per-class counts below the k-floor.
               counts: suppressBreakdown(row.counts),
-              avgSpeedKmh: row.avgSpeedKmh,
+              avgSpeedKmh: Object.fromEntries(
+                requested.map((cls) => [
+                  cls,
+                  row.counts[cls] >= K_MIN ? (row.avgSpeedKmh[cls] ?? null) : null,
+                ])
+              ),
             }
           : {
               bucket: new Date(t).toISOString(),
@@ -193,8 +200,6 @@ export const mockStreetsRepo: StreetsRepo = {
     // suppression is applied only on emit so partial sums stay correct.
     const rawBreakdown = new Map<string, Record<RoadUserClass, number>>();
     const rawTotal = new Map<string, number>();
-    const speedNumTotal = new Map<string, number>();
-    const speedDenTotal = new Map<string, number>();
     const speedNumCls = new Map<string, Record<string, number>>();
     const speedDenCls = new Map<string, Record<string, number>>();
     for (const id of citySet) rawBreakdown.set(id, emptyBreakdown());
@@ -219,8 +224,6 @@ export const mockStreetsRepo: StreetsRepo = {
         rb[r.class_name as RoadUserClass] += r.count;
         rawTotal.set(streetId, (rawTotal.get(streetId) ?? 0) + r.count);
         if (r.avg_speed_kmh !== null) {
-          speedNumTotal.set(streetId, (speedNumTotal.get(streetId) ?? 0) + r.avg_speed_kmh * r.count);
-          speedDenTotal.set(streetId, (speedDenTotal.get(streetId) ?? 0) + r.count);
           const nc = speedNumCls.get(streetId) ?? {};
           const dc = speedDenCls.get(streetId) ?? {};
           nc[r.class_name] = (nc[r.class_name] ?? 0) + r.avg_speed_kmh * r.count;
@@ -233,15 +236,22 @@ export const mockStreetsRepo: StreetsRepo = {
 
     const out: MetricValue[] = [];
     for (const streetId of citySet) {
-      const denT = speedDenTotal.get(streetId) ?? 0;
-      const avgSpeedKmh = denT > 0 ? (speedNumTotal.get(streetId) ?? 0) / denT : null;
+      const counts = rawBreakdown.get(streetId) ?? emptyBreakdown();
       const nc = speedNumCls.get(streetId) ?? {};
       const dc = speedDenCls.get(streetId) ?? {};
       const speedBreakdown: Partial<Record<RoadUserClass, number | null>> = {};
+      let eligibleNum = 0;
+      let eligibleDen = 0;
       for (const cls of ROAD_USER_CLASSES) {
         const d = dc[cls] ?? 0;
-        speedBreakdown[cls] = d > 0 ? (nc[cls] ?? 0) / d : null;
+        const eligible = counts[cls] >= K_MIN && d >= K_MIN;
+        speedBreakdown[cls] = eligible ? (nc[cls] ?? 0) / d : null;
+        if (eligible) {
+          eligibleNum += nc[cls] ?? 0;
+          eligibleDen += d;
+        }
       }
+      const avgSpeedKmh = eligibleDen >= K_MIN ? eligibleNum / eligibleDen : null;
       const seen = lastSeenMs.get(streetId);
       const lastSeen = seen !== undefined ? new Date(seen).toISOString() : null;
       out.push({
@@ -252,7 +262,7 @@ export const mockStreetsRepo: StreetsRepo = {
             ? suppressCount(rawTotal.get(streetId) ?? 0)
             : avgSpeedKmh,
         totalCount: suppressCount(rawTotal.get(streetId) ?? 0),
-        classBreakdown: suppressBreakdown(rawBreakdown.get(streetId) ?? emptyBreakdown()),
+        classBreakdown: suppressBreakdown(counts),
         speedBreakdown,
         avgSpeedKmh,
         stale: isStale(lastSeen, now),

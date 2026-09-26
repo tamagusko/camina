@@ -200,4 +200,28 @@ describe("k-anonymity floor — no published count in 1..4", () => {
     );
     expect(anyZero).toBe(true);
   });
+
+  it("suppresses speeds when their class count is below five", async () => {
+    const rows = await mockStreetsRepo.readings({
+      streetId: "ucd-stillorgan-rd-entrance",
+      classes: ["cyclist"],
+      from: new Date("2026-04-07T00:00:00Z"),
+      to: new Date("2026-04-07T00:15:00Z"),
+      bucketMinutes: 15,
+    });
+    expect(rows[0]?.counts.cyclist).toBeNull();
+    expect(rows[0]?.avgSpeedKmh.cyclist).toBeNull();
+
+    const metrics = await mockStreetsRepo.latestMetrics({
+      city: "dublin",
+      metric: "speed",
+      classes: ["car"],
+      window: "now",
+    });
+    const street = metrics.find((row) => row.streetId === "ucd-stillorgan-rd-entrance");
+    expect(street?.classBreakdown.car).toBeNull();
+    expect(street?.speedBreakdown.car).toBeNull();
+    expect(street?.avgSpeedKmh).toBeNull();
+    expect(street?.value).toBeNull();
+  });
 });
