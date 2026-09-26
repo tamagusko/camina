@@ -4,10 +4,12 @@ Scene: 60 objects, half of them hidden every other second (so the tracker
 carries 30 lost tracks through association), 300 frames. The test fails when
 the mean ``Sort.update`` time exceeds ``BUDGET_MS``.
 
-Baseline on the development host (AMD Ryzen 7 5700X, 2026-09-27), before the
-IoU was vectorised: mean 8.7-10.5 ms per frame (Python double-loop IoU).
+Development host (AMD Ryzen 7 5700X, idle, 2026-09-27), same scene:
+- base ca6ed2a (Python double-loop IoU): mean 5.8-6.2 ms per frame
+  (8.7-10.5 ms while the machine was also running count_eval);
+- vectorised IoU, with re-linking and class confirmation: mean 1.8 ms.
 The budget is generous on purpose: it catches an accidental O(n^2) Python
-loop, not a few percent.
+loop, not a few percent. The Pi 5 is several times slower than this host.
 """
 
 from __future__ import annotations
