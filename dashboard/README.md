@@ -65,6 +65,7 @@ The switch happens in `src/lib/data-source.ts` and is propagated by the
 | `pnpm test:e2e`   | Playwright E2E (desktop + mobile) |
 | `pnpm db:generate`| Drizzle migrations from schema |
 | `pnpm db:migrate` | Apply migrations to DATABASE_URL |
+| `pnpm db:seed`    | Insert the mock streets (`../data/mock/<city>/streets.json`) that are missing |
 
 ## Local live-mode checks
 
@@ -75,6 +76,13 @@ tests. The test suite skips database tests when `DATABASE_URL_TEST` is unset.
 cd dashboard
 DATABASE_URL=postgres://camina:camina@127.0.0.1:55432/camina npx -y pnpm@9.12.0 db:migrate
 DATABASE_URL_TEST=postgres://camina:camina@127.0.0.1:55432/camina npx -y pnpm@9.12.0 test
+```
+
+A fresh database has no streets. `db:seed` inserts the mock streets (run
+`python3 scripts/generate_mock_dublin.py` from the repo root first); existing ids are kept.
+
+```bash
+DATABASE_URL_UNPOOLED=<database-url> npx -y pnpm@9.12.0 db:seed
 ```
 
 Provisioning links a new sensor to an **existing** street. It stores only the
