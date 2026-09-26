@@ -116,8 +116,13 @@ def compare(
 
 def count_clip(
     video: Path, model: Path, line: Screenline, min_move: float = 1.0
-) -> Counter[tuple[str, str]]:
-    """Run the sensor pipeline over ``video``; crossings per (class, direction).
+) -> tuple[Counter[tuple[str, str]], dict[str, int]]:
+    """Run the sensor pipeline over ``video``.
+
+    Returns:
+        Crossings per (class, direction), and the tracking counters:
+        ``relinks``, ``unconfirmed_dropped`` and ``pending_at_end`` (tracks
+        that crossed but whose class was still unconfirmed when the clip ended).
 
     The pipeline is the daemon's own ``make_detect_and_track`` closure. Each
     frame is stamped with its time in the clip (index / fps), so time-based
@@ -128,9 +133,8 @@ def count_clip(
     from camina.service.detect_track import make_detect_and_track
     from camina.utils.taxonomy import load_canonical_classes
 
-    detect_and_track = make_detect_and_track(
-        model, load_canonical_classes(), gate=CountGate(screenline=line, min_move=min_move)
-    )
+    gate = CountGate(screenline=line, min_move=min_move)
+    detect_and_track = make_detect_and_track(model, load_canonical_classes(), gate=gate)
     counts: Counter[tuple[str, str]] = Counter()
     cap = cv2.VideoCapture(str(video))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -142,7 +146,12 @@ def count_clip(
         for counted in detect_and_track(frame, t=i / fps):
             counts[counted.class_name, counted.direction] += 1
         i += 1
-    return counts
+    stats = {
+        "relinks": detect_and_track.tracker.relinks,  # type: ignore[attr-defined]
+        "unconfirmed_dropped": gate.unconfirmed_dropped,
+        "pending_at_end": gate.n_pending,
+    }
+    return counts, stats
 
 
 def main() -> None:
@@ -158,7 +167,8 @@ def main() -> None:
     line, truth, complete = read_truth(args.truth)
     if not complete:
         raise SystemExit(f"No class in {args.truth} has a complete hand count yet")
-    rows = compare(truth, count_clip(args.video, args.model, line, args.min_move), complete)
+    counted, stats = count_clip(args.video, args.model, line, args.min_move)
+    rows = compare(truth, counted, complete)
     logger.info("Hand-counted classes: %s", ", ".join(sorted(complete)))
     logger.info("%-14s %-3s %6s %8s %6s  %s", "class", "dir", "truth", "counted", "error", "S7")
     for r in rows:
@@ -166,6 +176,7 @@ def main() -> None:
         logger.info(
             "%-14s %-3s %6d %8d %+6d  %s", r.cls, r.direction, r.truth, r.counted, r.error, verdict
         )
+    logger.info("Tracking: %s", " ".join(f"{k}={v}" for k, v in stats.items()))
     logger.info("S7 on this clip: %s", "PASS" if all(r.passes for r in rows) else "FAIL")
 
 
