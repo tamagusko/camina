@@ -49,7 +49,8 @@ def compose(
             in-memory generators.
         detect_factory: Callable building the ``detect_and_track`` closure.
             Receives ``ncnn_model_path``, ``classes``, ``imgsz``, ``conf`` and
-            ``gate`` (a ``CountGate`` built from ``cfg``) as kwargs. CI tests
+            ``gate`` (a ``CountGate`` built from ``cfg``), ``max_occlusion_s``
+            and ``min_class_hits`` as kwargs. CI tests
             inject a no-op returning ``[]`` per frame.
 
     Returns:
@@ -72,7 +73,11 @@ def compose(
         gate=CountGate(
             screenline=Screenline(*cfg.screenline) if cfg.screenline else None,
             min_move=cfg.min_move,
+            # Outlive the tracker's occlusion, or a revived track counts twice.
+            forget_after_s=2 * cfg.max_occlusion_s,
         ),
+        max_occlusion_s=cfg.max_occlusion_s,
+        min_class_hits=cfg.min_class_hits,
     )
     return SensorDaemon(
         config=cfg,

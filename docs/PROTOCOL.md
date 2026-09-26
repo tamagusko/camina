@@ -140,7 +140,10 @@ applied.
     }
 
 The device applies `publish_interval_minutes`, `heartbeat_interval_minutes`
-and `min_track_hits` (the tracker's confirmation count), and saves the applied
+and `min_track_hits` (the tracker's confirmation count), plus the optional
+`max_occlusion_s` (seconds a hidden track survives, `0 < x <= 60`) and
+`min_class_hits` (detections of its class before a track counts, `1..20`); the
+server does not send these yet, and when absent the device keeps the values in its local `sensor.yaml`. It saves the applied
 config next to its `state.db` so a reboot keeps it. This firmware rejects, with
 a logged warning, a `frame_skip` other than 1 (detection runs on every frame),
 a `daily_publish_time_utc` other than `"00:00"` (daily totals roll over at

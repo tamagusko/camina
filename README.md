@@ -18,9 +18,12 @@ Pi camera → YOLO11n (NCNN) → tracker → count gate → 15-min counts → HT
 
 - **Detector:** the 9-class YOLO11n from the TRA 2026 paper, as NCNN (FP32 and FP16) in
   [`models/`](models/), provenance in each folder's `PROVENANCE.md`.
-- **Tracker:** one SORT tracker for all classes; a track's class is its majority vote.
+- **Tracker:** one SORT tracker for all classes; a track's class is its majority vote. A
+  hidden road user keeps its track for `max_occlusion_s` (5 s) and is re-linked by its
+  observed motion when it reappears; the person box on a rider is dropped.
 - **Count gate:** each track is counted once, when it crosses a screenline (with direction)
-  or has moved far enough. Parked cars and street furniture never count.
+  or has moved far enough, and only once its class was detected `min_class_hits` (3) times.
+  Parked cars and street furniture never count.
 - **Privacy:** counts only; the public map never shows sensor locations; counts below 5
   are suppressed, and so is any value that would let one be recovered by subtraction
   (see `dashboard/src/lib/privacy.ts`).

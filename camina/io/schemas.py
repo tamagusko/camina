@@ -166,6 +166,9 @@ class SensorConfig(BaseModel):
     detection_zone: dict[str, Any] | None = None
     frame_skip: int = Field(ge=1, le=120)
     min_track_hits: int = Field(ge=1, le=20)
+    # Optional: absent keeps the value from the local sensor.yaml.
+    max_occlusion_s: float | None = Field(default=None, gt=0, le=60)
+    min_class_hits: int | None = Field(default=None, ge=1, le=20)
 
     @field_validator("daily_publish_time_utc")
     @classmethod

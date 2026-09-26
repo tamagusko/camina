@@ -100,6 +100,10 @@ class DaemonConfig:
     # with no screenline, when it has moved ``min_move`` box heights.
     screenline: tuple[tuple[float, float], tuple[float, float]] | None = None
     min_move: float = 1.0
+    # Tracking (camina/core/tracker.py): seconds a hidden track survives, and
+    # detections of its class a track needs before it counts under that class.
+    max_occlusion_s: float = 5.0
+    min_class_hits: int = 3
 
     @classmethod
     def from_yaml(cls, path: Path) -> DaemonConfig:
@@ -122,6 +126,8 @@ class DaemonConfig:
             conf_threshold=float(data.get("conf_threshold", 0.3)),
             screenline=_parse_screenline(data.get("screenline")),
             min_move=float(data.get("min_move", 1.0)),
+            max_occlusion_s=float(data.get("max_occlusion_s", 5.0)),
+            min_class_hits=int(data.get("min_class_hits", 3)),
         )
 
 
@@ -468,6 +474,7 @@ class SensorDaemon:
         tracker = getattr(self._detect_and_track, "tracker", None)
         if tracker is not None:
             tracker.min_hits = config.min_track_hits
+            self._apply_tracking_rules(tracker, config)
         else:
             logger.warning(
                 "min_track_hits=%d not applied: the detector exposes no tracker",
@@ -491,6 +498,19 @@ class SensorDaemon:
                 "sensor config; set detection_zone to null"
             )
         self._applied_config = config
+
+    def _apply_tracking_rules(self, tracker: object, config: SensorConfig) -> None:
+        """Apply the server's optional tracking rules; absent ones keep sensor.yaml's."""
+        if config.min_class_hits is not None:
+            tracker.min_class_hits = config.min_class_hits  # type: ignore[attr-defined]
+        if config.max_occlusion_s is None:
+            return
+        tracker.max_occlusion_s = config.max_occlusion_s  # type: ignore[attr-defined]
+        gate = getattr(self._detect_and_track, "gate", None)
+        if gate is not None and gate.forget_after_s < config.max_occlusion_s:
+            # A gate forgetting a track the tracker can still revive counts it twice.
+            gate.forget_after_s = 2 * config.max_occlusion_s
+            logger.info("Count gate now forgets after %.1f s", gate.forget_after_s)
 
     def _persist_config(self, version: str) -> None:
         """ConfigPoller persist callback: save the config ``_apply_config`` took."""
