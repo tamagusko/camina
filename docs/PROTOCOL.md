@@ -9,7 +9,7 @@ persistent connection. Rationale and alternatives are discussed in
 
 ## 1. Base URL
 
-    https://{HOST}/api/ingest
+    https://{HOST}
 
 All paths below are relative to that base. TLS 1.2 or newer is required.
 
@@ -33,7 +33,7 @@ MUST deduplicate based on the natural primary keys listed in
 
 ## 4. Endpoints
 
-### 4.1 `POST /v1/sensors/{id}/counts`
+### 4.1 `POST /api/ingest/sensors/{id}/counts`
 
 Windowed per-class counts produced by `WindowedCounter.maybe_rollover`.
 
@@ -64,11 +64,18 @@ as `counts`. For every class, a missing direction cell counts as zero and
 `AB + BA` MUST equal `counts[class]`. The backend rejects violations with 400.
 `avg_speed_kmh` remains per class rather than per direction.
 
+The edge sends raw measured window counts, direction cells, daily totals, and
+average speeds to its authenticated server. It does not apply `k_min` on the
+wire. The dashboard applies `k_min = 5` at public API read time, after summing
+the relevant windows, so small per-window cells contribute to larger displayed
+aggregates. The edge sends an average speed for every class it measured; the
+server hides that speed when the class count in the displayed bucket is below 5.
+
 **Response 200**:
 
     { "ok": true, "latest_config_version": "abc123" }
 
-### 4.2 `POST /v1/sensors/{id}/daily`
+### 4.2 `POST /api/ingest/sensors/{id}/daily`
 
 Per-day cumulative totals published at 00:00 UTC, or on next boot with
 `"late": true` if the device missed the boundary.
@@ -87,7 +94,7 @@ Per-day cumulative totals published at 00:00 UTC, or on next boot with
       "produced_at": "2026-04-22T00:00:00.021Z"
     }
 
-### 4.3 `POST /v1/sensors/{id}/heartbeat`
+### 4.3 `POST /api/ingest/sensors/{id}/heartbeat`
 
 Observability signal emitted every ~5 min regardless of counts activity.
 
@@ -100,10 +107,12 @@ Observability signal emitted every ~5 min regardless of counts activity.
       "config_version": "abc123",
       "fw_version": "0.2.0",
       "auth_error": false,
-      "config_error": false
+      "config_error": false,
+      "outbox_depth": 12,
+      "outbox_dropped_total": 3
     }
 
-### 4.4 `GET /v1/sensors/{id}/config`
+### 4.4 `GET /api/ingest/sensors/{id}/config`
 
 Returns the latest configuration the backend wants the device to apply.
 The device fetches this lazily — only when a previous ingest response
@@ -139,7 +148,11 @@ When a write fails after exhausting retries, the device enqueues the payload
 to a local SQLite outbox. On the next successful request, the device drains
 up to 50 outbox rows in FIFO order before sending the fresh payload. The
 outbox is capped (default 10 000 rows); beyond the cap the oldest rows are
-dropped and a counter is surfaced in heartbeats.
+dropped and a counter is surfaced in heartbeats. Heartbeats may include the
+nonnegative integer fields `outbox_depth` (currently queued rows) and
+`outbox_dropped_total` (rows dropped by the cap or permanently rejected during
+drain). The dashboard validates these fields but does not persist them in this
+branch.
 
 ## 7. Clock
 
@@ -149,7 +162,8 @@ dropped and a counter is surfaced in heartbeats.
 
 ## 8. Forward compatibility
 
-Payloads carry `schema_version` (current value `"1.1"` for directional counts;
-legacy non-directional counts remain `"1.0"`). The backend accepts both forms.
-Future major-version bumps are coordinated via config rollout followed by
+Payloads carry `schema_version` (current counts versions are `"1.0"` and
+`"1.1"`). The backend MUST
+accept minor-version bumps that add optional fields without breaking older
+devices. Major-version bumps are coordinated via config rollout followed by
 firmware update.

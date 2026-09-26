@@ -86,6 +86,24 @@ def test_different_track_ids_in_window_each_count() -> None:
     assert snap.counts["cyclist"] == 3
 
 
+def test_directional_counts_are_aggregated_per_class() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    c.add(1, "car", start + timedelta(seconds=1), direction="AB")
+    c.add(2, "car", start + timedelta(seconds=2), direction="BA")
+    c.add(3, "person", start + timedelta(seconds=3), direction="AB")
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.counts_by_direction == {"AB": {"car": 1, "person": 1}, "BA": {"car": 1}}
+
+
+def test_movement_counts_have_no_directional_map() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    c.add(1, "car", start + timedelta(seconds=1))
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.counts_by_direction is None
+
+
 def test_same_track_id_across_windows_counts_per_window() -> None:
     start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
     c = _start_counter(start)

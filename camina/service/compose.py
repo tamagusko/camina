@@ -14,7 +14,7 @@ import numpy as np
 
 from camina.core.counting import CountGate, Screenline
 from camina.service.camera import picamera2_frame_source
-from camina.service.detect_track import make_detect_and_track
+from camina.service.detect_track import DetectResult, make_detect_and_track
 from camina.service.sensor_daemon import DaemonConfig, SensorDaemon
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ def compose(
     *,
     camera_factory: Callable[[int], Iterator[np.ndarray]] = picamera2_frame_source,
     detect_factory: Callable[
-        ..., Callable[[np.ndarray], Iterable[tuple[str, str]]]
+        ..., Callable[[np.ndarray], Iterable[DetectResult]]
     ] = make_detect_and_track,
 ) -> SensorDaemon:
     """Compose a production ``SensorDaemon`` from config + NCNN model.

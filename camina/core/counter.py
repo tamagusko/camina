@@ -44,6 +44,7 @@ class WindowSnapshot:
     window_end: datetime
     counts: dict[str, int]
     partial: bool
+    counts_by_direction: dict[str, dict[str, int]] | None = None
 
     def total(self) -> int:
         """Sum of counts across all classes."""
@@ -78,6 +79,7 @@ class WindowedCounter:
     _window_end: datetime = field(init=False)
     _seen_track_ids: dict[str, set[int]] = field(init=False)
     _counts: dict[str, int] = field(init=False)
+    _counts_by_direction: dict[str, dict[str, int]] | None = field(init=False, default=None)
     _is_first_window: bool = field(init=False, default=True)
     _started_at: datetime = field(init=False)
 
@@ -132,7 +134,9 @@ class WindowedCounter:
         """
         return self._is_first_window
 
-    def add(self, track_id: int, class_name: str, now: datetime) -> None:
+    def add(
+        self, track_id: int, class_name: str, now: datetime, direction: str | None = None
+    ) -> None:
         """Register a tracked object in the current window.
 
         Duplicate `(track_id, class_name)` within the same window is a no-op.
@@ -143,6 +147,8 @@ class WindowedCounter:
         """
         if class_name not in self._seen_track_ids:
             return
+        if direction not in (None, "AB", "BA"):
+            raise ValueError("direction must be 'AB', 'BA', or None")
         now = self._as_utc(now)
         if now >= self._window_end:
             # Caller didn't roll over in time; attribute to the boundary so
@@ -152,6 +158,11 @@ class WindowedCounter:
         if track_id not in self._seen_track_ids[class_name]:
             self._seen_track_ids[class_name].add(track_id)
             self._counts[class_name] += 1
+            if direction is not None:
+                if self._counts_by_direction is None:
+                    self._counts_by_direction = {"AB": {}, "BA": {}}
+                directional_counts = self._counts_by_direction[direction]
+                directional_counts[class_name] = directional_counts.get(class_name, 0) + 1
 
     def maybe_rollover(self, now: datetime) -> WindowSnapshot | None:
         """Close the current window if ``now`` is past its end; else None."""
@@ -186,12 +197,18 @@ class WindowedCounter:
             window_end=self._window_end,
             counts=dict(self._counts),
             partial=is_partial,
+            counts_by_direction=(
+                {key: dict(value) for key, value in self._counts_by_direction.items()}
+                if self._counts_by_direction is not None
+                else None
+            ),
         )
         # Start a new window aligned to ``now`` (handles long gaps correctly).
         self._window_start = self._align_to_window(now)
         self._window_end = self._window_start + timedelta(seconds=self.window_seconds)
         self._seen_track_ids = {cls: set() for cls in self.classes}
         self._counts = {cls: 0 for cls in self.classes}
+        self._counts_by_direction = None
         self._is_first_window = False
         return snapshot
 

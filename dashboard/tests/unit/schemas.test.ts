@@ -57,6 +57,39 @@ describe("countsPayloadSchema", () => {
     expect(() => countsPayloadSchema.parse(bad)).toThrow();
   });
 
+  it("accepts directional counts when they sum to the published total", () => {
+    const directional = {
+      ...valid,
+      schema_version: "1.1",
+      counts: { car: 5 },
+      counts_by_direction: { AB: { car: 2 }, BA: { car: 3 } },
+    };
+    expect(() => countsPayloadSchema.parse(directional)).not.toThrow();
+  });
+
+  it("rejects invalid direction keys and directional sum mismatches", () => {
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        counts_by_direction: { AB: { car: 2 }, CA: { car: 1 } },
+      })
+    ).toThrow();
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        counts: { car: 5 },
+        counts_by_direction: { AB: { car: 5 } },
+      })
+    ).toThrow();
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        counts: { car: 5 },
+        counts_by_direction: { AB: { car: 1 } },
+      })
+    ).toThrow();
+  });
+
   it("rejects window_end <= window_start", () => {
     const bad = { ...valid, window_end: valid.window_start };
     expect(() => countsPayloadSchema.parse(bad)).toThrow();
@@ -207,6 +240,15 @@ describe("heartbeatPayloadSchema", () => {
 
   it("accepts a minimal payload", () => {
     expect(() => heartbeatPayloadSchema.parse(minimal)).not.toThrow();
+  });
+
+  it("accepts outbox telemetry and rejects negative values", () => {
+    expect(() =>
+      heartbeatPayloadSchema.parse({ ...minimal, outbox_depth: 12, outbox_dropped_total: 3 })
+    ).not.toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, outbox_depth: -1 })).toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, outbox_dropped_total: -1 })).toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, outbox_depth: 1.5 })).toThrow();
   });
 
   it("rejects unknown keys (strict)", () => {

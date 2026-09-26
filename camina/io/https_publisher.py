@@ -70,6 +70,7 @@ class HttpsPublisher:
             window_end=snapshot.window_end,
             partial=snapshot.partial,
             counts=snapshot.counts,
+            counts_by_direction=snapshot.counts_by_direction,
             avg_speed_kmh=avg_speed_kmh or {},
             config_version=config_version,
             fw_version=fw_version,
@@ -117,7 +118,7 @@ class HttpsPublisher:
         *,
         buffer_on_failure: bool = True,
     ) -> PublisherResult:
-        body = payload.model_dump_json(by_alias=True).encode()
+        body = payload.model_dump_json(by_alias=True, exclude_none=True).encode()
         # Try to drain whatever we buffered earlier first (no-op if empty).
         try:
             self._outbox.drain(self._send_outbox_item, max_items=10)
@@ -185,14 +186,16 @@ class HttpsPublisher:
                 item.endpoint,
                 status,
             )
-            return SendOutcome.RETRY
+            if status == 429 or status >= 500:
+                return SendOutcome.RETRY
+            return SendOutcome.STOP
         except Exception:
             logger.warning(
                 "Outbox item %d (%s) failed to send; will retry",
                 item.id,
                 item.endpoint,
             )
-            return SendOutcome.RETRY
+            return SendOutcome.STOP
 
     @staticmethod
     def _parse_response(content: bytes) -> IngestResponse | None:

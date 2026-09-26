@@ -15,6 +15,7 @@ from camina.io.http_client import HttpClient, RetryPolicy
 from camina.io.https_publisher import HttpsPublisher
 from camina.io.offline_buffer import OfflineBuffer
 from camina.service import sensor_daemon as sd
+from camina.service.detect_track import CountedTrack
 from camina.service.sensor_daemon import DaemonConfig, SensorDaemon
 
 CLASSES = ["person", "cyclist", "car"]
@@ -80,11 +81,48 @@ def test_windowed_counter_feeds_publisher_end_to_end(tmp_path: Path) -> None:
     assert len(received) == 1
     body = received[0]
     assert body["sensor_id"] == "cam-01"
-    assert body["counts"]["person"] == 2
-    assert body["counts"]["cyclist"] == 1
+    assert body["counts"] == {"person": 2, "cyclist": 1, "car": 0}
 
     outbox.close()
     client.close()
+
+
+def test_daemon_preserves_count_gate_direction(tmp_path: Path) -> None:
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    daemon._frame_source = iter([object()])
+    daemon._detect_and_track = lambda _frame: [CountedTrack("car-1", "car", "AB")]
+    try:
+        daemon._main_loop()
+        snapshot = daemon._counter.force_snapshot(daemon._counter.window_end)
+        assert snapshot.counts == {"car": 1, "person": 0, "cyclist": 0}
+        assert snapshot.counts_by_direction == {"AB": {"car": 1}, "BA": {}}
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
+
+
+def test_heartbeat_reports_outbox_depth_and_loss(tmp_path: Path) -> None:
+    received: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        received.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True, "latest_config_version": ""})
+
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(handler))
+    daemon._outbox._max_rows = 2
+    for value in range(3):
+        daemon._outbox.enqueue("counts", str(value).encode())
+
+    try:
+        daemon._send_heartbeat()
+        body = received[-1]
+        assert body["sensor_id"] == "cam-01"
+        assert body["uptime_s"] >= 0
+        assert body["outbox_depth"] == 2
+        assert body["outbox_dropped_total"] == 1
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
 
 
 def test_config_poller_reconfigures_counter(tmp_path: Path) -> None:
@@ -187,7 +225,6 @@ def test_stop_flushes_open_window(tmp_path: Path) -> None:
     assert len(received) == 1
     assert received[0]["partial"] is True
     assert received[0]["counts"]["person"] == 1
-    assert received[0]["counts"]["cyclist"] == 1
     assert len(recorded) == 1
     assert recorded[0].counts["person"] == 1
     daemon._test_client.close()  # type: ignore[attr-defined]

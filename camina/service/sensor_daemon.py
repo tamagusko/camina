@@ -264,8 +264,12 @@ class SensorDaemon:
             if self._shutdown.is_set():
                 break
             now = datetime.now(tz=timezone.utc)
-            for track_id, class_name in self._detect_and_track(frame):
-                self._counter.add(track_id=track_id, class_name=class_name, now=now)
+            for counted in self._detect_and_track(frame):
+                track_id, class_name = counted
+                direction = getattr(counted, "direction", None)
+                self._counter.add(
+                    track_id=track_id, class_name=class_name, now=now, direction=direction
+                )
 
             snapshot = self._counter.maybe_rollover(now)
             if snapshot is not None:
@@ -405,6 +409,7 @@ class SensorDaemon:
     def _send_heartbeat(self) -> None:
         now = datetime.now(tz=timezone.utc)
         uptime_s = int((now - self._started_at).total_seconds())
+        outbox_stats = self._outbox.stats()
         hb = HeartbeatPayload(
             sensor_id=self._config.sensor_id,
             ts=now,
@@ -414,6 +419,8 @@ class SensorDaemon:
             config_version=self._poller.current_version,
             fw_version=self._config.fw_version,
             config_error=self._poller.has_error,
+            outbox_depth=outbox_stats.pending,
+            outbox_dropped_total=outbox_stats.dropped + outbox_stats.poisoned,
         )
         result = self._publisher.post_heartbeat(hb)
         if result.latest_config_version:

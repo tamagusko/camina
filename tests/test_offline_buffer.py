@@ -102,6 +102,20 @@ def test_drain_handles_sender_exception(buf: OfflineBuffer) -> None:
     sent = buf.drain(broken)
     assert sent == 0
     assert buf.stats().pending == 1
+    assert buf.peek(1)[0].attempts == 0
+
+
+def test_24_hour_transport_outage_does_not_charge_attempts(buf: OfflineBuffer) -> None:
+    buf.enqueue("counts", b"x")
+
+    # 288 five-minute heartbeat cycles represent a full day without network.
+    for _ in range(24 * 60 // 5):
+        assert buf.drain(lambda _item: SendOutcome.STOP) == 0
+
+    [item] = buf.peek(1)
+    assert item.attempts == 0
+    assert buf.stats().pending == 1
+    assert buf.stats().poisoned == 0
 
 
 def test_drain_respects_max_items(buf: OfflineBuffer) -> None:
@@ -154,14 +168,14 @@ def test_drain_safety_valve_drops_after_max_attempts(buf: OfflineBuffer) -> None
     def retry(_: OutboxItem) -> SendOutcome:
         return SendOutcome.RETRY
 
-    # Three RETRY drains bump attempts to 3 without dropping the row.
-    for _ in range(3):
-        buf.drain(retry, max_attempts=3)
+    # Fifty server 5xx/429 responses charge fifty attempts without dropping.
+    for _ in range(50):
+        buf.drain(retry, max_attempts=50)
     assert buf.stats().pending == 1
-    assert buf.peek(1)[0].attempts == 3
+    assert buf.peek(1)[0].attempts == 50
 
     # The next drain trips the safety valve and drops it as poisoned.
-    buf.drain(retry, max_attempts=3)
+    buf.drain(retry, max_attempts=50)
     assert buf.stats().pending == 0
     assert buf.stats().poisoned == 1
 
