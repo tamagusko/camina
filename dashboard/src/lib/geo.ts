@@ -61,6 +61,6 @@ export function initialViewBounds(
 
 export function rampExpression(ramp: readonly string[], metric: "counts" | "speed") {
   const thresholds = metric === "counts" ? [25, 75, 200, 500] : [10, 20, 30, 50];
-  return ["step", ["coalesce", ["to-number", ["feature-state", "metric"]], 0], ramp[0],
+  return ["step", ["coalesce", ["to-number", ["get", "metric"]], 0], ramp[0],
     ...thresholds.flatMap((threshold, index) => [threshold, ramp[index + 1]])];
 }
