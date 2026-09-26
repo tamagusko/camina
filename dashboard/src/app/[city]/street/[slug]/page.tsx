@@ -13,7 +13,7 @@ export default async function StreetDetailPage({ params }: Props) {
   const street = await streetsRepo.get(slug);
   if (!street || street.city !== city) notFound();
 
-  const to = new Date();
+  const to = await streetsRepo.now();
   const from = new Date(to.getTime() - 24 * 60 * 60_000);
   const readings = await streetsRepo.readings({
     streetId: slug,

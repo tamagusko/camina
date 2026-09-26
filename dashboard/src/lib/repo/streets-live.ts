@@ -88,6 +88,10 @@ interface MetricAggregate {
 }
 
 export const liveStreetsRepo: StreetsRepo = {
+  async now() {
+    return new Date();
+  },
+
   async list(city) {
     const result = await db().execute(sql`
       SELECT id, display_name, ST_AsGeoJSON(geom)::jsonb AS geom,

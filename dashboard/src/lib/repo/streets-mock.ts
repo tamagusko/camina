@@ -86,6 +86,10 @@ function windowCutoff(window: TimeWindow, now: Date): Date {
 }
 
 export const mockStreetsRepo: StreetsRepo = {
+  async now(): Promise<Date> {
+    return deriveNow(await loadReadings());
+  },
+
   async list(city: string): Promise<StreetSummary[]> {
     const streets = await loadStreets();
     return streets.filter((s) => s.city === city && s.active).map(toSummary);
