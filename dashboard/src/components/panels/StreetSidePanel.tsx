@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { formatDublinTime } from "@/lib/format-time";
+import { formatDublinUpdated } from "@/lib/format-time";
 import { ROAD_USER_CLASSES, type MetricValue, type RoadUserClass, type StreetReading, type StreetSummary } from "@/lib/types";
 
 interface Props { street: StreetSummary | null; metric: MetricValue | null; reading?: StreetReading | null; onClose: () => void; }
@@ -54,7 +54,7 @@ export function StreetSidePanel({ street, metric, reading, onClose }: Props) {
   const perClass = current ? ROAD_USER_CLASSES.filter((cls) => (current.counts[cls] ?? 0) > 0).sort((a, b) => (current.counts[b] ?? 0) - (current.counts[a] ?? 0)) : [];
   const readingHidden = current ? [current.counts, current.countsByDirection?.AB ?? {}, current.countsByDirection?.BA ?? {}].some((cells) => Object.values(cells).some((value) => value === null)) : false;
   const hasHidden = Boolean(metric?.hasHidden) || readingHidden;
-  const status = !metric?.lastSeen ? "No data yet" : metric.stale ? `No recent data · last seen ${formatDublinTime(metric.lastSeen)}` : `Updated ${formatDublinTime(metric.lastSeen)}`;
+  const status = !metric?.lastSeen ? "No data yet" : metric.stale ? `No recent data · last seen ${formatDublinUpdated(metric.lastSeen)}` : `Updated ${formatDublinUpdated(metric.lastSeen)}`;
   return <div className={PANEL_CLASS} role="dialog" aria-label={street.displayName}>
     <div className="sticky top-0 z-10 flex min-h-11 items-center justify-end border-b border-line bg-surface px-4 md:hidden"><span className="mx-auto h-1 w-9 rounded-full bg-ink-3" aria-hidden="true" /><button onClick={onClose} aria-label="Close street panel" className="flex h-11 w-11 items-center justify-center rounded-sm"><X size={20} /></button></div>
     <div className="p-4 md:p-6">

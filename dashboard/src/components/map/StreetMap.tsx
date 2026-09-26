@@ -4,7 +4,7 @@ import * as maplibregl from "maplibre-gl";
 import type { Map as MaplibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { CITY_VIEWS, VIRIDIS_5, initialViewBounds, mapColourValue, rampExpression, streetPaintStatus } from "@/lib/geo";
-import { formatDublinTime } from "@/lib/format-time";
+import { formatDublinUpdated } from "@/lib/format-time";
 import type { Metric, MetricValue, RoadUserClass, StreetSummary, TimeWindow } from "@/lib/types";
 import { ClassFilter } from "./ClassFilter";
 import { ColourLegend } from "./ColourLegend";
@@ -98,7 +98,7 @@ export function StreetMap({ city, streets, initialMetrics, onSelectStreet }: Pro
     <div ref={containerRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
     <div className="pointer-events-none absolute inset-0 z-10">
       <div className="pointer-events-auto absolute left-4 top-4 w-[calc(100%-32px)] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:w-auto md:p-4">
-        <div className="flex items-center gap-3"><strong className="text-sm tracking-wide">CAMINA</strong><span className="hidden text-sm text-ink-2 md:inline">Street counts, Dublin</span><span className="text-xs text-ink-2">Updated {lastSeen ? formatDublinTime(lastSeen) : "—"}</span><button onClick={() => setStreetsOpen((open) => !open)} aria-expanded={streetsOpen} aria-controls="streets-list" className="ml-auto min-h-11 rounded-sm border border-line px-3 text-sm text-ink-1 md:hidden">Streets</button></div>
+        <div className="flex items-center gap-3"><strong className="text-sm tracking-wide">CAMINA</strong><span className="hidden text-sm text-ink-2 md:inline">Street counts, Dublin</span><span className="text-xs text-ink-2">Updated {lastSeen ? formatDublinUpdated(lastSeen) : "—"}</span><button onClick={() => setStreetsOpen((open) => !open)} aria-expanded={streetsOpen} aria-controls="streets-list" className="ml-auto min-h-11 rounded-sm border border-line px-3 text-sm text-ink-1 md:hidden">Streets</button></div>
         <div className="mt-2 hidden text-sm text-ink-2 md:block">Street counts across Dublin</div>
         <button onClick={() => setStreetsOpen((open) => !open)} aria-expanded={streetsOpen} aria-controls="streets-list" className="mt-2 hidden min-h-11 rounded-sm border border-line px-3 text-sm text-ink-1 hover:opacity-70 md:block">Streets</button>
       </div>
