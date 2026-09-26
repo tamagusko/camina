@@ -2,12 +2,14 @@ import "server-only";
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { isProduction } from "@/lib/env";
+import { isLive } from "@/lib/data-source";
+import { db } from "@/lib/db";
+import { resolveLiveAccess, type AllowedRole } from "@/lib/auth-allowlist";
 
 // Auth.js v5 configuration. Google SSO only.
 //
-// Allowlist is DB-backed (tables `allowed_members` + `allowed_domains`).
-// Until the live DB lands, the allowlist is stubbed via env var
-// CAMINA_DEV_ALLOWED_EMAILS (comma-separated) for local dev.
+// Live allowlist is DB-backed (allowed_members + allowed_domains). Mock mode
+// uses CAMINA_DEV_ALLOWED_EMAILS for local development.
 
 const devAllowlist = (process.env.CAMINA_DEV_ALLOWED_EMAILS ?? "")
   .split(",")
@@ -19,6 +21,15 @@ const devAdminList = (process.env.CAMINA_DEV_ADMIN_EMAILS ?? "")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
 
+async function accountAccess(email: string): Promise<{ role: AllowedRole } | null> {
+  if (isLive) return resolveLiveAccess(email, db());
+  if (devAllowlist.length === 0) {
+    return isProduction() ? null : { role: devAdminList.includes(email) ? "admin" : "viewer" };
+  }
+  if (!devAllowlist.includes(email)) return null;
+  return { role: devAdminList.includes(email) ? "admin" : "viewer" };
+}
+
 export const { handlers, auth, signIn } = NextAuth({
   providers: [Google],
   pages: {
@@ -29,18 +40,12 @@ export const { handlers, auth, signIn } = NextAuth({
     async signIn({ user }) {
       const email = user.email?.toLowerCase();
       if (!email) return false;
-      // Dev-mode allowlist check. Live mode will hit `allowed_members` table.
-      if (devAllowlist.length === 0) {
-        // Fail closed in production: an empty allowlist denies everyone.
-        // In dev, accept any sign-in — convenient for first-run setup.
-        return !isProduction();
-      }
-      return devAllowlist.includes(email);
+      return (await accountAccess(email)) !== null;
     },
     async session({ session }) {
       const email = session.user?.email?.toLowerCase();
-      (session as unknown as { role: "admin" | "viewer" }).role =
-        email && devAdminList.includes(email) ? "admin" : "viewer";
+      const access = email ? await accountAccess(email) : null;
+      (session as unknown as { role?: AllowedRole }).role = access?.role;
       return session;
     },
   },
