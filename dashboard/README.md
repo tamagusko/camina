@@ -66,6 +66,33 @@ The switch happens in `src/lib/data-source.ts` and is propagated by the
 | `pnpm db:generate`| Drizzle migrations from schema |
 | `pnpm db:migrate` | Apply migrations to DATABASE_URL |
 
+## Local live-mode checks
+
+Use a local PostGIS database and apply the migrations before running integration
+tests. The test suite skips database tests when `DATABASE_URL_TEST` is unset.
+
+```bash
+cd dashboard
+DATABASE_URL=postgres://camina:camina@127.0.0.1:55432/camina npx -y pnpm@9.12.0 db:migrate
+DATABASE_URL_TEST=postgres://camina:camina@127.0.0.1:55432/camina npx -y pnpm@9.12.0 test
+```
+
+Provisioning links a new sensor to an **existing** street. It stores only the
+SHA-256 hash of a new random token and prints the token once; keep that output
+for the device. An existing sensor is refused unless `--rotate` is specified.
+
+```bash
+DATABASE_URL_UNPOOLED=<database-url> npx -y pnpm@9.12.0 exec tsx scripts/provision-sensor.ts \
+  --id cam-dub-01 --display-name "Dublin sensor 1" --street-id <street-id> \
+  --latitude 53.3 --longitude -6.3
+DATABASE_URL_UNPOOLED=<database-url> npx -y pnpm@9.12.0 exec tsx scripts/provision-sensor.ts \
+  --id cam-dub-01 --rotate
+```
+
+Use `--config <json-file>` to supply site-specific settings and
+`--config-version <version>` to set the initial server version. The default
+configuration uses 15-minute counts and 5-minute heartbeats.
+
 ## Architecture at a glance
 
 ```
