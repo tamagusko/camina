@@ -4,20 +4,11 @@ import { checkIngestRateLimit } from "@/lib/ingest-ratelimit";
 import { readSensorConfig } from "@/lib/ingest-store";
 import { isMock } from "@/lib/data-source";
 import { sensorConfigResponseSchema } from "@/lib/schemas";
+import { MOCK_CONFIG } from "@/lib/mock-sensor-config";
 
 interface Ctx {
   params: Promise<{ id: string }>;
 }
-
-const MOCK_CONFIG = {
-  config_version: "mock-v1",
-  publish_interval_minutes: 15,
-  heartbeat_interval_minutes: 5,
-  daily_publish_time_utc: "00:00",
-  detection_zone: null,
-  frame_skip: 5,
-  min_track_hits: 3,
-} as const;
 
 export async function GET(request: Request, { params }: Ctx) {
   const { id } = await params;

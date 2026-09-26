@@ -6,9 +6,11 @@ import { checkIngestRateLimit } from "@/lib/ingest-ratelimit";
 import {
   checkTimestampSkew,
   persistCounts,
+  readSensorConfigVersion,
   refreshBoundedAggregatesSafe,
 } from "@/lib/ingest-store";
 import { isMock } from "@/lib/data-source";
+import { MOCK_CONFIG } from "@/lib/mock-sensor-config";
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -37,12 +39,16 @@ export async function POST(request: Request, { params }: Ctx) {
 
   if (isMock) {
     // In mock mode we accept but don't persist — fixtures are the source of truth.
-    return NextResponse.json({ ok: true, latest_config_version: parsed.data.config_version });
+    return NextResponse.json({ ok: true, latest_config_version: MOCK_CONFIG.config_version });
   }
   // Live mode: idempotent fan-out upsert into sensor_readings (H2).
   await persistCounts(parsed.data, id);
   // Piggyback the bounded-MV refresh (H14): rate-gated + advisory-locked, run
   // as background work so it never blocks or fails the ingest response.
   waitUntil(refreshBoundedAggregatesSafe());
-  return NextResponse.json({ ok: true, latest_config_version: parsed.data.config_version });
+  const latestConfigVersion = await readSensorConfigVersion(id);
+  if (latestConfigVersion === null) {
+    return NextResponse.json({ error: "unknown_sensor" }, { status: 404 });
+  }
+  return NextResponse.json({ ok: true, latest_config_version: latestConfigVersion });
 }

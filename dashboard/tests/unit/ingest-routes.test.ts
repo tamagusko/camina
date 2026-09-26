@@ -65,7 +65,7 @@ describe("POST /api/ingest/sensors/[id]/counts — mock mode", () => {
     );
     const res = await POST(postRequest(countsBody(), DEV_TOKEN), ctx);
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true });
+    expect(await res.json()).toMatchObject({ ok: true, latest_config_version: "mock-v1" });
   });
 
   it("rejects a missing/bad token (401)", async () => {
@@ -102,6 +102,27 @@ describe("POST /api/ingest/sensors/[id]/counts — mock mode", () => {
     const res = await POST(postRequest(body, DEV_TOKEN), ctx);
     expect(res.status).toBe(422);
     expect(await res.json()).toMatchObject({ error: "timestamp_in_future" });
+  });
+
+  it("accepts a counts window ending 10 days ago", async () => {
+    vi.stubEnv("CAMINA_DEV_INGEST_TOKEN", DEV_TOKEN);
+    vi.resetModules();
+    const { POST } = await import(
+      "@/app/api/ingest/sensors/[id]/counts/route"
+    );
+    const now = Date.now();
+    const body = countsBody({
+      window_start: new Date(now - 10 * 24 * 3600_000 - 900_000).toISOString(),
+      window_end: new Date(now - 10 * 24 * 3600_000).toISOString(),
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    try {
+      const res = await POST(postRequest(body, DEV_TOKEN), ctx);
+      expect(res.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects a payload whose sensor_id disagrees with the path (400)", async () => {

@@ -278,6 +278,18 @@ export async function persistHeartbeat(
 }
 
 // ── Config read (removes the config-route 501 stub) ────────────────
+export async function readSensorConfigVersion(
+  sensorId: string,
+  database: Db = db()
+): Promise<string | null> {
+  const rows = await database
+    .select({ configVersion: sensors.configVersion })
+    .from(sensors)
+    .where(eq(sensors.id, sensorId))
+    .limit(1);
+  return rows[0]?.configVersion ?? null;
+}
+
 export async function readSensorConfig(
   sensorId: string,
   database: Db = db()

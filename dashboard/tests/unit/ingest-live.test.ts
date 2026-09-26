@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { sensorReadings, sensors } from "../../drizzle/schema";
-import { persistCounts } from "@/lib/ingest-store";
+import { persistCounts, readSensorConfigVersion } from "@/lib/ingest-store";
 import { countsPayloadSchema } from "@/lib/schemas";
 
 const databaseUrl = process.env.DATABASE_URL_TEST;
@@ -87,5 +87,11 @@ describeWithDatabase("ingest live persistence", () => {
       VALUES (${sensorId}, '2026-09-26T00:00:00Z', '2026-09-26T00:15:00Z',
               'car', 5, 5, NULL)
     `).rejects.toThrow();
+  });
+
+  it("reads a changed config version from the sensor row", async () => {
+    expect(await readSensorConfigVersion(sensorId, database)).toBe("test-v1");
+    await database.update(sensors).set({ configVersion: "test-v2" }).where(eq(sensors.id, sensorId));
+    expect(await readSensorConfigVersion(sensorId, database)).toBe("test-v2");
   });
 });
