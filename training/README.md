@@ -47,6 +47,7 @@ The base configuration is `configs/yolo26n.yaml` (each choice commented); an exp
 | `validate_labels` | Check every label: class in the taxonomy, box in bounds |
 | `autolabel` | Pre-label new images for Roboflow (below) |
 | `codex_check` | Check each pre-label's class with Codex; split images into flagged / ok (below) |
+| `apply_audit` | Apply the audit page's decisions: corrected labels locally, then (`--push`) to Roboflow with tags |
 | `sam2_clip_auto_labeling.py`, `dinov3_semi_auto_labeling.py` | Experimental pre-labelling; unverified |
 
 ## Pre-labelling new images
@@ -66,6 +67,11 @@ Rules: `docs/labelling_guide/`. Every box is still reviewed by a person in Robof
 
 Crops go to OpenAI in step 2. For camera images, leave person-carrying classes out of
 `--classes` until GDPR and the camera terms are settled.
+
+## Label audit
+
+The TRA 2026 vehicle labels were checked by two models; many SUV labels are wrong. How to review
+the disputed boxes and push the fixes to Roboflow: [`AUDIT.md`](AUDIT.md).
 
 ## Data
 
