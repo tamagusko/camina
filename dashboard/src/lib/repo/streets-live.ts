@@ -194,7 +194,7 @@ export const liveStreetsRepo: StreetsRepo = {
     const now = new Date();
     const cutoff = new Date(now.getTime() - WINDOW_MS[window]);
     const streetRows = rows<{ id: string }>(await db().execute(sql`
-      SELECT id FROM streets WHERE city = ${city} ORDER BY id
+      SELECT id FROM streets WHERE city = ${city} AND active = true ORDER BY id
     `));
     const metricRows = classes?.length === 0 ? [] : rows<MetricAggregate>(await db().execute(sql`
       SELECT c.street_id, r.class_name, SUM(r.count) AS total_count,

@@ -215,7 +215,10 @@ export const mockStreetsRepo: StreetsRepo = {
       loadReadings(),
     ]);
 
-    const citySet = new Set(streets.filter((s) => s.city === city).map((s) => s.id));
+    // Active streets only, matching list().
+    const citySet = new Set(
+      streets.filter((s) => s.city === city && s.active).map((s) => s.id)
+    );
     const requested = classes ?? [...ROAD_USER_CLASSES];
     const now = deriveNow(readings);
     const cutoff = windowCutoff(window, now).getTime();
