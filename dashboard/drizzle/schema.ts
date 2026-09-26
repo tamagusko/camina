@@ -67,6 +67,8 @@ export const sensorReadings = pgTable(
     windowEnd: timestamp("window_end", { withTimezone: true }).notNull(),
     className: text("class_name").notNull(),
     count: integer("count").notNull(),
+    directionAbCount: integer("direction_ab_count"),
+    directionBaCount: integer("direction_ba_count"),
     avgSpeedKmh: real("avg_speed_kmh"),
     partial: boolean("partial").notNull().default(false),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
