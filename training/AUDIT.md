@@ -73,11 +73,14 @@ command without `--limit 1`.
 
 1. Filter by `audit-box` and redraw those boxes.
 2. Generate a **new dataset version**. Version 3, used in the paper, stays as it is.
-3. Download it and rebuild the dataset:
-   ```bash
-   python -m training.download_tra2026        # set VERSION to the new one first
-   python -m training.build_dataset --prepare data/tra2026 --out training/dataset
-   ```
+3. Update `training/dataset` so it keeps the **same split**. Do **not** re-run
+   `build_dataset --prepare`: the split is stratified by class, so changed labels could move
+   images between train, val and test.
+
+   The step-2 files (`data/autolabel/audit/fixed/<split>/labels/`) have the same names as the
+   dataset files. They are copied over them, `split.json`'s label hashes are updated, and the
+   change is committed as a new dataset. Ask Claude to do this step; no script for it exists
+   yet.
 
 ## Files
 
