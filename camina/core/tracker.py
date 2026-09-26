@@ -21,6 +21,11 @@ is allowed only when
 - the classes are the same or in one ``COMPATIBLE_CLASSES`` group.
 
 A re-linked track keeps its ID and restarts its filter from the observation.
+
+Class confirmation: a track's class is *confirmed* when its winning vote was
+also detected on at least ``min_class_hits`` frames (in total, not in a row).
+``Sort.unconfirmed_ids`` lists the reported tracks whose class is not, so the
+count gate can hold them until it is.
 """
 
 from __future__ import annotations
@@ -34,6 +39,7 @@ from filterpy.kalman import KalmanFilter
 from scipy.optimize import linear_sum_assignment
 
 MAX_OCCLUSION_S = 5.0  # seconds a track survives without a detection
+MIN_CLASS_HITS = 3  # detections of the winning class before it is confirmed
 IOU_THRESHOLD = 0.3  # minimum IoU to match a detection to a track
 
 # Re-link gate radius, in the track's last observed box heights per (1 + s hidden):
@@ -62,12 +68,17 @@ class KalmanBoxTracker:
         self._centres.append((t, *_centre(self.last_obs)))
         self.hits = 0
         self.votes: dict[int, float] = {}
+        self.class_hits: dict[int, int] = {}  # frames detected as each class
         self._vote(det)
 
     @property
     def cls(self) -> int:
         """The class with the highest summed confidence so far."""
         return max(self.votes, key=self.votes.get)
+
+    def class_confirmed(self, min_class_hits: int) -> bool:
+        """Whether the winning class was detected on at least ``min_class_hits`` frames."""
+        return self.class_hits.get(self.cls, 0) >= min_class_hits
 
     def update(self, det: np.ndarray, t: float) -> None:
         """Correct the filter with a detection ``[x1, y1, x2, y2, score, cls]`` seen at ``t``."""
@@ -121,6 +132,7 @@ class KalmanBoxTracker:
     def _vote(self, det: np.ndarray) -> None:
         cls = int(det[5])
         self.votes[cls] = self.votes.get(cls, 0.0) + float(det[4])
+        self.class_hits[cls] = self.class_hits.get(cls, 0) + 1
 
 
 class Sort:
@@ -132,9 +144,13 @@ class Sort:
         iou_threshold: Minimum IoU to match a detection to a track.
         compatible_classes: Groups of class indices a re-link may cross
             (``class_groups``); by default a re-link keeps the class.
+        min_class_hits: Detections of its winning class a track needs before
+            its class is confirmed.
 
     Attributes:
         relinks: Detections re-linked to a lost track since start.
+        unconfirmed_ids: IDs among the last ``update``'s rows whose class is
+            not confirmed yet.
     """
 
     def __init__(
@@ -143,6 +159,7 @@ class Sort:
         max_occlusion_s: float = MAX_OCCLUSION_S,
         iou_threshold: float = IOU_THRESHOLD,
         compatible_classes: Iterable[Iterable[int]] = (),
+        min_class_hits: int = MIN_CLASS_HITS,
     ) -> None:
         if max_occlusion_s <= 0:
             raise ValueError(f"max_occlusion_s must be > 0, got {max_occlusion_s}")
@@ -153,6 +170,8 @@ class Sort:
         self.trackers: list[KalmanBoxTracker] = []
         self.frame_count = 0
         self.relinks = 0
+        self.min_class_hits = min_class_hits
+        self.unconfirmed_ids: set[int] = set()
 
     def update(self, dets: np.ndarray | None = None, t: float | None = None) -> np.ndarray:
         """Advance one frame.
@@ -188,12 +207,16 @@ class Sort:
             unmatched.remove(d)
         self.trackers += [KalmanBoxTracker(dets[d], t) for d in unmatched]
 
-        confirmed = [
-            [*k.box, k.id, k.cls]
+        reported = [
+            k
             for k in self.trackers
             if k.time_since_update == 0
             and (k.hits >= self.min_hits or self.frame_count <= self.min_hits)
         ]
+        self.unconfirmed_ids = {
+            k.id for k in reported if not k.class_confirmed(self.min_class_hits)
+        }
+        confirmed = [[*k.box, k.id, k.cls] for k in reported]
         return np.asarray(confirmed, dtype=float).reshape(-1, 6)
 
     def _relink(

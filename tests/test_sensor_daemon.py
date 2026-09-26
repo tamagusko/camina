@@ -318,3 +318,26 @@ def test_publish_worker_drains_enqueued_counts_on_stop(tmp_path: Path) -> None:
         assert not daemon._worker_thread.is_alive()
     finally:
         daemon._test_client.close()  # type: ignore[attr-defined]
+
+
+def test_tracking_losses_are_logged_per_window(tmp_path: Path, caplog) -> None:
+    """Each window logs, at INFO, the tracks dropped unconfirmed and the re-links."""
+    import logging
+    from types import SimpleNamespace
+
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    detect = SimpleNamespace(
+        gate=SimpleNamespace(unconfirmed_dropped=0), tracker=SimpleNamespace(relinks=0)
+    )
+    try:
+        detect.gate.unconfirmed_dropped, detect.tracker.relinks = 2, 5
+        with caplog.at_level(logging.INFO, logger="camina.service.sensor_daemon"):
+            daemon._log_tracking(detect)
+            detect.gate.unconfirmed_dropped, detect.tracker.relinks = 3, 5
+            daemon._log_tracking(detect)
+        lines = [r.getMessage() for r in caplog.records if "unconfirmed_dropped" in r.message]
+        assert "unconfirmed_dropped=2 relinks=5" in lines[0]
+        assert "unconfirmed_dropped=1 relinks=0" in lines[1]
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()

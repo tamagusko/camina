@@ -156,3 +156,44 @@ def test_tracks_are_forgotten_after_forget_after_s_seconds_unseen() -> None:
 def test_min_move_must_be_positive() -> None:
     with pytest.raises(ValueError, match="min_move"):
         CountGate(min_move=0)
+
+
+# ---------- Class confirmation ----------
+
+LINE = Screenline((0.5, 0.0), (0.5, 1.0))
+
+
+def test_a_track_qualifying_before_its_class_is_confirmed_counts_when_it_confirms() -> None:
+    gate = CountGate(screenline=LINE)
+    xs = [300, 400, 520, 700]
+    events = [
+        e
+        for i, x in enumerate(xs)
+        for e in gate.step([("car-1", _box(x, 500))], FRAME, t=i * 0.1, unconfirmed={"car-1"})
+    ]
+    assert events == []
+    assert gate.n_pending == 1
+
+    events = gate.step([("car-1", _box(300, 500))], FRAME, t=0.5)  # confirmed; back on side A
+
+    assert events == [CountEvent("car-1", "AB")]
+    assert gate.n_pending == 0
+
+
+def test_a_pending_track_that_dies_unconfirmed_is_dropped_and_counted_as_such() -> None:
+    gate = CountGate(screenline=LINE, forget_after_s=10.0)
+    for i, x in enumerate([300, 400, 520, 700]):
+        gate.step([("car-1", _box(x, 500))], FRAME, t=i * 0.1, unconfirmed={"car-1"})
+    assert gate.unconfirmed_dropped == 0
+
+    assert gate.step([], FRAME, t=20.0) == []
+    assert gate.unconfirmed_dropped == 1
+    assert gate.n_tracks == 0
+
+
+def test_an_unconfirmed_track_that_never_qualified_is_not_counted_as_dropped() -> None:
+    gate = CountGate(screenline=LINE, forget_after_s=10.0)
+    gate.step([("person-1", _box(100, 500))], FRAME, t=0.0, unconfirmed={"person-1"})
+    gate.step([], FRAME, t=20.0)
+
+    assert gate.unconfirmed_dropped == 0

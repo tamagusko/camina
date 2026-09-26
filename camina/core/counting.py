@@ -16,13 +16,19 @@ The gate counts a track at most once, and only when it has travelled:
 
 Counting once per track, at the moment it qualifies, also stops a slow track
 from being counted again in every 15-minute window it spans.
+
+A track whose class is not confirmed yet (``unconfirmed`` in ``step``; see
+``camina.core.tracker``) is held when it qualifies, and counted, with the
+direction it qualified in, on the first frame its class is confirmed. If it is
+forgotten still unconfirmed it is not counted; ``unconfirmed_dropped`` counts
+those.
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -93,6 +99,8 @@ class _Track:
     last_seen: float  # seconds
     counted: bool = False
     crossed: str | None = None  # latest screenline crossing direction
+    qualified: bool = False  # travelled far enough; counted or pending its class
+    direction: str | None = None  # direction when it qualified
 
 
 class CountGate:
@@ -105,6 +113,10 @@ class CountGate:
         forget_after_s: Drop a track's state after this many seconds unseen.
             Must be at least the tracker's ``max_occlusion_s``: a track the
             gate forgot but the tracker revives would be counted again.
+
+    Attributes:
+        unconfirmed_dropped: Tracks that qualified but were forgotten before
+            their class was confirmed, since start.
     """
 
     def __init__(
@@ -119,17 +131,24 @@ class CountGate:
         self.min_move = min_move
         self.forget_after_s = forget_after_s
         self._tracks: dict[str, _Track] = {}
+        self.unconfirmed_dropped = 0
 
     @property
     def n_tracks(self) -> int:
         """Number of tracks currently remembered."""
         return len(self._tracks)
 
+    @property
+    def n_pending(self) -> int:
+        """Tracks that qualified and wait for their class to be confirmed."""
+        return sum(tr.qualified and not tr.counted for tr in self._tracks.values())
+
     def step(
         self,
         tracks: Iterable[tuple[str, Box]],
         frame_size: tuple[int, int],
         t: float | None = None,
+        unconfirmed: Collection[str] = frozenset(),
     ) -> list[CountEvent]:
         """Process one frame's confirmed tracks.
 
@@ -139,6 +158,7 @@ class CountGate:
             frame_size: ``(width, height)`` of the frame in pixels.
             t: Frame timestamp in seconds, the clock the tracker uses;
                 ``None`` reads ``time.monotonic()``.
+            unconfirmed: Keys whose class is not confirmed on this frame.
 
         Returns:
             The tracks that qualified on this frame, in input order.
@@ -154,11 +174,11 @@ class CountGate:
             tr.height_sum += height
             tr.n += 1
             tr.last_seen = t
-            if not tr.counted:
-                counts, direction = self._qualifies(tr, centre, frame_size)
-                if counts:
-                    tr.counted = True
-                    events.append(CountEvent(key, direction))
+            if not tr.qualified:
+                tr.qualified, tr.direction = self._qualifies(tr, centre, frame_size)
+            if tr.qualified and not tr.counted and key not in unconfirmed:
+                tr.counted = True
+                events.append(CountEvent(key, tr.direction))
             if not self._on_line(centre, frame_size):
                 # Keep the last point off the line, so on-line frames can't hide a crossing.
                 tr.last = centre
@@ -189,6 +209,9 @@ class CountGate:
     def _forget(self, now: float) -> None:
         stale = [k for k, tr in self._tracks.items() if now - tr.last_seen > self.forget_after_s]
         for k in stale:
+            if self._tracks[k].qualified and not self._tracks[k].counted:
+                self.unconfirmed_dropped += 1
+                logger.debug("dropped %s: qualified but its class never confirmed", k)
             del self._tracks[k]
 
 

@@ -381,3 +381,51 @@ def test_the_tracker_may_relink_across_confused_vehicle_classes(
 
     assert f.tracker._compatible(car, suv)  # type: ignore[attr-defined]
     assert not f.tracker._compatible(car, person)  # type: ignore[attr-defined]
+
+
+def test_a_car_is_counted_only_once_its_class_is_confirmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With min_class_hits=14 the car has crossed the line (frame 11) before it
+    confirms; it is counted, with its direction, on the frame it confirms."""
+    from camina.core.counting import CountGate, Screenline
+    from camina.service import detect_track
+
+    frames = [_car_at(20.0 * i) for i in range(20)]  # centre crosses x = 240 at frame 11
+    monkeypatch.setattr(detect_track, "NcnnDetector", _fake_detector_factory(frames))
+    gate = CountGate(screenline=Screenline((0.5, 0.0), (0.5, 1.0)))
+    f = detect_track.make_detect_and_track(
+        ncnn_model_path="ignored", classes=CLASSES, imgsz=480, gate=gate, min_class_hits=14
+    )
+    frame = np.zeros((480, 480, 3), dtype=np.uint8)
+    per_frame = [list(f(frame, t=i / 10)) for i in range(len(frames))]
+
+    counted_at = [i for i, out in enumerate(per_frame) if out]
+    assert counted_at == [13]  # the car's 14th detection
+    assert per_frame[13][0].direction == "AB"
+
+
+def test_a_track_dying_before_its_class_confirms_is_not_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from camina.core.counting import CountGate, Screenline
+    from camina.service import detect_track
+
+    frames = [_car_at(20.0 * i) for i in range(15)] + [_FakeBoxes([], [], [])] * 3
+    monkeypatch.setattr(detect_track, "NcnnDetector", _fake_detector_factory(frames))
+    gate = CountGate(screenline=Screenline((0.5, 0.0), (0.5, 1.0)), forget_after_s=5.0)
+    f = detect_track.make_detect_and_track(
+        ncnn_model_path="ignored",
+        classes=CLASSES,
+        imgsz=480,
+        gate=gate,
+        min_class_hits=20,
+        max_occlusion_s=5.0,
+    )
+    frame = np.zeros((480, 480, 3), dtype=np.uint8)
+    stamps = [i / 10 for i in range(15)] + [3.0, 6.0, 9.0]
+    seen = [c for t in stamps for c in f(frame, t=t)]
+
+    assert seen == []
+    assert gate.unconfirmed_dropped == 1
+    assert f.gate is gate  # type: ignore[attr-defined]

@@ -208,6 +208,8 @@ class SensorDaemon:
 
         # sd_notify is a no-op unless launched under a Type=notify systemd unit.
         self._notifier = SystemdNotifier()
+        # Tracker/gate counters at the last window rollover (logged as deltas).
+        self._tracking_seen = (0, 0)
 
     # ---------- Public API ----------
 
@@ -280,6 +282,7 @@ class SensorDaemon:
 
             snapshot = self._counter.maybe_rollover(now)
             if snapshot is not None:
+                self._log_tracking(self._detect_and_track)
                 # Record locally on this thread (fast local SQLite), then hand
                 # the network POST to the worker so the loop never blocks.
                 self._daily.add_window(snapshot)
@@ -297,6 +300,20 @@ class SensorDaemon:
             if time.monotonic() - last_watchdog >= _WATCHDOG_INTERVAL_S:
                 self._notifier.watchdog()
                 last_watchdog = time.monotonic()
+
+    def _log_tracking(self, detect_and_track: object) -> None:
+        """Log, at INFO, this window's tracks dropped unconfirmed and re-links."""
+        gate = getattr(detect_and_track, "gate", None)
+        tracker = getattr(detect_and_track, "tracker", None)
+        dropped = getattr(gate, "unconfirmed_dropped", 0)
+        relinks = getattr(tracker, "relinks", 0)
+        seen_dropped, seen_relinks = self._tracking_seen
+        self._tracking_seen = (dropped, relinks)
+        logger.info(
+            "Window tracking: unconfirmed_dropped=%d relinks=%d",
+            dropped - seen_dropped,
+            relinks - seen_relinks,
+        )
 
     # ---------- Publish worker ----------
 

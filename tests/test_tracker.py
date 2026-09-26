@@ -246,3 +246,35 @@ def test_relinking_is_an_optimal_assignment_not_greedy() -> None:
     got = {round(float(r[0])): int(r[4]) for r in out}
     assert got == {55: id_at[0.0], 160: id_at[100.0]}
     assert tracker.relinks == 2
+
+
+# ---------- Class confirmation ----------
+
+
+def _unconfirmed_after(frames: list[list[list[float]]], min_class_hits: int = 3) -> set[int]:
+    tracker = Sort(min_hits=1, min_class_hits=min_class_hits)
+    _play(tracker, frames)
+    return tracker.unconfirmed_ids
+
+
+def test_a_class_is_confirmed_after_min_class_hits_detections_of_it() -> None:
+    frames = [[_det(10, 0.9, CAR)]] * 3
+
+    assert len(_unconfirmed_after(frames[:2])) == 1
+    assert _unconfirmed_after(frames) == set()
+
+
+def test_the_winning_class_needs_its_own_hits_not_the_track_total() -> None:
+    """Car wins the vote (2 x 0.9 > 3 x 0.3) but was seen as car on 2 frames only."""
+    classes = [CAR, SUV, SUV, CAR, SUV]
+    scores = [0.9, 0.3, 0.3, 0.9, 0.3]
+    frames = [[_det(10, s, c)] for c, s in zip(classes, scores, strict=True)]
+
+    assert len(_unconfirmed_after(frames)) == 1
+    assert _unconfirmed_after([*frames, [_det(10, 0.9, CAR)]]) == set()
+
+
+def test_min_class_hits_counts_total_not_consecutive_frames() -> None:
+    frames = [[_det(10, 0.9, c)] for c in (CAR, SUV, CAR, SUV, CAR)]
+
+    assert _unconfirmed_after(frames) == set()

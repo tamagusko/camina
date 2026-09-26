@@ -12,7 +12,8 @@
 - One ``Sort`` tracks all classes, re-linking a track after an occlusion
   (``camina.core.tracker``); each track's class is its
   confidence-weighted majority vote, so a car/SUV flicker stays one track.
-- With a ``CountGate``, each track is yielded once, when it counts.
+- With a ``CountGate``, each track is yielded once, when it counts, and only
+  once its class is confirmed (``min_class_hits``).
 
 The requested ``imgsz`` must equal the export's ``metadata.yaml``: an NCNN
 model run at another size returns garbage boxes.
@@ -31,7 +32,7 @@ import yaml
 
 from camina.core.counting import CountGate
 from camina.core.riders import drop_riders
-from camina.core.tracker import MAX_OCCLUSION_S, Sort, class_groups
+from camina.core.tracker import MAX_OCCLUSION_S, MIN_CLASS_HITS, Sort, class_groups
 from camina.service.ncnn_detector import NcnnDetector
 from camina.utils.taxonomy import load_class_aliases
 
@@ -67,6 +68,7 @@ def make_detect_and_track(
     conf: float = 0.3,
     gate: CountGate | None = None,
     max_occlusion_s: float = MAX_OCCLUSION_S,
+    min_class_hits: int = MIN_CLASS_HITS,
 ) -> Callable[..., Iterable[DetectResult]]:
     """Build a ``detect_and_track(frame)`` closure wiring YOLO NCNN -> Sort.
 
@@ -83,6 +85,8 @@ def make_detect_and_track(
             screenline or has moved far enough (``CountGate``). When ``None``,
             yield every confirmed track on every frame.
         max_occlusion_s: Seconds a track survives without a detection.
+        min_class_hits: Detections of its winning class a track needs before
+            the gate counts it under that class.
 
     Returns:
         A closure ``detect_and_track(frame, t=None)`` that runs YOLO inference,
@@ -111,7 +115,11 @@ def make_detect_and_track(
 
     # One tracker for all classes: a class flicker (car/SUV) stays one track,
     # and the track's class is its confidence-weighted majority vote.
-    tracker = Sort(max_occlusion_s=max_occlusion_s, compatible_classes=class_groups(classes))
+    tracker = Sort(
+        max_occlusion_s=max_occlusion_s,
+        compatible_classes=class_groups(classes),
+        min_class_hits=min_class_hits,
+    )
     n_model_classes = len(model_names)
 
     def detect_and_track(frame: np.ndarray, t: float | None = None) -> Iterable[DetectResult]:
@@ -127,7 +135,9 @@ def make_detect_and_track(
             return
         class_of = {str(tid): name for tid, name, _ in tracks}
         size = (frame.shape[1], frame.shape[0])
-        for event in gate.step(((str(tid), box) for tid, _, box in tracks), size, t):
+        unconfirmed = {str(tid) for tid in tracker.unconfirmed_ids}
+        boxes = ((str(tid), box) for tid, _, box in tracks)
+        for event in gate.step(boxes, size, t, unconfirmed):
             name = class_of[event.key]
             logger.debug("counted %s-%s direction=%s", name, event.key, event.direction)
             if event.direction is None:
@@ -135,8 +145,10 @@ def make_detect_and_track(
             else:
                 yield CountedTrack(f"{name}-{event.key}", name, event.direction)
 
-    # Handle for the daemon to apply the server's ``min_track_hits``.
+    # Handles for the daemon: it applies the server's config to the tracker and
+    # logs the tracker's and the gate's counters per window.
     detect_and_track.tracker = tracker  # type: ignore[attr-defined]
+    detect_and_track.gate = gate  # type: ignore[attr-defined]
     return detect_and_track
 
 
