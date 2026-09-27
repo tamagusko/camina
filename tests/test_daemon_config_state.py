@@ -114,6 +114,23 @@ def test_min_track_hits_is_applied_to_the_tracker(tmp_path: Path) -> None:
         daemon.stop()
 
 
+def test_reconfiguring_window_preserves_open_counts(tmp_path: Path) -> None:
+    daemon = _daemon(tmp_path)
+    emitted = []
+    daemon._enqueue = lambda job: emitted.append(job)
+    daemon._counter.add(1, "car", daemon._counter.window_start)
+    try:
+        daemon._apply_config(_config(publish_interval_minutes=5))
+        assert len(emitted) == 1
+        kind, snapshot = emitted[0]
+        assert kind == "counts"
+        assert snapshot.counts["car"] == 1
+        assert snapshot.partial is True
+        assert daemon._daily._load(snapshot.window_start.date())[0]["car"] == 1
+    finally:
+        daemon.stop()
+
+
 def test_unsupported_fields_are_rejected_with_a_reason(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

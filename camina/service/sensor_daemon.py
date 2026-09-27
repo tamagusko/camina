@@ -489,6 +489,10 @@ class SensorDaemon:
                 self._counter.window_seconds,
                 new_window,
             )
+            snapshot = self._counter.force_snapshot(datetime.now(tz=timezone.utc), partial=True)
+            if snapshot.total():
+                self._daily.add_window(snapshot)
+                self._enqueue(("counts", snapshot))
             self._counter = WindowedCounter(
                 classes=self._config.classes,
                 window_seconds=new_window,
