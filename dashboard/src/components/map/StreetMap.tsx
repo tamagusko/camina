@@ -107,7 +107,6 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
   }, [streets, shown, mapReady]);
 
   return <div className="relative h-[100dvh] w-full overflow-hidden bg-bg">
-    <div ref={containerRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
     <div className="pointer-events-none absolute inset-0 z-10">
       <header ref={headerRef} onKeyDown={(event) => { if (event.key === "Escape" && streetsOpen) { event.stopPropagation(); setStreetsOpen(false); streetsButtonRef.current?.focus(); } }} className="pointer-events-auto absolute left-4 top-4 w-[calc(100%-32px)] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:w-auto md:p-4">
         <div className="flex items-center gap-3 md:block">
@@ -129,6 +128,9 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
         <p className="text-[11px] leading-tight text-ink-2"><a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noreferrer">© OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a></p>
       </div>
     </div>
+    {/* After the overlay in DOM order, so Tab reaches the product controls
+        before the basemap's; z-10 keeps the overlay painted on top. */}
+    <div ref={containerRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
   </div>;
 }
 
