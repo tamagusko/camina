@@ -15,6 +15,11 @@
   button, select, a { -webkit-tap-highlight-color: transparent; }
   :where(button, select, a):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   .maplibregl-map { font-family: inherit !important; }
+  @media print {
+    @page { margin: 14mm; }
+    html, body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    .card { break-inside: avoid; }
+  }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
   }

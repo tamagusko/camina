@@ -97,7 +97,7 @@ export function StreetTimeSeries({ readings, directions = ["A", "B"], history = 
         </ul>
 
         <p className="mt-3 text-micro text-[var(--ink-2)]">
-          {selected ? null : "Select a class to see it on its own. "}
+          {selected ? null : <span className="print:hidden">Select a class to see it on its own. </span>}
           {offline.length ? "Grey bands: sensor offline. " : null}
           Values under 5 are hidden and left out of totals and averages.
         </p>
