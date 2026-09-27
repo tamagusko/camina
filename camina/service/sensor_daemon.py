@@ -17,7 +17,7 @@ import queue
 import signal
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from threading import Event, Thread
 
@@ -232,6 +232,7 @@ class SensorDaemon:
         self._publish_queue: queue.Queue[object] = queue.Queue()
         self._worker_thread: Thread | None = None
         self._publish_jitter_s = _publish_jitter_seconds(config.sensor_id)
+        self._pending_daily_days: set[date] = set()
 
         # sd_notify is a no-op unless launched under a Type=notify systemd unit.
         self._notifier = SystemdNotifier()
@@ -266,6 +267,9 @@ class SensorDaemon:
             return
         self._stopped = True
         self._shutdown.set()
+        close_frame_source = getattr(self._frame_source, "close", None)
+        if close_frame_source is not None:
+            close_frame_source()
         if self._heartbeat_thread is not None:
             self._heartbeat_thread.join(timeout=5.0)
         # Drain any in-flight publish jobs before closing state: the sentinel
@@ -300,13 +304,6 @@ class SensorDaemon:
             if self._shutdown.is_set():
                 break
             now = datetime.now(tz=timezone.utc)
-            for counted in self._detect_and_track(frame):
-                track_id, class_name = counted
-                direction = getattr(counted, "direction", None)
-                self._counter.add(
-                    track_id=track_id, class_name=class_name, now=now, direction=direction
-                )
-
             snapshot = self._counter.maybe_rollover(now)
             if snapshot is not None:
                 self._log_tracking(self._detect_and_track)
@@ -316,13 +313,16 @@ class SensorDaemon:
                 self._enqueue(("counts", snapshot))
 
             daily_snapshot = self._daily.maybe_rollover(now)
-            if daily_snapshot is not None:
-                # Mark published up-front so ``maybe_rollover`` doesn't re-emit
-                # this row every frame while the async POST is in flight — the
-                # outbox owns durable delivery, so a daily is always
-                # delivered-or-buffered (F2).
-                self._daily.mark_published(daily_snapshot.day)
+            if daily_snapshot is not None and daily_snapshot.day not in self._pending_daily_days:
+                self._pending_daily_days.add(daily_snapshot.day)
                 self._enqueue(("daily", daily_snapshot))
+
+            for counted in self._detect_and_track(frame):
+                track_id, class_name = counted
+                direction = getattr(counted, "direction", None)
+                self._counter.add(
+                    track_id=track_id, class_name=class_name, now=now, direction=direction
+                )
 
             if time.monotonic() - last_watchdog >= _WATCHDOG_INTERVAL_S:
                 self._notifier.watchdog()
@@ -421,15 +421,18 @@ class SensorDaemon:
             self._poller.check(result.latest_config_version)
 
     def _publish_daily_row(self, snapshot: DailySnapshot) -> None:
-        # Network-only daily publish for the worker; the main loop already
-        # marked this row published, so this must not touch ``_daily``.
-        result = self._publisher.post_daily(
-            snapshot=snapshot,
-            config_version=self._poller.current_version,
-            fw_version=self._config.fw_version,
-        )
-        if result.latest_config_version:
-            self._poller.check(result.latest_config_version)
+        try:
+            result = self._publisher.post_daily(
+                snapshot=snapshot,
+                config_version=self._poller.current_version,
+                fw_version=self._config.fw_version,
+            )
+            if result.delivered or result.buffered:
+                self._daily.mark_published(snapshot.day)
+            if result.latest_config_version:
+                self._poller.check(result.latest_config_version)
+        finally:
+            self._pending_daily_days.discard(snapshot.day)
 
     def _flush_open_window(self) -> None:
         """Force-close the open window on shutdown so its counts aren't lost.
@@ -489,6 +492,10 @@ class SensorDaemon:
                 self._counter.window_seconds,
                 new_window,
             )
+            snapshot = self._counter.force_snapshot(datetime.now(tz=timezone.utc), partial=True)
+            if snapshot.total():
+                self._daily.add_window(snapshot)
+                self._enqueue(("counts", snapshot))
             self._counter = WindowedCounter(
                 classes=self._config.classes,
                 window_seconds=new_window,

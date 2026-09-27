@@ -59,6 +59,20 @@ def test_separate_objects_keep_separate_tracks_and_classes() -> None:
     assert sorted(out[:, 5].tolist()) == [PERSON, CAR]
 
 
+def test_track_created_after_startup_reports_after_min_hits_detections() -> None:
+    tracker = Sort(min_hits=3, min_class_hits=1)
+    empty = np.empty((0, 6))
+    for i in range(4):
+        tracker.update(empty, t=float(i))
+
+    detection = np.asarray([_det(10, 0.9, CAR)], dtype=float)
+    tracker.update(detection, t=4.0)
+    tracker.update(detection, t=5.0)
+    out = tracker.update(detection, t=6.0)
+
+    assert out.shape == (1, 6)
+
+
 def test_no_detections_returns_an_empty_six_column_array() -> None:
     assert Sort().update(np.empty((0, 6))).shape == (0, 6)
 

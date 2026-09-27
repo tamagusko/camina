@@ -187,6 +187,49 @@ def test_apply_failure_is_recorded() -> None:
         client.close()
 
 
+def test_persist_failure_remains_retryable_and_sets_error() -> None:
+    applied: list[SensorConfig] = []
+    persist_calls: list[str] = []
+    responses = [
+        httpx.Response(200, json=_valid_config("v2")),
+        httpx.Response(200, json=_valid_config("v2")),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return responses.pop(0)
+
+    def persist(version: str) -> None:
+        persist_calls.append(version)
+        if len(persist_calls) == 1:
+            raise OSError("disk full")
+
+    client = HttpClient(
+        "https://api.test",
+        token="t",
+        retry=_fast_retry(),
+        transport=httpx.MockTransport(handler),
+    )
+    poller = ConfigPoller(
+        sensor_id="cam-01",
+        http_client=client,
+        current_version="v1",
+        apply=applied.append,
+        persist=persist,
+    )
+    try:
+        assert poller.check("v2") is False
+        assert poller.current_version == "v1"
+        assert poller.last_error == "persist_failed"
+
+        assert poller.check("v2") is True
+        assert poller.current_version == "v2"
+        assert poller.has_error is False
+        assert persist_calls == ["v2", "v2"]
+        assert len(applied) == 2
+    finally:
+        client.close()
+
+
 def test_successful_apply_clears_prior_error() -> None:
     applied: list[SensorConfig] = []
     responses = [

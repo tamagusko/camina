@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -204,6 +205,25 @@ def test_cap_drops_oldest_when_exceeded(tmp_path: Path) -> None:
     assert [i.payload for i in items] == [b"B", b"C", b"D"]
     assert b.stats().dropped == 1
     b.close()
+
+
+def test_failed_enqueue_does_not_evict_oldest_row(tmp_path: Path) -> None:
+    b = OfflineBuffer(db_path=tmp_path / "s.db", max_rows=3)
+    try:
+        for payload in (b"A", b"B", b"C"):
+            b.enqueue("counts", payload)
+        b._conn.execute(
+            "CREATE TRIGGER reject_insert BEFORE INSERT ON outbox "
+            "BEGIN SELECT RAISE(ABORT, 'insert failed'); END"
+        )
+
+        with pytest.raises(sqlite3.IntegrityError, match="insert failed"):
+            b.enqueue("counts", b"D")
+
+        assert [item.payload for item in b.peek(10)] == [b"A", b"B", b"C"]
+        assert b.stats().dropped == 0
+    finally:
+        b.close()
 
 
 def test_cap_drops_multiple_when_far_over(tmp_path: Path) -> None:

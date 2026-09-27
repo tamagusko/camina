@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Thread
 
@@ -102,6 +102,33 @@ def test_daemon_preserves_count_gate_direction(tmp_path: Path) -> None:
         daemon.stop()
 
 
+def test_crossing_at_window_boundary_belongs_to_new_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    boundary = daemon._counter.window_end
+    emitted: list[WindowSnapshot] = []
+    daemon._frame_source = iter([object()])
+    daemon._detect_and_track = lambda _frame: [("car-1", "car")]
+    daemon._enqueue = lambda job: emitted.append(job[1]) if job[0] == "counts" else None
+
+    class BoundaryClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return boundary
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(sd, "datetime", BoundaryClock)
+            daemon._main_loop()
+        assert len(emitted) == 1
+        assert emitted[0].counts["car"] == 0
+        assert daemon._counter.force_snapshot(boundary).counts["car"] == 1
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
+
+
 def test_heartbeat_reports_outbox_depth_and_loss(tmp_path: Path) -> None:
     received: list[dict] = []
 
@@ -163,6 +190,27 @@ def test_config_poller_reconfigures_counter(tmp_path: Path) -> None:
     assert poller.current_version == "v2"
     assert applied[0].config_version == "v2"
     client.close()
+
+
+def test_daily_remains_unpublished_until_queued_job_is_durable(tmp_path: Path) -> None:
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    yesterday = datetime.now(tz=UTC) - timedelta(days=1)
+    start = yesterday.replace(hour=10, minute=0, second=0, microsecond=0)
+    daemon._daily.add_window(
+        WindowSnapshot(start, start + timedelta(minutes=15), {"person": 1}, False)
+    )
+    queued = []
+    daemon._frame_source = iter([object(), object()])
+    daemon._enqueue = lambda job: queued.append(job)
+    try:
+        daemon._main_loop()
+        assert len([job for job in queued if job[0] == "daily"]) == 1
+        assert len(daemon._daily.pending_unpublished()) == 1
+        daemon._publish_daily_row(queued[0][1])
+        assert daemon._daily.pending_unpublished() == []
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
 
 
 def test_daily_publish_buffered_marks_published_no_retry_storm(tmp_path: Path) -> None:
@@ -243,6 +291,27 @@ def test_stop_skips_empty_open_window(tmp_path: Path) -> None:
     daemon.stop()  # no counts added → nothing published
     assert received == []
     daemon._test_client.close()  # type: ignore[attr-defined]
+
+
+def test_stop_closes_active_frame_source(tmp_path: Path) -> None:
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    closed = []
+
+    def frames():
+        try:
+            yield object()
+            yield object()
+        finally:
+            closed.append(True)
+
+    daemon._frame_source = frames()
+    next(daemon._frame_source)
+    try:
+        daemon.stop()
+        assert closed == [True]
+    finally:
+        daemon._frame_source.close()
+        daemon._test_client.close()  # type: ignore[attr-defined]
 
 
 def test_daemon_wires_fast_fail_inline_retry(tmp_path: Path) -> None:

@@ -68,7 +68,7 @@ class KalmanBoxTracker:
         self.last_obs = np.asarray(det[:4], dtype=float)  # last detected box
         self._centres: deque[tuple[float, float, float]] = deque(maxlen=64)  # (t, cx, cy)
         self._centres.append((t, *_centre(self.last_obs)))
-        self.hits = 0
+        self.hits = 1
         self.votes: dict[int, float] = {}
         self.class_hits: dict[int, int] = {}  # frames detected as each class
         self._vote(det)
