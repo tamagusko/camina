@@ -68,6 +68,27 @@ describe("verifyCron — fail closed in production (M3)", () => {
     const { verifyCron } = await import("@/lib/cron-auth");
     expect(verifyCron(req("Bearer nope"))?.status).toBe(403);
   });
+
+  // Vercel Cron sends `Authorization: Bearer <CRON_SECRET>`: it reads only the
+  // env var named CRON_SECRET. The GitHub Actions cron sends VERCEL_CRON_SECRET.
+  it("accepts Vercel Cron's CRON_SECRET in production alongside VERCEL_CRON_SECRET", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("CRON_SECRET", "vercel-cron");
+    vi.stubEnv("VERCEL_CRON_SECRET", "github-cron");
+    const { verifyCron } = await import("@/lib/cron-auth");
+    expect(verifyCron(req("Bearer vercel-cron"))).toBeNull();
+    expect(verifyCron(req("Bearer github-cron"))).toBeNull();
+    expect(verifyCron(req("Bearer other"))?.status).toBe(403);
+    expect(verifyCron(req())?.status).toBe(403);
+  });
+
+  it("accepts CRON_SECRET alone in production", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("CRON_SECRET", "vercel-cron");
+    const { verifyCron } = await import("@/lib/cron-auth");
+    expect(verifyCron(req("Bearer vercel-cron"))).toBeNull();
+    expect(verifyCron(req("Bearer other"))?.status).toBe(403);
+  });
 });
 
 describe("verifyIngestToken — timing-safe dev token (H6)", () => {

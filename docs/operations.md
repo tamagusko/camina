@@ -17,9 +17,10 @@ granularity only**. Sub-daily jobs are therefore split across three drivers:
 | Silent-sensor detection | `GET /api/cron/detect-silent` | ~every 15 min | GitHub Actions (`.github/workflows/cron.yml`) |
 
 All routes are protected by `verifyCron` (`dashboard/src/lib/cron-auth.ts`): a
-request must carry `Authorization: Bearer <VERCEL_CRON_SECRET>`. Vercel Cron
-signs its own calls with that secret; the GitHub Actions workflow sends the same
-secret.
+request must carry `Authorization: Bearer <secret>` matching `CRON_SECRET` or
+`VERCEL_CRON_SECRET`. Vercel Cron signs its own calls with `CRON_SECRET` (the
+only name it reads), so set it on the Vercel project or the daily jobs get 403;
+the GitHub Actions workflow sends `VERCEL_CRON_SECRET`. One value in both is fine.
 
 ### Primary vs fallback MV refresh
 
