@@ -15,7 +15,8 @@ import { TimeWindowPicker } from "./TimeWindowPicker";
 import { useMapQuery, type Viewport } from "./useMapQuery";
 
 const MAPLIBRE_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
-const BASEMAP = { light: "https://tiles.openfreemap.org/styles/positron", dark: "https://tiles.openfreemap.org/styles/dark" };
+// One light theme: a white, quiet basemap under the coloured streets.
+const BASEMAP = "https://tiles.openfreemap.org/styles/positron";
 interface Shown { rows: MetricValue[]; metric: Metric; timeWindow: TimeWindow; }
 interface Props { city: string; streets: StreetSummary[]; initialMetrics: MetricValue[]; mock?: boolean; onSelectStreet?: (streetId: string) => void; }
 
@@ -36,7 +37,6 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
   const [shown, setShown] = useState<Shown>({ rows: initialMetrics, metric: "counts", timeWindow: "now" });
   const [mapReady, setMapReady] = useState(false);
   const [streetsOpen, setStreetsOpen] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">(() => typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   const fallback = useMemo<Viewport>(() => CITY_VIEWS[city] ?? { center: [-6.26, 53.35], zoom: 13 }, [city]);
   const { viewport, attachTo, pinned } = useMapQuery(fallback);
   const lastSeen = shown.rows.map((m) => m.lastSeen).filter((v): v is string => !!v).sort().at(-1);
@@ -48,13 +48,6 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [streetsOpen]);
-
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const update = () => setTheme(media.matches ? "dark" : "light");
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
 
   useEffect(() => {
     const url = new URL("/api/metrics", window.location.origin);
@@ -73,7 +66,7 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
     if (!containerRef.current) return;
     maplibregl.setWorkerUrl(MAPLIBRE_WORKER_URL);
     const savedView = mapViewRef.current;
-    const map = new maplibregl.Map({ container: containerRef.current, style: BASEMAP[theme], center: savedView?.center ?? viewport.center, zoom: savedView?.zoom ?? viewport.zoom,
+    const map = new maplibregl.Map({ container: containerRef.current, style: BASEMAP, center: savedView?.center ?? viewport.center, zoom: savedView?.zoom ?? viewport.zoom,
       minZoom: 12, maxZoom: 18, pitch: 0, bearing: 0, dragRotate: false, pitchWithRotate: false, attributionControl: false });
     // Phone: pinch and double-tap zoom; attribution is the sheet's last line.
     if (window.matchMedia("(min-width: 768px)").matches) {
@@ -98,9 +91,9 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
     const observer = new ResizeObserver(() => map.resize());
     observer.observe(containerRef.current);
     return () => { const center = map.getCenter(); mapViewRef.current = { center: [center.lng, center.lat], zoom: map.getZoom() }; observer.disconnect(); detach(); setMapReady(false); map.remove(); mapRef.current = null; };
-    // Map reinitializes when the system colour scheme changes.
+    // The map is created once per city; pan, zoom and data update it in place.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [city, theme]);
+  }, [city]);
 
   useEffect(() => {
     const map = mapRef.current;

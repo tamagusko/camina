@@ -110,7 +110,7 @@ export function StreetTimeSeries({ readings, directions = ["A", "B"], history = 
 // One look for every chip; the selected one is outlined and bold.
 function chip(active: boolean): string {
   return cn(
-    "inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs text-[var(--ink-1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]",
+    "inline-flex min-h-11 items-center gap-1.5 rounded-full sm:min-h-9 border px-3 text-xs text-[var(--ink-1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]",
     active ? "border-[var(--ink-1)] font-semibold" : "border-[var(--line)] hover:border-[var(--ink-2)]",
   );
 }
