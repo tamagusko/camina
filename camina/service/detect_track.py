@@ -154,9 +154,12 @@ def make_detect_and_track(
         unconfirmed = {str(tid) for tid in tracker.unconfirmed_ids}
         if speed is not None:
             boxes = ((str(tid), box) for tid, _, box in tracks)
-            speeds.extend(
-                (class_of[ev.key], ev.kmh) for ev in speed.step(boxes, size, t, unconfirmed)
-            )
+            for ev in speed.step(boxes, size, t, unconfirmed):
+                name = class_of[ev.key]
+                # One line per timed road user: what the site validation pairs
+                # with the reference speeds (docs/CALIBRATION_SETUP.md).
+                logger.debug("speed %s-%s %.1f km/h", name, ev.key, ev.kmh)
+                speeds.append((name, ev.kmh))
         if gate is None:
             yield from ((f"{name}-{tid}", name) for tid, name, _ in tracks)
             return
