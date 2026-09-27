@@ -287,7 +287,7 @@ class DailyAccumulator:
 
     def add_window(self, snapshot: WindowSnapshot) -> None:
         """Add a window's counts to the running total for its day (UTC)."""
-        day = snapshot.window_start.astimezone(timezone.utc).date()
+        day = _as_utc(snapshot.window_start).date()
         current = self._load(day)
         if current is None:
             totals = {cls: 0 for cls in self._classes}
