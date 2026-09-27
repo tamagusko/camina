@@ -1,0 +1,84 @@
+"use client";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { classSummary } from "@/lib/class-summary";
+import { formatDublinTime } from "@/lib/format-time";
+import { classLabel, type RoadUserClass, type StreetReading } from "@/lib/types";
+import { TOOLTIP_STYLE } from "./chart-style";
+
+interface Props {
+  cls: RoadUserClass;
+  colour: string;
+  readings: StreetReading[];
+  directions: [string, string];
+  onBack: () => void;
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-micro text-[var(--ink-2)]">{label}</dt>
+      <dd className="text-lg font-semibold tabular-nums text-[var(--ink-1)]">{value}</dd>
+    </div>
+  );
+}
+
+/** One class on its own scale, with its totals for the window. */
+export function ClassDetail({ cls, colour, readings, directions, onBack }: Props) {
+  const s = classSummary(readings, cls);
+  const label = classLabel(cls);
+  const data = readings.map((r) => ({ t: formatDublinTime(r.bucket), [cls]: r.counts[cls] }));
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-[var(--ink-1)]">
+          <span aria-hidden className="inline-block h-3 w-3 rounded-sm" style={{ background: colour }} />
+          {label}
+        </h2>
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex min-h-11 items-center text-sm font-medium text-[var(--ink-1)] underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]"
+        >
+          ← All classes
+        </button>
+      </div>
+
+      <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Stat label="Total" value={s.total.toLocaleString("en-IE")} />
+        <Stat
+          label="Busiest 15 min"
+          value={s.peak && s.peak.count > 0 ? `${s.peak.count} at ${formatDublinTime(s.peak.bucket)}` : "—"}
+        />
+        {s.byDirection && (
+          <>
+            <Stat label={`→ ${directions[0]}`} value={s.byDirection.AB.toLocaleString("en-IE")} />
+            <Stat label={`→ ${directions[1]}`} value={s.byDirection.BA.toLocaleString("en-IE")} />
+          </>
+        )}
+        <Stat label="Avg speed" value={s.avgSpeedKmh === null ? "—" : `${Math.round(s.avgSpeedKmh)} km/h`} />
+      </dl>
+
+      <div className="mt-4">
+        <ResponsiveContainer width="100%" height={280}>
+          <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
+            <CartesianGrid stroke="var(--line)" vertical={false} />
+            <XAxis dataKey="t" stroke="var(--ink-2)" fontSize={12} tickMargin={8} />
+            <YAxis stroke="var(--ink-2)" fontSize={12} tickMargin={8} allowDecimals={false} />
+            <Tooltip {...TOOLTIP_STYLE} />
+            <Area
+              type="monotone"
+              dataKey={cls}
+              name={label}
+              stroke={colour}
+              fill={colour}
+              fillOpacity={0.35}
+              strokeWidth={2}
+              connectNulls={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}

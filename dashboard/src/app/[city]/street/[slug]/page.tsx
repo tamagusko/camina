@@ -4,6 +4,7 @@ import { MockBadge } from "@/components/layout/MockBadge";
 import { StreetTimeSeries } from "@/components/charts/StreetTimeSeries";
 import { streetsRepo } from "@/lib/repo";
 import { isMock } from "@/lib/data-source";
+import { streetDirections } from "@/lib/geo";
 
 interface Props {
   params: Promise<{ city: string; slug: string }>;
@@ -42,7 +43,7 @@ export default async function StreetDetailPage({ params }: Props) {
       </p>
 
       <section className="mt-6">
-        <StreetTimeSeries readings={readings} />
+        <StreetTimeSeries readings={readings} directions={streetDirections(street)} />
       </section>
     </main>
   );

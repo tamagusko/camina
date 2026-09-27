@@ -4,6 +4,7 @@ import Link from "next/link";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatDublinUpdated } from "@/lib/format-time";
+import { streetDirections } from "@/lib/geo";
 import { ROAD_USER_CLASSES, classLabel, type MetricValue, type RoadUserClass, type StreetReading, type StreetSummary } from "@/lib/types";
 
 interface Props { street: StreetSummary | null; metric: MetricValue | null; reading?: StreetReading | null; onClose: () => void; }
@@ -12,18 +13,6 @@ const fmt = (n: number | null | undefined) => n === null || n === undefined ? "â
 // Hidden values (under 5, or a direction split that would reveal one) show as
 // a dash; one footnote explains them (src/lib/privacy.ts).
 const HIDDEN_NOTE = "Some values under 5 are hidden.";
-function directions(street: StreetSummary): [string, string] {
-  const line = street.geom.coordinates[0];
-  const first = line?.[0], last = line?.at(-1);
-  if (!first || !last || first[0] === undefined || first[1] === undefined || last[0] === undefined || last[1] === undefined) return ["A", "B"];
-  const lat1 = first[1] * Math.PI / 180, lat2 = last[1] * Math.PI / 180;
-  const lon = (last[0] - first[0]) * Math.PI / 180;
-  const angle = (Math.atan2(Math.sin(lon) * Math.cos(lat2), Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon)) * 180 / Math.PI + 360) % 360;
-  if (!Number.isFinite(angle)) return ["A", "B"];
-  const names = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-  const index = Math.round(angle / 45) % 8;
-  return [names[index]!, names[(index + 4) % 8]!];
-}
 // A published total is the sum of the published cells beneath it.
 function publishedSum(breakdown: Record<RoadUserClass, number | null>): number {
   return Object.values(breakdown).reduce<number>((sum, value) => sum + (value ?? 0), 0);
@@ -50,7 +39,7 @@ export function StreetSidePanel({ street, metric, reading, onClose }: Props) {
   }, [street, metric?.lastSeen, reading]);
   if (!street) return null;
   const current = reading === undefined ? fetched : reading;
-  const [ab, ba] = directions(street);
+  const [ab, ba] = streetDirections(street);
   // Direction columns only when the sensor sends direction cells (schema 1.1).
   const split = current?.countsByDirection;
   const perClass = current ? ROAD_USER_CLASSES.filter((cls) => (current.counts[cls] ?? 0) > 0).sort((a, b) => (current.counts[b] ?? 0) - (current.counts[a] ?? 0)) : [];

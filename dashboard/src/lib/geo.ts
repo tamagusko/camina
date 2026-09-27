@@ -77,3 +77,17 @@ const BUCKETS_PER_WINDOW: Record<TimeWindow, number> = { now: 1, "1h": 4, "24h":
 export function mapColourValue(value: number, metric: Metric, window: TimeWindow): number {
   return metric === "counts" ? value / BUCKETS_PER_WINDOW[window] : value;
 }
+
+/** Compass names of the two travel directions (A→B, B→A) along a street's first line. */
+export function streetDirections(street: StreetSummary): [string, string] {
+  const line = street.geom.coordinates[0];
+  const first = line?.[0], last = line?.at(-1);
+  if (!first || !last || first[0] === undefined || first[1] === undefined || last[0] === undefined || last[1] === undefined) return ["A", "B"];
+  const lat1 = first[1] * Math.PI / 180, lat2 = last[1] * Math.PI / 180;
+  const lon = (last[0] - first[0]) * Math.PI / 180;
+  const angle = (Math.atan2(Math.sin(lon) * Math.cos(lat2), Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon)) * 180 / Math.PI + 360) % 360;
+  if (!Number.isFinite(angle)) return ["A", "B"];
+  const names = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const index = Math.round(angle / 45) % 8;
+  return [names[index]!, names[(index + 4) % 8]!];
+}
