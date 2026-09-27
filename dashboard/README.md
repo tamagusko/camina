@@ -99,7 +99,9 @@ DATABASE_URL_UNPOOLED=<database-url> npx -y pnpm@9.12.0 exec tsx scripts/provisi
 
 Use `--config <json-file>` to supply site-specific settings and
 `--config-version <version>` to set the initial server version. The default
-configuration uses 15-minute counts and 5-minute heartbeats.
+configuration uses 15-minute counts. The heartbeat interval is not per sensor: it is
+the deployment setting `CAMINA_HEARTBEAT_MINUTES` (15 in the free-tier pilot, 5 as the
+goal; see the root README, "Heartbeat interval"), applied to every sensor's config.
 
 ## Architecture at a glance
 

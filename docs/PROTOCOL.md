@@ -146,14 +146,21 @@ applied.
 **Response 200**:
 
     {
-      "config_version": "def456",
+      "config_version": "def456+hb15",
       "publish_interval_minutes": 15,
-      "heartbeat_interval_minutes": 5,
+      "heartbeat_interval_minutes": 15,
       "daily_publish_time_utc": "00:00",
       "detection_zone": null,
       "frame_skip": 1,
       "min_track_hits": 3
     }
+
+`heartbeat_interval_minutes` is one deployment-wide setting, the dashboard's
+`CAMINA_HEARTBEAT_MINUTES` (15 in the free-tier pilot to stay inside Neon's free
+compute hours; the goal is 5), not a per-sensor value. The server folds it into the
+advertised version (`<sensor version>+hb<minutes>`), so changing it reaches every
+device on its next heartbeat. The device sends heartbeats on wall-clock boundaries
+(:00, :15, ...), in step with the count windows.
 
 The device applies `publish_interval_minutes`, `heartbeat_interval_minutes`
 and `min_track_hits` (the tracker's confirmation count), plus the optional

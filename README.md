@@ -28,6 +28,25 @@ Pi camera → YOLO11n (NCNN) → tracker → count gate → 15-min counts → HT
 - **Privacy:** counts only; the public map never shows sensor locations; counts below 5
   are suppressed, and so is any value that would let one be recovered by subtraction
   (see `dashboard/src/lib/privacy.ts`).
+- **Heartbeat:** every **15 min** in the pilot, a cost limit, not a design choice. The goal
+  is **5 min**. See below.
+
+## Heartbeat interval: 15 min now, 5 min as the goal
+
+Each sensor sends a heartbeat (alive, temperature, outbox depth) on a fixed interval. The
+pilot runs on free tiers (Vercel Hobby, Neon free), and every heartbeat wakes the Neon
+database, which then stays awake for 5 minutes. At 15 minutes, in step with the 15-minute
+count windows, the database wakes once per quarter-hour and stays inside Neon's free
+100 compute-hours a month. At 5 minutes it would never sleep and would exceed them.
+The target is 5 minutes, for fresher sensor health and faster silent-sensor alerts, once
+the database is on a paid plan.
+
+**To change it, set one value:** `CAMINA_HEARTBEAT_MINUTES` in the Vercel project
+(Settings → Environment Variables), then redeploy. Use `15` now and `5` later. Every
+sensor picks the new interval up on its next heartbeat, with no change on the devices.
+The silent-sensor alert follows it (three missed heartbeats). How it works:
+[`dashboard/src/lib/heartbeat.ts`](dashboard/src/lib/heartbeat.ts). Counts stay in
+15-minute windows either way.
 
 ## Detected classes
 

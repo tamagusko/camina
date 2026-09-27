@@ -57,7 +57,8 @@ makes them) and `CAMINA_DATA_SOURCE` unset — a test checks the production fail
 - **The daemon must not import PyTorch or Ultralytics** (`tests/test_pi_runtime.py`).
 - **`imgsz` is 640** and must equal the NCNN export's `metadata.yaml`; a mismatch gives garbage boxes.
 - **`NEXT_PUBLIC_CAMINA_DEV_ADMIN` never ships to production** (guard in `dashboard/next.config.mjs`).
-- **Free tiers only** (Vercel Hobby, Neon free). Dublin only.
+- **Free tiers only** (Vercel Hobby, Neon free). Dublin only. Hence heartbeats every 15 min
+  (`CAMINA_HEARTBEAT_MINUTES`, `dashboard/src/lib/heartbeat.ts`); the goal is 5 min once paid.
 
 ## Gotchas
 
