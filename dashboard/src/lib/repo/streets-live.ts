@@ -169,7 +169,9 @@ function speedOf(fold: Fold): number | null {
 
 export const liveStreetsRepo: StreetsRepo = {
   async now() {
-    return new Date();
+    // Whole cells only: a wall-clock edge would cut the first bucket short and
+    // leave the last one in progress, both painting as offline.
+    return lastCompletedCellEnd(new Date());
   },
 
   async list(city) {
