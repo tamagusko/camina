@@ -32,7 +32,7 @@ test("privacy: no sensor fields leak into /api/streets", async ({ request }) => 
 
 test("Streets list docks in the header and closes on Escape", async ({ page }) => {
   await page.goto("/dublin");
-  const streets = page.getByRole("button", { name: "Streets" });
+  const streets = page.getByRole("button", { name: "All streets" });
   await streets.click();
   const list = page.locator("#streets-list");
   await expect(list).toBeVisible();
