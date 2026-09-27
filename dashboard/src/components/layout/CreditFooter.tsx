@@ -1,5 +1,5 @@
 // One quiet line at the end of the page: who made it, and where to report a problem.
-const LINK = "underline-offset-4 hover:text-[var(--ink-1)] hover:underline";
+const LINK = "underline-offset-4 hover:text-[var(--ink-1)] hover:underline print:underline";
 
 export function CreditFooter() {
   return (

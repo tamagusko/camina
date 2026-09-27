@@ -81,7 +81,7 @@ export function PrintFooter() {
   if (!meta) return null;
   return (
     <footer className="mt-8 hidden border-t border-[var(--line)] pt-3 text-xs text-[var(--ink-2)] print:block">
-      Printed {meta.printed} (Dublin time) from <span className="text-[var(--ink-1)]">{meta.url}</span>
+      Printed {meta.printed} (Dublin time) from <a href={meta.url} className="text-[var(--ink-1)] underline underline-offset-4">{meta.url}</a>
     </footer>
   );
 }

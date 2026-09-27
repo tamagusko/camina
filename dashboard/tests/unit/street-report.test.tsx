@@ -78,3 +78,10 @@ describe("credit footer", () => {
     expect(html).toMatch(/Report a problem<span class="hidden print:inline">: github.com\/tamagusko\/camina\/issues<\/span>/);
   });
 });
+
+describe("links in the printed report", () => {
+  it("underlines the email and issue links so they read as clickable", () => {
+    const html = renderToStaticMarkup(createElement(CreditFooter));
+    expect(html.match(/<a [^>]*print:underline/g)).toHaveLength(2);
+  });
+});
