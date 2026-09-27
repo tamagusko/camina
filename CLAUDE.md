@@ -26,7 +26,7 @@ scripts/hand_count.py --video videos/test.mov --screenline 0.65 0.15 0.65 0.72 -
 # Pi runtime profile — what the device installs (docs/raspberry_pi_5.md)
 pip install --no-deps -r requirements-pi.txt
 
-# Dashboard (Node 20.11+, pnpm)
+# Dashboard (Node 22.12+, pnpm)
 scripts/run_dashboard.sh                                # mock mode → http://localhost:3000/dublin
 cd dashboard && pnpm lint && pnpm typecheck && pnpm test && pnpm build
 ```

@@ -75,7 +75,7 @@ uv venv && uv pip install -r requirements.txt
 .venv/bin/python scripts/view_detections.py --video videos/test.mov --out /tmp/out.mp4 \
     --screenline 0.65 0.15 0.65 0.72 --play
 
-# Dashboard with mock data (Node 20.11+) → http://localhost:3000/dublin
+# Dashboard with mock data (Node 22.12+) → http://localhost:3000/dublin
 scripts/run_dashboard.sh
 ```
 
