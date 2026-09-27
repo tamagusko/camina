@@ -17,7 +17,7 @@ import queue
 import signal
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from threading import Event, Thread
 
@@ -232,6 +232,7 @@ class SensorDaemon:
         self._publish_queue: queue.Queue[object] = queue.Queue()
         self._worker_thread: Thread | None = None
         self._publish_jitter_s = _publish_jitter_seconds(config.sensor_id)
+        self._pending_daily_days: set[date] = set()
 
         # sd_notify is a no-op unless launched under a Type=notify systemd unit.
         self._notifier = SystemdNotifier()
@@ -312,12 +313,8 @@ class SensorDaemon:
                 self._enqueue(("counts", snapshot))
 
             daily_snapshot = self._daily.maybe_rollover(now)
-            if daily_snapshot is not None:
-                # Mark published up-front so ``maybe_rollover`` doesn't re-emit
-                # this row every frame while the async POST is in flight — the
-                # outbox owns durable delivery, so a daily is always
-                # delivered-or-buffered (F2).
-                self._daily.mark_published(daily_snapshot.day)
+            if daily_snapshot is not None and daily_snapshot.day not in self._pending_daily_days:
+                self._pending_daily_days.add(daily_snapshot.day)
                 self._enqueue(("daily", daily_snapshot))
 
             for counted in self._detect_and_track(frame):
@@ -424,15 +421,18 @@ class SensorDaemon:
             self._poller.check(result.latest_config_version)
 
     def _publish_daily_row(self, snapshot: DailySnapshot) -> None:
-        # Network-only daily publish for the worker; the main loop already
-        # marked this row published, so this must not touch ``_daily``.
-        result = self._publisher.post_daily(
-            snapshot=snapshot,
-            config_version=self._poller.current_version,
-            fw_version=self._config.fw_version,
-        )
-        if result.latest_config_version:
-            self._poller.check(result.latest_config_version)
+        try:
+            result = self._publisher.post_daily(
+                snapshot=snapshot,
+                config_version=self._poller.current_version,
+                fw_version=self._config.fw_version,
+            )
+            if result.delivered or result.buffered:
+                self._daily.mark_published(snapshot.day)
+            if result.latest_config_version:
+                self._poller.check(result.latest_config_version)
+        finally:
+            self._pending_daily_days.discard(snapshot.day)
 
     def _flush_open_window(self) -> None:
         """Force-close the open window on shutdown so its counts aren't lost.

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Thread
 
@@ -190,6 +190,27 @@ def test_config_poller_reconfigures_counter(tmp_path: Path) -> None:
     assert poller.current_version == "v2"
     assert applied[0].config_version == "v2"
     client.close()
+
+
+def test_daily_remains_unpublished_until_queued_job_is_durable(tmp_path: Path) -> None:
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    yesterday = datetime.now(tz=UTC) - timedelta(days=1)
+    start = yesterday.replace(hour=10, minute=0, second=0, microsecond=0)
+    daemon._daily.add_window(
+        WindowSnapshot(start, start + timedelta(minutes=15), {"person": 1}, False)
+    )
+    queued = []
+    daemon._frame_source = iter([object(), object()])
+    daemon._enqueue = lambda job: queued.append(job)
+    try:
+        daemon._main_loop()
+        assert len([job for job in queued if job[0] == "daily"]) == 1
+        assert len(daemon._daily.pending_unpublished()) == 1
+        daemon._publish_daily_row(queued[0][1])
+        assert daemon._daily.pending_unpublished() == []
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
 
 
 def test_daily_publish_buffered_marks_published_no_retry_storm(tmp_path: Path) -> None:
