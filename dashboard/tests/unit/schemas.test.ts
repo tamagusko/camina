@@ -227,6 +227,25 @@ describe("dailyPayloadSchema", () => {
       })
     ).toThrow();
   });
+
+  // The day goes into a Postgres date column: an impossible date passed the
+  // regex and made the insert throw, a 500 instead of a 400.
+  it("rejects a day that is not a calendar date", () => {
+    const payload = {
+      schema_version: "1.0",
+      sensor_id: "cam-dub-01",
+      totals: { person: 1 },
+      window_count: 1,
+      config_version: "abc",
+      fw_version: "0.2.0",
+      produced_at: "2026-04-22T00:00:00Z",
+    };
+    expect(dailyPayloadSchema.safeParse({ ...payload, day: "2026-02-28" }).success).toBe(true);
+    expect(dailyPayloadSchema.safeParse({ ...payload, day: "2028-02-29" }).success).toBe(true);
+    for (const day of ["2026-02-30", "2026-02-29", "2026-13-01", "2026-04-31", "2026-00-10"]) {
+      expect(dailyPayloadSchema.safeParse({ ...payload, day }).success, day).toBe(false);
+    }
+  });
 });
 
 describe("heartbeatPayloadSchema", () => {
