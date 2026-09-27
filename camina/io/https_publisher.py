@@ -162,6 +162,22 @@ class HttpsPublisher:
             )
 
         parsed = self._parse_response(response.content)
+        if parsed is not None and not parsed.ok:
+            logger.warning("Publish %s was not accepted by the backend", endpoint_label)
+            if buffer_on_failure:
+                self._outbox.enqueue(endpoint_label, body)
+                return PublisherResult(
+                    delivered=False,
+                    enqueued=True,
+                    latest_config_version=None,
+                    buffered=True,
+                )
+            return PublisherResult(
+                delivered=False,
+                enqueued=False,
+                latest_config_version=None,
+                buffered=False,
+            )
         return PublisherResult(
             delivered=True,
             enqueued=False,

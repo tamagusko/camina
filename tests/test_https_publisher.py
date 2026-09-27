@@ -265,6 +265,31 @@ def test_publisher_enqueues_when_backend_down(outbox: OfflineBuffer) -> None:
     client.close()
 
 
+def test_publisher_buffers_200_response_with_ok_false(outbox: OfflineBuffer) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": False, "latest_config_version": "v1"})
+
+    client = HttpClient(
+        "https://api.test",
+        token="t",
+        retry=_fast_retry(),
+        transport=httpx.MockTransport(handler),
+    )
+    publisher = HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
+    try:
+        result = publisher.post_counts(
+            snapshot=_window({"person": 1, "cyclist": 0, "car": 0}),
+            config_version="v1",
+            fw_version="0.2.0",
+        )
+
+        assert result.delivered is False
+        assert result.enqueued is True
+        assert outbox.stats().pending == 1
+    finally:
+        client.close()
+
+
 def test_publisher_drains_outbox_on_next_success(outbox: OfflineBuffer) -> None:
     state = {"down": True, "received": []}
 
