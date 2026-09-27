@@ -127,6 +127,8 @@ Observability signal emitted every ~5 min regardless of counts activity.
       "ts": "2026-04-21T10:20:00Z",
       "uptime_s": 88231,
       "cpu_temp_c": 52.4,
+      "throttled": 0,
+      "rss_mb": 182.6,
       "last_window_end": "2026-04-21T10:15:00Z",
       "config_version": "abc123",
       "fw_version": "0.2.0",
@@ -197,8 +199,11 @@ outbox is capped (default 10 000 rows); beyond the cap the oldest rows are
 dropped and a counter is surfaced in heartbeats. Heartbeats may include the
 nonnegative integer fields `outbox_depth` (currently queued rows) and
 `outbox_dropped_total` (rows dropped by the cap or permanently rejected during
-drain). The dashboard validates these fields but does not persist them in this
-branch.
+drain). `throttled` is the integer bitmask from `vcgencmd get_throttled` (zero
+means no throttle/undervoltage bits; unavailable hardware is `null`), and
+`rss_mb` is the process resident set size in MiB. The dashboard validates these
+fields but does not persist them in this branch; the heartbeat table currently
+has no columns for them.
 
 ## 7. Clock
 

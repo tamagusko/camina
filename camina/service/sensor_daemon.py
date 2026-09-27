@@ -36,6 +36,7 @@ from camina.io.http_client import HttpClient, RetryPolicy
 from camina.io.https_publisher import HttpsPublisher
 from camina.io.offline_buffer import OfflineBuffer
 from camina.io.schemas import HeartbeatPayload, SensorConfig
+from camina.utils.hardware import read_cpu_temp, read_process_rss_mb, read_throttled
 from camina.utils.sqlite_integrity import check_and_recover
 from camina.utils.systemd_notify import SystemdNotifier
 
@@ -469,7 +470,9 @@ class SensorDaemon:
             sensor_id=self._config.sensor_id,
             ts=now,
             uptime_s=uptime_s,
-            cpu_temp_c=_read_cpu_temp(),
+            cpu_temp_c=read_cpu_temp(),
+            throttled=read_throttled(),
+            rss_mb=read_process_rss_mb(),
             last_window_end=self._counter.window_start,
             config_version=self._poller.current_version,
             fw_version=self._config.fw_version,
@@ -550,16 +553,6 @@ class SensorDaemon:
     def _on_signal(self, signum: int, _frame) -> None:
         logger.info("Received signal %d, shutting down", signum)
         self._shutdown.set()
-
-
-def _read_cpu_temp() -> float | None:
-    """Best-effort CPU temperature read on Linux; returns None elsewhere."""
-    path = Path("/sys/class/thermal/thermal_zone0/temp")
-    try:
-        raw = path.read_text().strip()
-        return round(float(raw) / 1000.0, 1)
-    except OSError:
-        return None
 
 
 __all__ = ["DaemonConfig", "SensorDaemon"]

@@ -138,6 +138,10 @@ class HeartbeatPayload(BaseModel):
     ts: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     uptime_s: int
     cpu_temp_c: float | None = None
+    # `vcgencmd get_throttled` bitmask serialized as a nonnegative integer.
+    # Zero is healthy; None means vcgencmd is unavailable (for example on a laptop).
+    throttled: int | None = Field(default=None, ge=0, le=4_294_967_295, strict=True)
+    rss_mb: float | None = Field(default=None, ge=0)
     last_window_end: datetime | None = None
     config_version: str
     fw_version: str

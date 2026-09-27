@@ -102,7 +102,7 @@ def test_daemon_preserves_count_gate_direction(tmp_path: Path) -> None:
         daemon.stop()
 
 
-def test_heartbeat_reports_outbox_depth_and_loss(tmp_path: Path) -> None:
+def test_heartbeat_reports_outbox_depth_and_loss(tmp_path: Path, monkeypatch) -> None:
     received: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -110,6 +110,11 @@ def test_heartbeat_reports_outbox_depth_and_loss(tmp_path: Path) -> None:
         return httpx.Response(200, json={"ok": True, "latest_config_version": ""})
 
     daemon = _make_daemon(tmp_path, httpx.MockTransport(handler))
+    from camina.service import sensor_daemon as daemon_module
+
+    monkeypatch.setattr(daemon_module, "read_cpu_temp", lambda: 48.0)
+    monkeypatch.setattr(daemon_module, "read_throttled", lambda: 0)
+    monkeypatch.setattr(daemon_module, "read_process_rss_mb", lambda: 42.5)
     daemon._outbox._max_rows = 2
     for value in range(3):
         daemon._outbox.enqueue("counts", str(value).encode())
@@ -121,6 +126,9 @@ def test_heartbeat_reports_outbox_depth_and_loss(tmp_path: Path) -> None:
         assert body["uptime_s"] >= 0
         assert body["outbox_depth"] == 2
         assert body["outbox_dropped_total"] == 1
+        assert body["cpu_temp_c"] == 48.0
+        assert body["throttled"] == 0
+        assert body["rss_mb"] == 42.5
     finally:
         daemon._test_client.close()  # type: ignore[attr-defined]
         daemon.stop()
