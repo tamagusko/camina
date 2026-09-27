@@ -63,6 +63,9 @@ export interface MetricValue {
   stale: boolean;
   // ISO timestamp of the most recent reading, or null if never seen.
   lastSeen: string | null;
+  // Metric "counts" only: the usual published total for this window, from the
+  // same window in past weeks (src/lib/typical.ts); null without enough history.
+  typical: number | null;
 }
 
 /** Admin-only view of a street (includes sensor identifiers and GPS).

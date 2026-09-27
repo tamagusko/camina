@@ -6,6 +6,10 @@ import { streetsRepo } from "@/lib/repo";
 import { isMock } from "@/lib/data-source";
 import { streetDirections } from "@/lib/geo";
 
+// "A typical day" averages the last four weeks.
+const HISTORY_WEEKS = 4;
+const WEEK_MS = 7 * 24 * 60 * 60_000;
+
 interface Props {
   params: Promise<{ city: string; slug: string }>;
 }
@@ -17,12 +21,10 @@ export default async function StreetDetailPage({ params }: Props) {
 
   const to = await streetsRepo.now();
   const from = new Date(to.getTime() - 24 * 60 * 60_000);
-  const readings = await streetsRepo.readings({
-    streetId: slug,
-    from,
-    to,
-    bucketMinutes: 15,
-  });
+  const [readings, history] = await Promise.all([
+    streetsRepo.readings({ streetId: slug, from, to, bucketMinutes: 15 }),
+    streetsRepo.readings({ streetId: slug, from: new Date(to.getTime() - HISTORY_WEEKS * WEEK_MS), to, bucketMinutes: 60 }),
+  ]);
 
   return (
     <main className="mx-auto w-full max-w-[960px] px-4 py-8 sm:px-6 sm:py-10">
@@ -43,7 +45,7 @@ export default async function StreetDetailPage({ params }: Props) {
       </p>
 
       <section className="mt-6">
-        <StreetTimeSeries readings={readings} directions={streetDirections(street)} />
+        <StreetTimeSeries readings={readings} directions={streetDirections(street)} history={history} historyWeeks={HISTORY_WEEKS} />
       </section>
     </main>
   );

@@ -3,6 +3,7 @@
 // CI fails if any fixture-backed response body contains these keys.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { loadCoverage, loadReadings } from "@/lib/mock-loader";
 import { mockStreetsRepo } from "@/lib/repo/streets-mock";
 import { liveStreetsRepo } from "@/lib/repo/streets-live";
 import postgres from "postgres";
@@ -407,11 +408,19 @@ describe("k-anonymity floor — no published count in 1..4", () => {
   });
 
   it("suppresses speeds when their class count is below five", async () => {
+    // Any fixture cell with 1–4 cyclists and a speed, found rather than pinned,
+    // so regenerating the fixture cannot silently move it.
+    const [readings, coverage] = await Promise.all([loadReadings(), loadCoverage()]);
+    const sensors = new Set(coverage.filter((c) => c.street_id === "ucd-stillorgan-rd-entrance").map((c) => c.sensor_id));
+    const small = readings.find((r) => sensors.has(r.sensor_id) && r.class_name === "cyclist"
+      && r.count >= 1 && r.count < 5 && r.avg_speed_kmh !== null);
+    expect(small).toBeDefined();
+    const start = new Date(small!.window_start);
     const rows = await mockStreetsRepo.readings({
       streetId: "ucd-stillorgan-rd-entrance",
       classes: ["cyclist"],
-      from: new Date("2026-04-07T00:00:00Z"),
-      to: new Date("2026-04-07T00:15:00Z"),
+      from: start,
+      to: new Date(start.getTime() + 15 * 60_000),
       bucketMinutes: 15,
     });
     expect(rows[0]?.counts.cyclist).toBeNull();

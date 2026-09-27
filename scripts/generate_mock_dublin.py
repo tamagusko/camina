@@ -4,7 +4,7 @@ Writes JSON fixtures to ``data/mock/dublin/``, shaped like the database tables;
 the dashboard reads them when ``CAMINA_DATA_SOURCE=mock``.
 
 Eight sensors on real Dublin streets in two zones (UCD Belfield campus and the
-city-centre -> UCD corridor), 14 days of 15-min windows with diurnal patterns,
+city-centre -> UCD corridor), 21 days of 15-min windows with diurnal patterns,
 per-transport window loss (WiFi / cellular), heartbeats and daily rollups.
 See ``docs/simulation.md``.
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 SEED = 20260421
 CITY = "dublin"
-DAYS = 14
+DAYS = 21
 WINDOW_MINUTES = 15
 HEARTBEAT_MINUTES = 5
 

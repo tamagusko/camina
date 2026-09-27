@@ -122,6 +122,18 @@ Data
   └── live  → Neon Postgres + PostGIS (see drizzle/migrations/0000_init.sql)
 ```
 
+## What people see
+
+- **Map.** Streets coloured by *Counts*, *vs usual* or *Speed*, for now, the last 24 h or 7 days.
+  *vs usual* compares a street with the same time and weekday in the past 4 weeks (at least 2 with
+  data; `src/lib/typical.ts`), from much quieter (blue) to much busier (red).
+- **Street panel.** The last 15 minutes by class, and one line saying whether that is usual.
+- **Street page.** The last 24 h stacked by class (grey bands where the sensor was offline);
+  click a class, in the chart or its legend, to see it alone. Below it, a typical day:
+  the average per hour on weekdays and weekends over the last 4 weeks.
+
+Every figure is built from published values only, so values under 5 stay hidden.
+
 ## Privacy guarantees
 
 - Public API bodies never contain `sensor_id`, `latitude`, or `longitude`.

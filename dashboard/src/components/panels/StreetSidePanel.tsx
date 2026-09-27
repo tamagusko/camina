@@ -4,7 +4,8 @@ import Link from "next/link";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatDublinUpdated } from "@/lib/format-time";
-import { streetDirections } from "@/lib/geo";
+import { USUAL_RAMP, streetDirections } from "@/lib/geo";
+import { USUAL_LEVELS, usualLevel, type UsualLevel } from "@/lib/typical";
 import { ROAD_USER_CLASSES, classLabel, type MetricValue, type RoadUserClass, type StreetReading, type StreetSummary } from "@/lib/types";
 
 interface Props { street: StreetSummary | null; metric: MetricValue | null; reading?: StreetReading | null; onClose: () => void; }
@@ -13,6 +14,13 @@ const fmt = (n: number | null | undefined) => n === null || n === undefined ? "�
 // Hidden values (under 5, or a direction split that would reveal one) show as
 // a dash; one footnote explains them (src/lib/privacy.ts).
 const HIDDEN_NOTE = "Some values under 5 are hidden.";
+const USUAL_SENTENCE: Record<UsualLevel, string> = {
+  "much-lower": "Much quieter than usual",
+  lower: "Quieter than usual",
+  usual: "About usual for this time",
+  higher: "Busier than usual",
+  "much-higher": "Much busier than usual",
+};
 // A published total is the sum of the published cells beneath it.
 function publishedSum(breakdown: Record<RoadUserClass, number | null>): number {
   return Object.values(breakdown).reduce<number>((sum, value) => sum + (value ?? 0), 0);
@@ -50,6 +58,7 @@ export function StreetSidePanel({ street, metric, reading, onClose }: Props) {
   const sums = split ? [publishedSum(split.AB), publishedSum(split.BA)] : null;
   const pairHidden = split ? [split.AB, split.BA].some((cells) => Object.values(cells).some((value) => value === null)) : false;
   const showSplit = sums !== null && !(pairHidden && sums[0] === 0 && sums[1] === 0);
+  const level = metric && !metric.stale ? usualLevel(metric.totalCount, metric.typical) : null;
   const status = !metric?.lastSeen ? "No data yet" : metric.stale ? `No recent data · last seen ${formatDublinUpdated(metric.lastSeen)}` : `Updated ${formatDublinUpdated(metric.lastSeen)}`;
   return <div className={PANEL_CLASS} role="dialog" aria-label={street.displayName}>
     <div className="sticky top-0 z-10 flex min-h-11 items-center justify-end border-b border-line bg-surface px-4 md:hidden"><span className="mx-auto h-1 w-9 rounded-full bg-ink-3" aria-hidden="true" /><button onClick={onClose} aria-label="Close street panel" className="flex h-11 w-11 items-center justify-center rounded-sm"><X size={20} /></button></div>
@@ -58,6 +67,7 @@ export function StreetSidePanel({ street, metric, reading, onClose }: Props) {
       <p className="mt-2 text-sm text-ink-2">{status}</p>
       <div className="mt-5 rounded-md border border-line p-4"><p className="text-xs text-ink-2">Road users · last 15 min</p><p className="mt-1 text-[length:var(--t-xl)] font-bold tabular-nums">{total}</p>
         {showSplit && <p className="mt-2 text-sm text-ink-2">{`${ab} ${fmt(sums[0])} · ${ba} ${fmt(sums[1])}`}</p>}
+        {level && <p className="mt-2 flex items-center gap-2 text-sm"><span aria-hidden="true" className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: USUAL_RAMP[USUAL_LEVELS.indexOf(level)] }} />{USUAL_SENTENCE[level]}</p>}
       </div>
       <div className="mt-5"><h3 className="mb-2 text-sm font-semibold">By class</h3>
         {perClass.length ? <div className="overflow-x-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b border-line text-xs text-ink-2"><th className="w-[34%] py-2 text-left font-normal">Class</th><th className="text-right font-normal">Count</th>{split && <><th className="text-right font-normal">→ {ab}</th><th className="text-right font-normal">→ {ba}</th></>}<th className="text-right font-normal">km/h</th></tr></thead><tbody>{perClass.map((cls) => <tr key={cls} className="border-b border-line"><th scope="row" className="py-2 text-left font-normal">{classLabel(cls)}</th><td className="text-right tabular-nums">{fmt(current?.counts[cls])}</td>{split && <><td className="text-right tabular-nums">{fmt(split.AB[cls])}</td><td className="text-right tabular-nums">{fmt(split.BA[cls])}</td></>}<td className="text-right tabular-nums text-ink-2">{fmt(current?.avgSpeedKmh[cls])}</td></tr>)}</tbody></table></div> : <p className="text-sm text-ink-2">No published counts in this window.</p>}

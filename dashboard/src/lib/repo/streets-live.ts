@@ -12,6 +12,7 @@ import {
 } from "@/lib/types";
 import { K_MIN, publishedSum, publishedTotal } from "@/lib/privacy";
 import { isStaleFor, lastCompletedCellEnd } from "./streets-mock";
+import { TYPICAL_WEEKS, typicalTotal, type WindowTotal } from "@/lib/typical";
 import type { StreetsRepo } from "./types";
 
 const WINDOW_MS: Record<TimeWindow, number> = {
@@ -111,6 +112,54 @@ interface Fold {
   ba_count: string | number | null;
   pair_shown: boolean;
   directional: boolean;
+}
+
+const WEEK_MS = 7 * 24 * 60 * 60_000;
+
+// Per street and week k (0 = the current window, k = the same window k weeks
+// back): the published total and the number of 15-min cells with any reading,
+// the inputs of src/lib/typical.ts. One query for all weeks.
+async function windowTotals(
+  city: string,
+  classes: RoadUserClass[] | undefined,
+  cutoff: Date,
+  end: Date,
+): Promise<Map<string, WindowTotal[]>> {
+  const ranges = Array.from({ length: TYPICAL_WEEKS + 1 }, (_, k) => ({
+    k,
+    from: new Date(cutoff.getTime() - k * WEEK_MS).toISOString(),
+    to: new Date(end.getTime() - k * WEEK_MS).toISOString(),
+  }));
+  const inRanges = sql.join(
+    ranges.map((w) => sql`(r.window_start >= ${w.from} AND r.window_start < ${w.to})`),
+    sql` OR `,
+  );
+  const week = sql`CASE ${sql.join(
+    ranges.map((w) => sql`WHEN cell >= ${w.from}::timestamptz AND cell < ${w.to}::timestamptz THEN ${w.k}`),
+    sql` `,
+  )} END`;
+  // Coverage counts cells of any class; the total only the requested classes.
+  const requested = classes
+    ? sql`AND class_name IN (${sql.join(classes.map((cls) => sql`${cls}`), sql`, `)})`
+    : sql``;
+  const result = rows<{ street_id: string; week: number; total: string | number | null; cells: string | number }>(
+    await db().execute(sql`
+      WITH ${publishedCells(sql`
+        JOIN streets s ON s.id = c.street_id
+        WHERE s.city = ${city} AND (${inRanges})`)}
+      SELECT street_id, ${week} AS week,
+             COALESCE(SUM(n) FILTER (WHERE count_shown ${requested}), 0) AS total,
+             COUNT(DISTINCT cell) AS cells
+      FROM published GROUP BY 1, 2
+    `),
+  );
+  const out = new Map<string, WindowTotal[]>();
+  for (const row of result) {
+    const weeks = out.get(row.street_id) ?? [];
+    weeks[Number(row.week)] = { total: number(row.total), cells: number(row.cells) };
+    out.set(row.street_id, weeks);
+  }
+  return out;
 }
 
 function speedOf(fold: Fold): number | null {
@@ -229,6 +278,9 @@ export const liveStreetsRepo: StreetsRepo = {
       WHERE s.city = ${city}
       GROUP BY c.street_id
     `));
+    const weeks = metric === "counts" && WINDOW_MS[window] <= WEEK_MS
+      ? await windowTotals(city, classes, cutoff, end)
+      : null;
     const byStreet = new Map<string, Fold[]>();
     for (const row of metricRows) {
       const group = byStreet.get(row.street_id) ?? [];
@@ -267,6 +319,12 @@ export const liveStreetsRepo: StreetsRepo = {
         avgSpeedKmh,
         stale: isStaleFor(window, lastSeen, now),
         lastSeen,
+        typical: weeks
+          ? typicalTotal(
+              { total: published.total, cells: weeks.get(id)?.[0]?.cells ?? 0 },
+              Array.from({ length: TYPICAL_WEEKS }, (_, k) => weeks.get(id)?.[k + 1] ?? { total: 0, cells: 0 }),
+            )
+          : null,
       };
     });
   },

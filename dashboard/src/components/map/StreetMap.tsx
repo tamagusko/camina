@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { Map as MaplibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { CITY_VIEWS, VIRIDIS_5, initialViewBounds, mapColourValue, rampExpression, streetPaintStatus } from "@/lib/geo";
+import { CITY_VIEWS, USUAL_RAMP, VIRIDIS_5, initialViewBounds, mapColourValue, rampExpression, streetPaintStatus, usualExpression, type MapMode } from "@/lib/geo";
+import { usualLevel } from "@/lib/typical";
 import { formatDublinUpdated } from "@/lib/format-time";
 import type { Metric, MetricValue, RoadUserClass, StreetSummary, TimeWindow } from "@/lib/types";
 import { MockBadge } from "@/components/layout/MockBadge";
@@ -25,7 +26,9 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
   const streetsButtonRef = useRef<HTMLButtonElement>(null);
   const mapRef = useRef<MaplibreMap | null>(null);
   const mapViewRef = useRef<Viewport | null>(null);
-  const [metric, setMetric] = useState<Metric>("counts");
+  const [mode, setMode] = useState<MapMode>("counts");
+  // "vs usual" colours the counts against their usual level: same fetch.
+  const metric: Metric = mode === "speed" ? "speed" : "counts";
   const [selectedClass, setSelectedClass] = useState<RoadUserClass | null>(null);
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("now");
   // Rows are kept with the metric and window they were fetched for, so the map
@@ -78,9 +81,9 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
       map.addControl(new maplibregl.AttributionControl(), "bottom-right");
     }
     map.on("load", () => {
-      map.addSource("streets", { type: "geojson", data: featureCollection(streets, shown) });
+      map.addSource("streets", { type: "geojson", data: featureCollection(streets, shown, mode) });
       map.addLayer({ id: "streets-casing", type: "line", source: "streets", filter: ["==", ["get", "status"], "live"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(), "line-opacity": .9, "line-width": 7 } });
-      map.addLayer({ id: "streets-visible", type: "line", source: "streets", filter: ["!=", ["get", "status"], "stale"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": lineColour(shown.metric), "line-width": ["case", ["==", ["get", "status"], "suppressed"], 3, 4] as maplibregl.ExpressionSpecification } });
+      map.addLayer({ id: "streets-visible", type: "line", source: "streets", filter: ["!=", ["get", "status"], "stale"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": lineColour(paintMode(mode, shown)), "line-width": ["case", ["==", ["get", "status"], "suppressed"], 3, 4] as maplibregl.ExpressionSpecification } });
       map.addLayer({ id: "streets-stale", type: "line", source: "streets", filter: ["==", ["get", "status"], "stale"], layout: { "line-cap": "butt" }, paint: { "line-color": getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim(), "line-width": 3, "line-dasharray": [2, 2] } });
       map.addLayer({ id: "streets-hit", type: "line", source: "streets", paint: { "line-color": "#000", "line-opacity": 0, "line-width": 22 } });
       map.on("click", "streets-hit", (event) => { const id = event.features?.[0]?.properties?.street_id as string | undefined; if (id) onSelectStreet?.(id); });
@@ -102,9 +105,9 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    (map.getSource("streets") as maplibregl.GeoJSONSource).setData(featureCollection(streets, shown));
-    map.setPaintProperty("streets-visible", "line-color", lineColour(shown.metric));
-  }, [streets, shown, mapReady]);
+    (map.getSource("streets") as maplibregl.GeoJSONSource).setData(featureCollection(streets, shown, mode));
+    map.setPaintProperty("streets-visible", "line-color", lineColour(paintMode(mode, shown)));
+  }, [streets, shown, mode, mapReady]);
 
   return <div className="relative h-[100dvh] w-full overflow-hidden bg-bg">
     <div className="pointer-events-none absolute inset-0 z-10">
@@ -117,14 +120,14 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
           {[...streets].sort((a, b) => a.displayName.localeCompare(b.displayName)).map((street) => <button key={street.id} className="block min-h-11 w-full rounded-sm px-3 py-2 text-left text-sm text-ink-1 hover:bg-line" onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const buttons = [...(listRef.current?.querySelectorAll("button") ?? [])]; const index = buttons.indexOf(event.currentTarget); buttons[(index + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length]?.focus(); } }} onClick={() => { onSelectStreet?.(street.id); setStreetsOpen(false); }}>{street.displayName}</button>)}
         </div>}
       </header>
-      <div className="pointer-events-auto absolute right-4 top-4 hidden w-[250px] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:flex md:flex-col md:gap-2">
-        <MetricToggle value={metric} onChange={setMetric} /><ClassFilter selected={selectedClass} onChange={setSelectedClass} /><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} />
+      <div className="pointer-events-auto absolute right-4 top-4 hidden w-[280px] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:flex md:flex-col md:gap-2">
+        <MetricToggle value={mode} onChange={setMode} /><ClassFilter selected={selectedClass} onChange={setSelectedClass} /><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} />
       </div>
-      <div className="pointer-events-auto absolute bottom-4 left-4 hidden w-[340px] md:block"><ColourLegend metric={metric} timeWindow={timeWindow} /></div>
+      <div className="pointer-events-auto absolute bottom-4 left-4 hidden w-[340px] md:block"><ColourLegend mode={mode} timeWindow={timeWindow} /></div>
       <div className="pointer-events-auto absolute bottom-4 left-4 right-4 flex flex-col gap-2 rounded-md border border-line bg-surface p-2 shadow-[var(--card-shadow)] md:hidden">
-        <ColourLegend metric={metric} timeWindow={timeWindow} compact />
-        <div className="flex justify-between gap-2"><MetricToggle value={metric} onChange={setMetric} /><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} /></div>
-        <ClassFilter selected={selectedClass} onChange={setSelectedClass} />
+        <ColourLegend mode={mode} timeWindow={timeWindow} compact />
+        <MetricToggle value={mode} onChange={setMode} />
+        <div className="flex gap-2"><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} /><div className="min-w-0 flex-1"><ClassFilter selected={selectedClass} onChange={setSelectedClass} /></div></div>
         <p className="text-[11px] leading-tight text-ink-2"><a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noreferrer">© OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a></p>
       </div>
     </div>
@@ -134,17 +137,32 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
   </div>;
 }
 
-// Suppressed streets and counts under 5 share the quiet grey (legend "<5").
-function lineColour(metric: Metric): maplibregl.ExpressionSpecification {
-  const quiet = getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim();
-  return ["case", ["==", ["get", "status"], "suppressed"], quiet, rampExpression(VIRIDIS_5, metric, quiet)] as unknown as maplibregl.ExpressionSpecification;
+// The mode the shown rows can be painted in: until speed rows arrive after a
+// switch, the old counts keep their own colours.
+function paintMode(mode: MapMode, shown: Shown): MapMode {
+  return mode === "usual" && shown.metric === "counts" ? "usual" : shown.metric;
 }
 
-function featureCollection(streets: StreetSummary[], { rows, metric, timeWindow }: Shown): GeoJSON.FeatureCollection<GeoJSON.MultiLineString> {
+// Suppressed streets and counts under 5 share the quiet grey (legend "<5");
+// in "vs usual", so do streets without enough history.
+function lineColour(mode: MapMode): maplibregl.ExpressionSpecification {
+  const css = getComputedStyle(document.documentElement);
+  const quiet = css.getPropertyValue("--ink-3").trim();
+  const colour = mode === "usual"
+    ? usualExpression(quiet, USUAL_RAMP.map((c) => c.startsWith("var(") ? css.getPropertyValue(c.slice(4, -1)).trim() : c))
+    : rampExpression(VIRIDIS_5, mode, quiet);
+  return ["case", ["==", ["get", "status"], "suppressed"], quiet, colour] as unknown as maplibregl.ExpressionSpecification;
+}
+
+function featureCollection(streets: StreetSummary[], shown: Shown, mode: MapMode): GeoJSON.FeatureCollection<GeoJSON.MultiLineString> {
+  const { rows, metric, timeWindow } = shown;
+  const usual = paintMode(mode, shown) === "usual";
   const byId = new Map(rows.map((row) => [row.streetId, row]));
   return { type: "FeatureCollection", features: streets.map((street) => {
     const row = byId.get(street.id);
-    const status = streetPaintStatus(row);
-    return { type: "Feature", id: street.id, geometry: street.geom, properties: { street_id: street.id, status, metric: mapColourValue(row?.value ?? 0, metric, timeWindow) } };
+    const level = usual && row ? usualLevel(row.totalCount, row.typical) : null;
+    const base = streetPaintStatus(row);
+    const status = usual && base === "live" && !level ? "suppressed" : base;
+    return { type: "Feature", id: street.id, geometry: street.geom, properties: { street_id: street.id, status, level, metric: mapColourValue(row?.value ?? 0, metric, timeWindow) } };
   }) };
 }

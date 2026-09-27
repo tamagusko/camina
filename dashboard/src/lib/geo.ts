@@ -1,4 +1,5 @@
 import type { Metric, MetricValue, StreetSummary, TimeWindow } from "./types";
+import { USUAL_LEVELS } from "./typical";
 
 export const VIRIDIS_5 = ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"];
 
@@ -90,4 +91,16 @@ export function streetDirections(street: StreetSummary): [string, string] {
   const names = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   const index = Math.round(angle / 45) % 8;
   return [names[index]!, names[(index + 4) % 8]!];
+}
+
+/** What the map colours streets by: a metric, or the count against its usual. */
+export type MapMode = Metric | "usual";
+
+/** Much quieter → much busier (src/lib/typical.ts USUAL_LEVELS): blue for
+ *  quieter, the neutral ink for usual, red for busier; no judgement implied. */
+export const USUAL_RAMP = ["#2166ac", "#67a9cf", "var(--ink-2)", "#ef8a62", "#b2182b"] as const;
+
+/** Colour by the feature's `level`; a street without one paints `quiet`. */
+export function usualExpression(quiet: string, ramp: readonly string[] = USUAL_RAMP) {
+  return ["match", ["get", "level"], ...USUAL_LEVELS.flatMap((level, i) => [level, ramp[i]]), quiet];
 }

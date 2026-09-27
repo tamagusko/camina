@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ColourLegend } from "@/components/map/ColourLegend";
-import { mapColourValue, rampExpression, streetPaintStatus, VIRIDIS_5 } from "@/lib/geo";
+import { USUAL_RAMP, mapColourValue, rampExpression, streetPaintStatus, usualExpression, VIRIDIS_5 } from "@/lib/geo";
 import { ROAD_USER_CLASSES, type MetricValue } from "@/lib/types";
 
 const QUIET = "#a8a8a8";
 const zeros = Object.fromEntries(ROAD_USER_CLASSES.map((c) => [c, 0])) as MetricValue["classBreakdown"];
-const metric: MetricValue = { streetId: "test", value: 12, totalCount: 12, hasHidden: false, classBreakdown: zeros, speedBreakdown: {}, avgSpeedKmh: null, stale: false, lastSeen: "2026-09-26T13:30:00Z" };
+const metric: MetricValue = { streetId: "test", value: 12, totalCount: 12, hasHidden: false, classBreakdown: zeros, speedBreakdown: {}, avgSpeedKmh: null, stale: false, lastSeen: "2026-09-26T13:30:00Z", typical: null };
 
 // Just enough of the MapLibre expression language to evaluate the ramp against
 // a feature: step, coalesce, to-number, get, feature-state (always unset here,
@@ -20,6 +20,11 @@ function evaluate(expr: Expr, properties: Record<string, unknown>): unknown {
     case "feature-state": return null;
     case "to-number": { const v = evaluate(args[0], properties); return v === null ? null : Number(v); }
     case "coalesce": return args.map((a) => evaluate(a, properties)).find((v) => v !== null) ?? null;
+    case "match": {
+      const input = evaluate(args[0], properties);
+      for (let i = 1; i < args.length - 1; i += 2) if (args[i] === input) return args[i + 1];
+      return args[args.length - 1];
+    }
     case "step": {
       const input = evaluate(args[0], properties) as number;
       let out = args[1];
@@ -58,17 +63,17 @@ describe("legend stays true in every window", () => {
     expect(mapColourValue(25, "speed", "7d")).toBe(25);
   });
   it("names the average in the legend title", () => {
-    expect(renderToStaticMarkup(<ColourLegend metric="counts" timeWindow="now" />)).toContain("Road users per 15 min</p>");
-    expect(renderToStaticMarkup(<ColourLegend metric="counts" timeWindow="24h" />)).toContain("Road users per 15 min · 24 h average");
-    expect(renderToStaticMarkup(<ColourLegend metric="counts" timeWindow="7d" />)).toContain("Road users per 15 min · 7 d average");
-    expect(renderToStaticMarkup(<ColourLegend metric="speed" timeWindow="7d" />)).toContain("Speed · km/h");
+    expect(renderToStaticMarkup(<ColourLegend mode="counts" timeWindow="now" />)).toContain("Road users per 15 min</p>");
+    expect(renderToStaticMarkup(<ColourLegend mode="counts" timeWindow="24h" />)).toContain("Road users per 15 min · 24 h average");
+    expect(renderToStaticMarkup(<ColourLegend mode="counts" timeWindow="7d" />)).toContain("Road users per 15 min · 7 d average");
+    expect(renderToStaticMarkup(<ColourLegend mode="speed" timeWindow="7d" />)).toContain("Speed · km/h");
   });
 });
 
 describe("fixed map legend", () => {
   it("uses fixed count thresholds and a readable text equivalent", () => {
     expect(rampExpression(VIRIDIS_5, "counts", QUIET)).toEqual(["step", expect.any(Array), QUIET, 5, VIRIDIS_5[0], 25, VIRIDIS_5[1], 75, VIRIDIS_5[2], 200, VIRIDIS_5[3], 500, VIRIDIS_5[4]]);
-    const html = renderToStaticMarkup(<ColourLegend metric="counts" />);
+    const html = renderToStaticMarkup(<ColourLegend mode="counts" />);
     expect(html).toContain("Road users per 15 min");
     // The quiet grey has its own key: under 5 (none, or hidden).
     expect(html).toContain("var(--ink-3)");
@@ -80,7 +85,7 @@ describe("fixed map legend", () => {
   it("says hidden values are left out, on desktop and phone", () => {
     const note = "Values under 5 are hidden and left out of totals and averages.";
     for (const compact of [false, true]) {
-      const html = renderToStaticMarkup(<ColourLegend metric="counts" timeWindow="24h" compact={compact} />);
+      const html = renderToStaticMarkup(<ColourLegend mode="counts" timeWindow="24h" compact={compact} />);
       expect(html).toContain(note);
       expect(html).not.toContain("Suppressed");
     }
@@ -93,5 +98,22 @@ describe("fixed map legend", () => {
     expect(streetPaintStatus({ ...metric, stale: true })).toBe("stale");
     expect(streetPaintStatus({ ...metric, lastSeen: null })).toBe("stale");
     expect(streetPaintStatus(undefined)).toBe("stale");
+  });
+});
+
+describe("vs usual mode", () => {
+  it("colours a street by its level, and a street without one quiet grey", () => {
+    const expr = usualExpression(QUIET);
+    expect(evaluate(expr, { level: "much-lower" })).toBe(USUAL_RAMP[0]);
+    expect(evaluate(expr, { level: "usual" })).toBe(USUAL_RAMP[2]);
+    expect(evaluate(expr, { level: "much-higher" })).toBe(USUAL_RAMP[4]);
+    expect(evaluate(expr, { level: null })).toBe(QUIET);
+  });
+  it("explains the scale and the grey in plain words", () => {
+    const html = renderToStaticMarkup(<ColourLegend mode="usual" timeWindow="24h" />);
+    for (const text of ["Counts vs usual", "Much quieter", "Usual", "Much busier", "Too little data to compare", "No recent data"]) {
+      expect(html).toContain(text);
+    }
+    expect(html).toContain("same time and weekday in the past 4 weeks");
   });
 });

@@ -26,6 +26,7 @@ import {
   type CellFold,
   type RawCell,
 } from "@/lib/privacy";
+import { TYPICAL_WEEKS, typicalTotal, type WindowTotal } from "@/lib/typical";
 import type { StreetsRepo } from "./types";
 
 function toSummary(s: MockStreet): StreetSummary {
@@ -115,6 +116,51 @@ function windowCutoff(window: TimeWindow, end: Date): Date {
     "30d": 30 * 24 * 60 * 60_000,
   };
   return new Date(end.getTime() - map[window]);
+}
+
+const WEEK_MS = 7 * 24 * 60 * 60_000;
+
+// Published total and the number of 15-min cells with any reading, per street,
+// over [from, to): the inputs of src/lib/typical.ts. Same rules as the counts.
+function windowTotals(
+  readings: MockReading[],
+  sensorToStreets: Map<string, string[]>,
+  streetIds: Set<string>,
+  requested: RoadUserClass[],
+  from: number,
+  to: number,
+): Map<string, WindowTotal> {
+  const cells = new Map<string, Map<string, RawCell>>();
+  const present = new Map<string, Set<number>>();
+  for (const r of readings) {
+    const start = new Date(r.window_start).getTime();
+    if (start < from || start >= to) continue;
+    for (const streetId of sensorToStreets.get(r.sensor_id) ?? []) {
+      if (!streetIds.has(streetId)) continue;
+      const seen = present.get(streetId) ?? new Set<number>();
+      present.set(streetId, seen.add(Math.floor(start / CELL_MS) * CELL_MS));
+      if (!requested.includes(r.class_name as RoadUserClass)) continue;
+      const byKey = cells.get(streetId) ?? new Map<string, RawCell>();
+      cells.set(streetId, byKey);
+      const key = cellKey(r);
+      const cell = byKey.get(key) ?? emptyRawCell();
+      byKey.set(key, cell);
+      addReading(cell, r as DirectionalMockReading);
+    }
+  }
+  const out = new Map<string, WindowTotal>();
+  for (const streetId of streetIds) {
+    const folds = new Map<string, CellFold>();
+    for (const [key, cell] of cells.get(streetId) ?? []) {
+      const cls = key.split("|")[1]!;
+      const fold = folds.get(cls) ?? emptyFold();
+      folds.set(cls, fold);
+      foldCell(fold, cell);
+    }
+    const counts = [...folds.values()].map((fold) => publishFold(fold).count);
+    out.set(streetId, { total: publishedTotal(counts).total, cells: present.get(streetId)?.size ?? 0 });
+  }
+  return out;
 }
 
 export const mockStreetsRepo: StreetsRepo = {
@@ -278,6 +324,12 @@ export const mockStreetsRepo: StreetsRepo = {
       }
     }
 
+    // Usual total (counts only): the same window in each of the past weeks.
+    const weeks = metric === "counts" && end - cutoff <= WEEK_MS
+      ? Array.from({ length: TYPICAL_WEEKS + 1 }, (_, k) =>
+          windowTotals(readings, sensorToStreets, citySet, requested, cutoff - k * WEEK_MS, end - k * WEEK_MS))
+      : [];
+
     const out: MetricValue[] = [];
     for (const streetId of citySet) {
       // Published base cells, summed over the window (src/lib/privacy.ts rule 3).
@@ -318,6 +370,12 @@ export const mockStreetsRepo: StreetsRepo = {
         avgSpeedKmh,
         stale: isStaleFor(window, lastSeen, now),
         lastSeen,
+        typical: weeks.length
+          ? typicalTotal(
+              { total: published.total, cells: weeks[0]!.get(streetId)?.cells ?? 0 },
+              weeks.slice(1).map((week) => week.get(streetId) ?? { total: 0, cells: 0 }),
+            )
+          : null,
       });
     }
 

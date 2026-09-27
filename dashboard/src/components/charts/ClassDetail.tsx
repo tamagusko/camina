@@ -1,9 +1,10 @@
 "use client";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ClassIcon } from "@/components/ClassIcon";
 import { classSummary } from "@/lib/class-summary";
 import { formatDublinTime } from "@/lib/format-time";
 import { classLabel, type RoadUserClass, type StreetReading } from "@/lib/types";
-import { TOOLTIP_STYLE } from "./chart-style";
+import { BUCKET_MS, OFFLINE_FILL, TIME_AXIS, TOOLTIP_STYLE, offlineRanges, timeLabel } from "./chart-style";
 
 interface Props {
   cls: RoadUserClass;
@@ -26,13 +27,15 @@ function Stat({ label, value }: { label: string; value: string }) {
 export function ClassDetail({ cls, colour, readings, directions, onBack }: Props) {
   const s = classSummary(readings, cls);
   const label = classLabel(cls);
-  const data = readings.map((r) => ({ t: formatDublinTime(r.bucket), [cls]: r.counts[cls] }));
+  const data = readings.map((r) => ({ x: Date.parse(r.bucket), [cls]: r.counts[cls] }));
+  const offline = offlineRanges(readings, (r) => Date.parse(r.bucket));
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-base font-semibold text-[var(--ink-1)]">
           <span aria-hidden className="inline-block h-3 w-3 rounded-sm" style={{ background: colour }} />
+          <ClassIcon cls={cls} size={18} />
           {label}
         </h2>
         <button
@@ -63,9 +66,10 @@ export function ClassDetail({ cls, colour, readings, directions, onBack }: Props
         <ResponsiveContainer width="100%" height={280}>
           <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
             <CartesianGrid stroke="var(--line)" vertical={false} />
-            <XAxis dataKey="t" stroke="var(--ink-2)" fontSize={12} tickMargin={8} />
+            <XAxis {...TIME_AXIS} />
             <YAxis stroke="var(--ink-2)" fontSize={12} tickMargin={8} allowDecimals={false} />
-            <Tooltip {...TOOLTIP_STYLE} />
+            <Tooltip {...TOOLTIP_STYLE} labelFormatter={timeLabel} />
+            {offline.map(([from, to]) => <ReferenceArea key={from} x1={from} x2={to + BUCKET_MS} fill={OFFLINE_FILL} fillOpacity={0.8} ifOverflow="hidden" />)}
             <Area
               type="monotone"
               dataKey={cls}
@@ -75,6 +79,7 @@ export function ClassDetail({ cls, colour, readings, directions, onBack }: Props
               fillOpacity={0.35}
               strokeWidth={2}
               connectNulls={false}
+              isAnimationActive={false}
             />
           </AreaChart>
         </ResponsiveContainer>

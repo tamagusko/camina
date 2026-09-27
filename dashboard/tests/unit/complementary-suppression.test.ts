@@ -39,7 +39,7 @@ describe("adversary sanity — the checker catches the leaky shapes", () => {
     const row: MetricValue = {
       streetId: "s", value: 12, totalCount: 12, hasHidden: true,
       classBreakdown: { ...breakdown, car: 10, cyclist: null },
-      speedBreakdown: {}, avgSpeedKmh: null, stale: false, lastSeen: null,
+      speedBreakdown: {}, avgSpeedKmh: null, stale: false, lastSeen: null, typical: null,
     };
     expect(metricLeaks([row], "counts").length).toBeGreaterThan(0);
   });
@@ -97,7 +97,7 @@ describe("publication rules", () => {
       const metric: MetricValue = {
         streetId: `s${i}`, value: total, totalCount: total, hasHidden,
         classBreakdown: counts, speedBreakdown: {}, avgSpeedKmh: null,
-        stale: false, lastSeen: null,
+        stale: false, lastSeen: null, typical: null,
       };
       expect(metricLeaks([metric], "counts")).toEqual([]);
     }
