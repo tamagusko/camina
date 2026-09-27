@@ -125,11 +125,24 @@ class OfflineBuffer:
             raise TypeError("payload must be bytes")
         now = int(time.time())
         with self._lock:
-            self._drop_to_cap_locked(reserve=1)
-            cursor = self._conn.execute(
-                "INSERT INTO outbox (endpoint, payload, enqueued_at) VALUES (?, ?, ?)",
-                (endpoint, payload, now),
-            )
+            self._conn.execute("BEGIN")
+            try:
+                dropped = self._drop_to_cap_locked(reserve=1)
+                cursor = self._conn.execute(
+                    "INSERT INTO outbox (endpoint, payload, enqueued_at) VALUES (?, ?, ?)",
+                    (endpoint, payload, now),
+                )
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+            if dropped:
+                self._dropped += dropped
+                logger.warning(
+                    "OfflineBuffer: dropped %d oldest rows to enforce cap (total dropped=%d)",
+                    dropped,
+                    self._dropped,
+                )
             return int(cursor.lastrowid)
 
     def drain(
@@ -245,22 +258,17 @@ class OfflineBuffer:
     def _delete_locked(self, row_id: int) -> None:
         self._conn.execute("DELETE FROM outbox WHERE id = ?", (row_id,))
 
-    def _drop_to_cap_locked(self, reserve: int) -> None:
+    def _drop_to_cap_locked(self, reserve: int) -> int:
         """Ensure ``pending + reserve <= max_rows`` by deleting oldest rows."""
         pending = self._conn.execute("SELECT COUNT(*) FROM outbox").fetchone()[0]
         need_to_drop = pending + reserve - self._max_rows
         if need_to_drop <= 0:
-            return
+            return 0
         self._conn.execute(
             "DELETE FROM outbox WHERE id IN (SELECT id FROM outbox ORDER BY id ASC LIMIT ?)",
             (need_to_drop,),
         )
-        self._dropped += need_to_drop
-        logger.warning(
-            "OfflineBuffer: dropped %d oldest rows to enforce cap (total dropped=%d)",
-            need_to_drop,
-            self._dropped,
-        )
+        return int(need_to_drop)
 
 
 __all__ = [
