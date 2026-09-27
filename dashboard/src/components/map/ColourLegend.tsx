@@ -17,6 +17,7 @@ export function ColourLegend({ metric, timeWindow = "now", compact = false }: { 
     <p className={compact ? "mb-1 text-xs font-semibold" : "mb-2 text-xs font-semibold"}>{metric === "counts" ? `Road users per 15 min${WINDOW_LABEL[timeWindow]}` : "Speed · km/h"}</p>
     <div className="flex gap-1" aria-hidden="true">{keys[metric].map(([colour, label]) => <div key={label} className="min-w-0 flex-1"><div className="h-2 rounded-sm" style={{ backgroundColor: colour }} /><span className="mt-1 block whitespace-nowrap text-xs text-ink-2">{label}</span></div>)}</div>
     <dl className="sr-only">{keys[metric].map(([colour, label]) => <div key={label}><dt>{label}</dt><dd>{colour === QUIET ? "grey" : colour}</dd></div>)}</dl>
-    {!compact && <div className="mt-2 flex gap-4 text-xs text-ink-2"><span>— Suppressed &lt;5</span><span>┄ No recent data</span></div>}
+    <p className={compact ? "mt-1 text-[11px] leading-tight text-ink-2" : "mt-2 text-xs text-ink-2"}>Values under 5 are hidden and left out of totals and averages.</p>
+    {!compact && <p className="mt-1 text-xs text-ink-2">┄ No recent data</p>}
   </div>;
 }

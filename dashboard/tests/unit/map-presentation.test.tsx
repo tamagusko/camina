@@ -76,7 +76,14 @@ describe("fixed map legend", () => {
     expect(html).toContain("5–24");
     expect(html).toContain("500+");
     expect(html).toContain("No recent data");
-    expect(html).toContain("Suppressed");
+  });
+  it("says hidden values are left out, on desktop and phone", () => {
+    const note = "Values under 5 are hidden and left out of totals and averages.";
+    for (const compact of [false, true]) {
+      const html = renderToStaticMarkup(<ColourLegend metric="counts" timeWindow="24h" compact={compact} />);
+      expect(html).toContain(note);
+      expect(html).not.toContain("Suppressed");
+    }
   });
   it("keeps suppressed totals solid and stale streets separate", () => {
     expect(streetPaintStatus(metric)).toBe("live");
