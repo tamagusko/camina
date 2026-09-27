@@ -11,7 +11,6 @@ interface Props {
   colour: string;
   readings: StreetReading[];
   directions: [string, string];
-  onBack: () => void;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -24,7 +23,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 /** One class on its own scale, with its totals for the window. */
-export function ClassDetail({ cls, colour, readings, directions, onBack }: Props) {
+export function ClassDetail({ cls, colour, readings, directions }: Props) {
   const s = classSummary(readings, cls);
   const label = classLabel(cls);
   const data = readings.map((r) => ({ x: Date.parse(r.bucket), [cls]: r.counts[cls] }));
@@ -32,19 +31,12 @@ export function ClassDetail({ cls, colour, readings, directions, onBack }: Props
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center">
         <h2 className="flex items-center gap-2 text-base font-semibold text-[var(--ink-1)]">
           <span aria-hidden className="inline-block h-3 w-3 rounded-sm" style={{ background: colour }} />
           <ClassIcon cls={cls} size={18} />
           {label}
         </h2>
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex min-h-11 items-center text-sm font-medium text-[var(--ink-1)] underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]"
-        >
-          ← All classes
-        </button>
       </div>
 
       <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">

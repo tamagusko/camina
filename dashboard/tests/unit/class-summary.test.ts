@@ -76,19 +76,18 @@ describe("classesWithData", () => {
 });
 
 describe("ClassDetail", () => {
-  it("shows the class name, its total and a way back to all classes", () => {
+  it("shows the class name and its total, with no separate way back (the All chip does that)", () => {
     const html = renderToStaticMarkup(
       createElement(ClassDetail, {
         cls: "car",
         colour: "#0072b2",
         readings: [reading("2026-09-26T08:00:00Z", 12), reading("2026-09-26T08:15:00Z", 30)],
         directions: ["N", "S"],
-        onBack: () => {},
       }),
     );
     expect(html).toContain("Car");
     expect(html).toContain("42");
-    expect(html).toContain("All classes");
+    expect(html).not.toContain("All classes");
   });
 
   it("names the directions when the sensor sends them", () => {
@@ -102,7 +101,6 @@ describe("ClassDetail", () => {
           }),
         ],
         directions: ["N", "S"],
-        onBack: () => {},
       }),
     );
     expect(html).toContain("→ N");

@@ -38,7 +38,6 @@ export function StreetTimeSeries({ readings, directions = ["A", "B"], history = 
       </>
     );
   }
-  const toggle = (cls: RoadUserClass) => setSelected((cur) => (cur === cls ? null : cls));
   const data = readings.map((r) => ({ x: Date.parse(r.bucket), ...r.counts }));
   const offline = offlineRanges(readings, (r) => Date.parse(r.bucket));
 
@@ -51,7 +50,6 @@ export function StreetTimeSeries({ readings, directions = ["A", "B"], history = 
             colour={CLASS_COLOURS[selected]}
             readings={readings}
             directions={directions}
-            onBack={() => setSelected(null)}
           />
         ) : (
           <ResponsiveContainer width="100%" height={320}>
@@ -84,18 +82,12 @@ export function StreetTimeSeries({ readings, directions = ["A", "B"], history = 
         )}
 
         <ul className="mt-4 flex flex-wrap gap-2" aria-label="Classes">
+          <li>
+            <button type="button" aria-pressed={selected === null} onClick={() => setSelected(null)} className={chip(selected === null)}>All</button>
+          </li>
           {classes.map((cls) => (
             <li key={cls}>
-              <button
-                type="button"
-                aria-pressed={selected === cls}
-                onClick={() => toggle(cls)}
-                className={cn(
-                  "inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs text-[var(--ink-1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]",
-                  selected === cls ? "border-[var(--ink-1)] font-semibold" : "border-[var(--line)] hover:border-[var(--ink-2)]",
-                  selected && selected !== cls && "opacity-60",
-                )}
-              >
+              <button type="button" aria-pressed={selected === cls} onClick={() => setSelected(cls)} className={chip(selected === cls)}>
                 <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: CLASS_COLOURS[cls] }} />
                 <ClassIcon cls={cls} size={14} />
                 {classLabel(cls)}
@@ -105,12 +97,20 @@ export function StreetTimeSeries({ readings, directions = ["A", "B"], history = 
         </ul>
 
         <p className="mt-3 text-micro text-[var(--ink-2)]">
-          {selected ? null : "Select a class, in the chart or above, to see it on its own. "}
+          {selected ? null : "Select a class to see it on its own. "}
           {offline.length ? "Grey bands: sensor offline. " : null}
           Values under 5 are hidden and left out of totals and averages.
         </p>
       </div>
       {typical}
     </>
+  );
+}
+
+// One look for every chip; the selected one is outlined and bold.
+function chip(active: boolean): string {
+  return cn(
+    "inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs text-[var(--ink-1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]",
+    active ? "border-[var(--ink-1)] font-semibold" : "border-[var(--line)] hover:border-[var(--ink-2)]",
   );
 }

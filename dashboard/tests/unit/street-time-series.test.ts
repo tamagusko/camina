@@ -24,4 +24,14 @@ describe("StreetTimeSeries", () => {
     expect(html).toContain("No published counts in the last 24 h");
     expect(html).not.toContain("recharts");
   });
+  it("starts on All, as the first class chip, already selected", () => {
+    const counts = Object.fromEntries(ROAD_USER_CLASSES.map((cls) => [cls, 0])) as StreetReading["counts"];
+    const readings: StreetReading[] = [
+      { bucket: "2026-09-26T00:00:00Z", missing: false, hasHidden: false, counts: { ...counts, car: 12 }, avgSpeedKmh: {} },
+    ];
+    const html = renderToStaticMarkup(createElement(StreetTimeSeries, { readings }));
+    expect(html).toMatch(/aria-label="Classes"><li><button[^>]*aria-pressed="true"[^>]*>All<\/button>/);
+    expect(html).toMatch(/aria-pressed="false"[^>]*>.*Car<\/button>/);
+    expect(html).not.toContain("All classes");
+  });
 });
