@@ -465,14 +465,16 @@ def test_daemon_passes_capture_times_and_publishes_window_speeds(tmp_path: Path)
 
     detect.take_speeds = take_speeds  # type: ignore[attr-defined]
     daemon._detect_and_track = detect
-    daemon._frame_source = iter([(object(), 12.5), (object(), 12.6)])
+    stamps_in = [12.5, 12.6, 12.7, 12.8, 12.9]
+    daemon._frame_source = iter([(object(), t) for t in stamps_in])
     try:
         daemon._main_loop()
         snapshot = daemon._counter.force_snapshot(daemon._counter.window_end)
         daemon._publish_counts(snapshot)
-        assert stamps == [12.5, 12.6]
-        assert snapshot.avg_speed_kmh == {"car": 45.0}
-        assert received[-1]["avg_speed_kmh"] == {"car": 45.0}
+        assert stamps == stamps_in
+        # 40, 50, 60, 70, 80 km/h: five timed cars, so the mean is published.
+        assert snapshot.avg_speed_kmh == {"car": 60.0}
+        assert received[-1]["avg_speed_kmh"] == {"car": 60.0}
     finally:
         daemon._test_client.close()  # type: ignore[attr-defined]
         daemon.stop()

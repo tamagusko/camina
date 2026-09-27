@@ -59,6 +59,7 @@ relink: false          # re-link a track after an occlusion: off, it doubled the
 # Speed (camina/core/speed.py). Off unless this block is present; without it
 # the payload's avg_speed_kmh stays empty. Calibrate per site first:
 # docs/CALIBRATION_SETUP.md. Not yet validated against a reference speed.
+# A class speed is published only over >= 5 timed road users (k_min).
 # - line_a, line_b: two lines across the road, [x, y] in fractions of the frame,
 #   both drawn in the same orientation (e.g. both top to bottom), at the two
 #   marks on the road.

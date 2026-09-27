@@ -36,6 +36,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_ANCHOR: datetime = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
+# Privacy: publish a class's mean speed only over at least this many timed road
+# users, so no published value is one person's speed (k_min, as for counts).
+SPEED_K_MIN = 5
+
 @dataclass(frozen=True)
 class WindowSnapshot:
     """Immutable per-window result emitted by `WindowedCounter`."""
@@ -216,7 +220,11 @@ class WindowedCounter:
                 if self._counts_by_direction is not None
                 else None
             ),
-            avg_speed_kmh={cls: round(sum(v) / len(v), 1) for cls, v in self._speeds.items() if v},
+            avg_speed_kmh={
+                cls: round(sum(v) / len(v), 1)
+                for cls, v in self._speeds.items()
+                if len(v) >= SPEED_K_MIN
+            },
         )
         # Start a new window aligned to ``now`` (handles long gaps correctly).
         self._window_start = self._align_to_window(now)

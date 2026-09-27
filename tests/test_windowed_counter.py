@@ -208,19 +208,33 @@ def test_snapshot_total_helper() -> None:
 def test_window_average_speed_is_the_mean_of_the_measured_tracks_per_class() -> None:
     start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
     c = _start_counter(start)
-    for kmh in (30.0, 40.0, 50.0):
+    for kmh in (30.0, 35.0, 40.0, 45.0, 50.0):
         c.add_speed("car", kmh)
-    c.add_speed("cyclist", 18.04)
+    for kmh in (18.04, 18.0, 18.0, 18.0, 17.96):
+        c.add_speed("cyclist", kmh)
     snap = c.force_snapshot(start + timedelta(minutes=15))
     assert snap.avg_speed_kmh == {"car": 40.0, "cyclist": 18.0}
+
+
+def test_a_speed_needs_at_least_k_min_timed_road_users() -> None:
+    # Privacy: a mean over fewer than 5 vehicles is close to one person's speed.
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    for kmh in (30.0, 40.0, 50.0, 60.0):
+        c.add_speed("car", kmh)
+    for _ in range(5):
+        c.add_speed("cyclist", 20.0)
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.avg_speed_kmh == {"cyclist": 20.0}
 
 
 def test_classes_without_a_speed_are_omitted_and_unknown_classes_ignored() -> None:
     start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
     c = _start_counter(start)
     c.add(1, "person", start + timedelta(seconds=1))
-    c.add_speed("car", 25.0)
-    c.add_speed("tram", 30.0)
+    for _ in range(5):
+        c.add_speed("car", 25.0)
+        c.add_speed("tram", 30.0)
     snap = c.force_snapshot(start + timedelta(minutes=15))
     assert snap.avg_speed_kmh == {"car": 25.0}
 
@@ -228,7 +242,8 @@ def test_classes_without_a_speed_are_omitted_and_unknown_classes_ignored() -> No
 def test_speeds_reset_at_each_window() -> None:
     start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
     c = _start_counter(start)
-    c.add_speed("car", 25.0)
+    for _ in range(5):
+        c.add_speed("car", 25.0)
     first = c.maybe_rollover(start + timedelta(minutes=15))
     second = c.force_snapshot(start + timedelta(minutes=30))
     assert first is not None and first.avg_speed_kmh == {"car": 25.0}

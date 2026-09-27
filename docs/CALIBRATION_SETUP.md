@@ -113,5 +113,6 @@ until it is re-marked and passes.
 - Frame rate bounds the precision: interpolation helps, but at low frame rates
   or on short stretches a one-frame error is a large fraction of the time.
 - Speeds are averaged over the road users that crossed both lines, not over
-  every counted road user. The dashboard suppresses speeds wherever the class
-  count is below k_min = 5.
+  every counted road user. A class's speed is published only when at least
+  k_min = 5 road users were timed in the window; the dashboard also hides
+  speeds wherever the class count is below 5.

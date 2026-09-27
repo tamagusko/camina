@@ -586,7 +586,8 @@ def test_window_speeds_pass_the_counts_payload_validation() -> None:
 
     counter = WindowedCounter(classes=["car", "cyclist"], window_seconds=900)
     counter.add(1, "car", counter.window_start)
-    counter.add_speed("car", 42.3)
+    for _ in range(5):
+        counter.add_speed("car", 42.3)
     snap = counter.force_snapshot(counter.window_end)
     payload = CountsPayload(
         sensor_id="cam-01",
