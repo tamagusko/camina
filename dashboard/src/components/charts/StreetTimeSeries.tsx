@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ROAD_USER_CLASSES, type RoadUserClass, type StreetReading } from "@/lib/types";
+import { ROAD_USER_CLASSES, classLabel, type RoadUserClass, type StreetReading } from "@/lib/types";
 import { formatDublinTime } from "@/lib/format-time";
 
 interface Props {
@@ -64,6 +64,7 @@ export function StreetTimeSeries({ readings }: Props) {
               key={cls}
               type="monotone"
               dataKey={cls}
+              name={classLabel(cls)}
               stackId="counts"
               stroke={SERIES_COLOURS[i]}
               fill={SERIES_COLOURS[i]}

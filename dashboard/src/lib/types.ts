@@ -17,6 +17,11 @@ export const ROAD_USER_CLASSES = [
 
 export type RoadUserClass = (typeof ROAD_USER_CLASSES)[number];
 
+/** How a class is spelled on every page: "Delivery van", "E-scooter", "SUV". */
+export function classLabel(cls: RoadUserClass): string {
+  return cls === "SUV" ? cls : cls.replaceAll("_", " ").replace(/^./, (m) => m.toUpperCase());
+}
+
 export type TimeWindow = "now" | "1h" | "24h" | "7d" | "30d";
 
 export interface StreetSummary {
