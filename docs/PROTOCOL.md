@@ -64,6 +64,11 @@ as `counts`. For every class, a missing direction cell counts as zero and
 `AB + BA` MUST equal `counts[class]`. The backend rejects violations with 400.
 `avg_speed_kmh` remains per class rather than per direction.
 
+A road user is counted in the window in which its class is confirmed
+(`min_class_hits` detections), not always the one in which it crossed: a
+crossing held for its class near a window boundary can land in the next
+window. `AB + BA = counts` holds in every window.
+
 The edge sends raw measured window counts, direction cells, daily totals, and
 average speeds to its authenticated server. It does not apply `k_min` on the
 wire. The dashboard applies `k_min = 5` at public API read time, on the base
@@ -151,7 +156,13 @@ applied.
     }
 
 The device applies `publish_interval_minutes`, `heartbeat_interval_minutes`
-and `min_track_hits` (the tracker's confirmation count), and saves the applied
+and `min_track_hits` (the tracker's confirmation count), plus the optional
+`max_occlusion_s` (seconds a hidden track survives, `0 < x <= 60`),
+`min_class_hits` (detections of its class before a track counts, `1..20`) and
+`relink` (re-link a detection to a track lost behind an occlusion; a JSON
+`true`/`false`, nothing else). The server does not send these three yet; when
+one is absent the device keeps the value in its local `sensor.yaml`, which is
+checked against the same bounds. It saves the applied
 config next to its `state.db` so a reboot keeps it. This firmware rejects, with
 a logged warning, a `frame_skip` other than 1 (detection runs on every frame),
 a `daily_publish_time_utc` other than `"00:00"` (daily totals roll over at

@@ -312,3 +312,133 @@ def test_closure_exposes_its_tracker_for_min_track_hits(monkeypatch: pytest.Monk
     )
     f = detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES)
     assert isinstance(f.tracker, Sort)  # type: ignore[attr-defined]
+
+
+def test_the_person_riding_a_bicycle_is_not_tracked_as_a_pedestrian(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from camina.service import detect_track
+
+    boxes = _FakeBoxes(
+        cls=[CLASSES.index("cyclist"), CLASSES.index("person")],
+        conf=[0.9, 0.9],
+        xyxy=[[100.0, 100.0, 160.0, 220.0], [110.0, 100.0, 150.0, 180.0]],
+    )
+    monkeypatch.setattr(detect_track, "NcnnDetector", _fake_detector_factory([boxes] * 5))
+    f = detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES)
+    frame = np.zeros((640, 640, 3), dtype=np.uint8)
+    seen = [cls for _ in range(5) for _, cls in f(frame)]
+
+    assert set(seen) == {"cyclist"}
+
+
+def test_the_gate_must_remember_tracks_at_least_as_long_as_the_tracker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A gate forgetting a track the tracker still holds would count it twice."""
+    from camina.core.counting import CountGate
+    from camina.service import detect_track
+
+    monkeypatch.setattr(
+        detect_track, "NcnnDetector", _fake_detector_factory([_FakeBoxes([], [], [])])
+    )
+    with pytest.raises(ValueError, match="forget_after_s"):
+        detect_track.make_detect_and_track(
+            ncnn_model_path="ignored",
+            classes=CLASSES,
+            gate=CountGate(forget_after_s=4.0),
+            max_occlusion_s=5.0,
+        )
+
+
+def test_frame_timestamps_drive_the_occlusion_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Frames stamped 6 s apart: the car's track is gone and a new one starts."""
+    from camina.service import detect_track
+
+    car, empty = _car_at(100.0), _FakeBoxes([], [], [])
+    frames = [car] * 4 + [empty, car, car, car, car]
+    monkeypatch.setattr(detect_track, "NcnnDetector", _fake_detector_factory(frames))
+    f = detect_track.make_detect_and_track(
+        ncnn_model_path="ignored", classes=CLASSES, max_occlusion_s=5.0
+    )
+    frame = np.zeros((480, 480, 3), dtype=np.uint8)
+    stamps = [0.0, 0.1, 0.2, 0.3, 0.4, 6.5, 6.6, 6.7, 6.8]
+    ids = {tid for t in stamps for tid, _ in f(frame, t=t)}
+
+    assert len(ids) == 2
+
+
+def test_the_tracker_may_relink_across_confused_vehicle_classes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from camina.service import detect_track
+
+    monkeypatch.setattr(
+        detect_track, "NcnnDetector", _fake_detector_factory([_FakeBoxes([], [], [])])
+    )
+    f = detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES)
+    car, suv, person = CLASSES.index("car"), CLASSES.index("SUV"), CLASSES.index("person")
+
+    assert f.tracker._compatible(car, suv)  # type: ignore[attr-defined]
+    assert not f.tracker._compatible(car, person)  # type: ignore[attr-defined]
+
+
+def test_relinking_is_off_unless_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    from camina.service import detect_track
+
+    monkeypatch.setattr(
+        detect_track, "NcnnDetector", _fake_detector_factory([_FakeBoxes([], [], [])])
+    )
+    off = detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES)
+    on = detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES, relink=True)
+
+    assert off.tracker.relink is False  # type: ignore[attr-defined]
+    assert on.tracker.relink is True  # type: ignore[attr-defined]
+
+
+def test_a_car_is_counted_only_once_its_class_is_confirmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With min_class_hits=14 the car has crossed the line (frame 11) before it
+    confirms; it is counted, with its direction, on the frame it confirms."""
+    from camina.core.counting import CountGate, Screenline
+    from camina.service import detect_track
+
+    frames = [_car_at(20.0 * i) for i in range(20)]  # centre crosses x = 240 at frame 11
+    monkeypatch.setattr(detect_track, "NcnnDetector", _fake_detector_factory(frames))
+    gate = CountGate(screenline=Screenline((0.5, 0.0), (0.5, 1.0)))
+    f = detect_track.make_detect_and_track(
+        ncnn_model_path="ignored", classes=CLASSES, imgsz=480, gate=gate, min_class_hits=14
+    )
+    frame = np.zeros((480, 480, 3), dtype=np.uint8)
+    per_frame = [list(f(frame, t=i / 10)) for i in range(len(frames))]
+
+    counted_at = [i for i, out in enumerate(per_frame) if out]
+    assert counted_at == [13]  # the car's 14th detection
+    assert per_frame[13][0].direction == "AB"
+
+
+def test_a_track_dying_before_its_class_confirms_is_not_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from camina.core.counting import CountGate, Screenline
+    from camina.service import detect_track
+
+    frames = [_car_at(20.0 * i) for i in range(15)] + [_FakeBoxes([], [], [])] * 3
+    monkeypatch.setattr(detect_track, "NcnnDetector", _fake_detector_factory(frames))
+    gate = CountGate(screenline=Screenline((0.5, 0.0), (0.5, 1.0)), forget_after_s=5.0)
+    f = detect_track.make_detect_and_track(
+        ncnn_model_path="ignored",
+        classes=CLASSES,
+        imgsz=480,
+        gate=gate,
+        min_class_hits=20,
+        max_occlusion_s=5.0,
+    )
+    frame = np.zeros((480, 480, 3), dtype=np.uint8)
+    stamps = [i / 10 for i in range(15)] + [3.0, 6.0, 9.0]
+    seen = [c for t in stamps for c in f(frame, t=t)]
+
+    assert seen == []
+    assert gate.unconfirmed_dropped == 1
+    assert f.gate is gate  # type: ignore[attr-defined]

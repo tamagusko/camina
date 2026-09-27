@@ -248,3 +248,98 @@ def test_compose_gives_the_detector_a_count_gate_from_config(tmp_path: Path) -> 
         daemon._outbox.close()
         daemon._daily.close()
         daemon._http.close()
+
+
+def test_daemon_config_reads_the_tracking_rules(tmp_path: Path) -> None:
+    from camina.service.sensor_daemon import DaemonConfig
+
+    yaml_path = tmp_path / "sensor.yaml"
+    yaml_path.write_text(_MINIMAL_YAML + "max_occlusion_s: 3.5\nmin_class_hits: 4\nrelink: true\n")
+    cfg = DaemonConfig.from_yaml(yaml_path)
+    assert cfg.max_occlusion_s == pytest.approx(3.5) and cfg.min_class_hits == 4
+    assert cfg.relink is True
+
+    yaml_path.write_text(_MINIMAL_YAML)
+    cfg = DaemonConfig.from_yaml(yaml_path)
+    assert cfg.max_occlusion_s == pytest.approx(5.0) and cfg.min_class_hits == 3
+    assert cfg.relink is False
+
+
+@pytest.mark.parametrize(
+    ("line", "key"),
+    [
+        ("min_class_hits: 0", "min_class_hits"),
+        ("min_class_hits: -3", "min_class_hits"),
+        ("min_class_hits: 21", "min_class_hits"),
+        ("max_occlusion_s: 0", "max_occlusion_s"),
+        ("max_occlusion_s: 600", "max_occlusion_s"),
+        ('relink: "false"', "relink"),
+        ('relink: "no"', "relink"),
+    ],
+)
+def test_daemon_config_rejects_bad_tracking_rules(tmp_path: Path, line: str, key: str) -> None:
+    from camina.service.sensor_daemon import DaemonConfig
+
+    yaml_path = tmp_path / "sensor.yaml"
+    yaml_path.write_text(_MINIMAL_YAML + line + "\n")
+    with pytest.raises(ValueError, match=key):
+        DaemonConfig.from_yaml(yaml_path)
+
+
+def test_local_and_server_tracking_bounds_are_the_same() -> None:
+    from pydantic import ValidationError
+
+    from camina.core.tracking_rules import MAX_CLASS_HITS, MAX_OCCLUSION_S_LIMIT
+    from camina.io.schemas import SensorConfig
+
+    base = {
+        "config_version": "v",
+        "publish_interval_minutes": 15,
+        "heartbeat_interval_minutes": 5,
+        "frame_skip": 1,
+        "min_track_hits": 3,
+    }
+    SensorConfig(**base, max_occlusion_s=MAX_OCCLUSION_S_LIMIT, min_class_hits=MAX_CLASS_HITS)
+    with pytest.raises(ValidationError):
+        SensorConfig(**base, max_occlusion_s=MAX_OCCLUSION_S_LIMIT + 0.1)
+    with pytest.raises(ValidationError):
+        SensorConfig(**base, min_class_hits=MAX_CLASS_HITS + 1)
+
+
+def test_the_shipped_sensor_yaml_sets_the_tracking_rules() -> None:
+    from camina.service.sensor_daemon import DaemonConfig
+
+    cfg = DaemonConfig.from_yaml(Path(__file__).parents[1] / "configs" / "sensor.yaml")
+    assert cfg.max_occlusion_s == pytest.approx(5.0) and cfg.min_class_hits == 3
+    assert cfg.relink is False
+
+
+def test_compose_passes_the_tracking_rules_and_a_gate_that_outlives_occlusion(
+    tmp_path: Path,
+) -> None:
+    from dataclasses import replace
+
+    from camina.service.compose import compose
+
+    cfg = replace(_make_cfg(tmp_path), max_occlusion_s=7.0, min_class_hits=5, relink=True)
+    captured: dict = {}
+
+    def _capturing_detect_factory(**kwargs):
+        captured.update(kwargs)
+        return lambda _f: []
+
+    daemon = compose(
+        cfg,
+        ncnn_model_path=tmp_path / "the_ncnn_dir",
+        camera_factory=_fake_camera_factory,
+        detect_factory=_capturing_detect_factory,
+    )
+    try:
+        assert captured["max_occlusion_s"] == pytest.approx(7.0)
+        assert captured["min_class_hits"] == 5
+        assert captured["relink"] is True
+        assert captured["gate"].forget_after_s >= 7.0
+    finally:
+        daemon._outbox.close()
+        daemon._daily.close()
+        daemon._http.close()

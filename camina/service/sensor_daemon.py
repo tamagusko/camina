@@ -29,6 +29,7 @@ from camina.core.counter import (
     WindowedCounter,
     WindowSnapshot,
 )
+from camina.core.tracking_rules import check_tracking_rules
 from camina.io.config_poller import ConfigPoller
 from camina.io.config_state import config_state_path, load_config_state, save_config_state
 from camina.io.http_client import HttpClient, RetryPolicy
@@ -100,6 +101,11 @@ class DaemonConfig:
     # with no screenline, when it has moved ``min_move`` box heights.
     screenline: tuple[tuple[float, float], tuple[float, float]] | None = None
     min_move: float = 1.0
+    # Tracking (camina/core/tracker.py): seconds a hidden track survives, and
+    # detections of its class a track needs before it counts under that class.
+    max_occlusion_s: float = 5.0
+    min_class_hits: int = 3
+    relink: bool = False  # re-link after occlusion; off until measured on a second clip
 
     @classmethod
     def from_yaml(cls, path: Path) -> DaemonConfig:
@@ -122,7 +128,21 @@ class DaemonConfig:
             conf_threshold=float(data.get("conf_threshold", 0.3)),
             screenline=_parse_screenline(data.get("screenline")),
             min_move=float(data.get("min_move", 1.0)),
+            **_tracking_rules(data),
         )
+
+
+def _tracking_rules(data: dict) -> dict:
+    """The tracking rules from ``sensor.yaml``, checked against the server's bounds."""
+    max_occlusion_s = data.get("max_occlusion_s", 5.0)
+    min_class_hits = data.get("min_class_hits", 3)
+    relink = data.get("relink", False)
+    check_tracking_rules(max_occlusion_s, min_class_hits, relink)
+    return {
+        "max_occlusion_s": float(max_occlusion_s),
+        "min_class_hits": min_class_hits,
+        "relink": relink,
+    }
 
 
 def _parse_screenline(
@@ -208,6 +228,8 @@ class SensorDaemon:
 
         # sd_notify is a no-op unless launched under a Type=notify systemd unit.
         self._notifier = SystemdNotifier()
+        # Tracker/gate counters at the last window rollover (logged as deltas).
+        self._tracking_seen = (0, 0)
 
     # ---------- Public API ----------
 
@@ -280,6 +302,7 @@ class SensorDaemon:
 
             snapshot = self._counter.maybe_rollover(now)
             if snapshot is not None:
+                self._log_tracking(self._detect_and_track)
                 # Record locally on this thread (fast local SQLite), then hand
                 # the network POST to the worker so the loop never blocks.
                 self._daily.add_window(snapshot)
@@ -297,6 +320,20 @@ class SensorDaemon:
             if time.monotonic() - last_watchdog >= _WATCHDOG_INTERVAL_S:
                 self._notifier.watchdog()
                 last_watchdog = time.monotonic()
+
+    def _log_tracking(self, detect_and_track: object) -> None:
+        """Log, at INFO, this window's tracks dropped unconfirmed and re-links."""
+        gate = getattr(detect_and_track, "gate", None)
+        tracker = getattr(detect_and_track, "tracker", None)
+        dropped = getattr(gate, "unconfirmed_dropped", 0)
+        relinks = getattr(tracker, "relinks", 0)
+        seen_dropped, seen_relinks = self._tracking_seen
+        self._tracking_seen = (dropped, relinks)
+        logger.info(
+            "Window tracking: unconfirmed_dropped=%d relinks=%d",
+            dropped - seen_dropped,
+            relinks - seen_relinks,
+        )
 
     # ---------- Publish worker ----------
 
@@ -451,6 +488,7 @@ class SensorDaemon:
         tracker = getattr(self._detect_and_track, "tracker", None)
         if tracker is not None:
             tracker.min_hits = config.min_track_hits
+            self._apply_tracking_rules(tracker, config)
         else:
             logger.warning(
                 "min_track_hits=%d not applied: the detector exposes no tracker",
@@ -474,6 +512,21 @@ class SensorDaemon:
                 "sensor config; set detection_zone to null"
             )
         self._applied_config = config
+
+    def _apply_tracking_rules(self, tracker: object, config: SensorConfig) -> None:
+        """Apply the server's optional tracking rules; absent ones keep sensor.yaml's."""
+        if config.min_class_hits is not None:
+            tracker.min_class_hits = config.min_class_hits  # type: ignore[attr-defined]
+        if config.relink is not None:
+            tracker.relink = config.relink  # type: ignore[attr-defined]
+        if config.max_occlusion_s is None:
+            return
+        tracker.max_occlusion_s = config.max_occlusion_s  # type: ignore[attr-defined]
+        gate = getattr(self._detect_and_track, "gate", None)
+        if gate is not None and gate.forget_after_s < config.max_occlusion_s:
+            # A gate forgetting a track the tracker can still revive counts it twice.
+            gate.forget_after_s = 2 * config.max_occlusion_s
+            logger.info("Count gate now forgets after %.1f s", gate.forget_after_s)
 
     def _persist_config(self, version: str) -> None:
         """ConfigPoller persist callback: save the config ``_apply_config`` took."""

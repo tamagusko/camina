@@ -140,3 +140,56 @@ def test_unsupported_fields_are_rejected_with_a_reason(
         assert "rejected" not in caplog.text
     finally:
         daemon.stop()
+
+
+class _TrackingDetector:
+    """detect_and_track stand-in exposing a tracker and a gate."""
+
+    def __init__(self) -> None:
+        self.tracker = SimpleNamespace(
+            min_hits=3, max_occlusion_s=5.0, min_class_hits=3, relink=False
+        )
+        self.gate = SimpleNamespace(forget_after_s=10.0)
+
+    def __call__(self, _frame: object) -> list:
+        return []
+
+
+def test_server_tracking_rules_are_applied_when_sent(tmp_path: Path) -> None:
+    detector = _TrackingDetector()
+    daemon = _daemon(tmp_path, detector)
+    try:
+        daemon._apply_config(_config(max_occlusion_s=8.0, min_class_hits=4, relink=True))
+        assert detector.tracker.max_occlusion_s == pytest.approx(8.0)
+        assert detector.tracker.min_class_hits == 4
+        assert detector.tracker.relink is True
+        # The gate must not forget a track the tracker can still revive.
+        assert detector.gate.forget_after_s >= 8.0
+    finally:
+        daemon.stop()
+
+
+def test_absent_tracking_rules_keep_the_local_values(tmp_path: Path) -> None:
+    detector = _TrackingDetector()
+    daemon = _daemon(tmp_path, detector)
+    try:
+        daemon._apply_config(_config())
+        assert detector.tracker.max_occlusion_s == pytest.approx(5.0)
+        assert detector.tracker.min_class_hits == 3
+        assert detector.tracker.relink is False
+        assert detector.gate.forget_after_s == pytest.approx(10.0)
+    finally:
+        daemon.stop()
+
+
+def test_server_tracking_rules_are_range_checked() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        _config(max_occlusion_s=0)
+    with pytest.raises(ValidationError):
+        _config(min_class_hits=0)
+    # Like sensor.yaml, relink must be a real boolean, not "false" or 0.
+    for bad in ("false", "no", 0):
+        with pytest.raises(ValidationError):
+            _config(relink=bad)
