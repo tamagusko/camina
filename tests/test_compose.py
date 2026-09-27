@@ -354,3 +354,101 @@ def test_the_heartbeat_defaults_to_15_minutes_for_the_pilot(tmp_path: Path) -> N
     assert DaemonConfig.from_yaml(yaml_path).heartbeat_interval_seconds == 900
     shipped = DaemonConfig.from_yaml(Path(__file__).parents[1] / "configs" / "sensor.yaml")
     assert shipped.heartbeat_interval_seconds == 900
+
+
+# ---------- Speed ----------
+
+_SPEED_YAML = """speed:
+  line_a: [[0.30, 0.20], [0.30, 0.90]]
+  line_b: [[0.70, 0.20], [0.70, 0.90]]
+  distance_m: 18.5
+"""
+
+
+def test_speed_is_off_without_a_speed_block(tmp_path: Path) -> None:
+    from camina.service.sensor_daemon import DaemonConfig
+
+    yaml_path = tmp_path / "sensor.yaml"
+    yaml_path.write_text(_MINIMAL_YAML)
+    assert DaemonConfig.from_yaml(yaml_path).speed is None
+    shipped = DaemonConfig.from_yaml(Path(__file__).parents[1] / "configs" / "sensor.yaml")
+    assert shipped.speed is None
+
+
+def test_daemon_config_reads_the_speed_lines(tmp_path: Path) -> None:
+    from camina.core.counting import Screenline
+    from camina.core.speed import MAX_KMH
+    from camina.service.sensor_daemon import DaemonConfig
+
+    yaml_path = tmp_path / "sensor.yaml"
+    yaml_path.write_text(_MINIMAL_YAML + _SPEED_YAML)
+    speed = DaemonConfig.from_yaml(yaml_path).speed
+
+    assert speed is not None
+    assert speed.line_a == Screenline((0.30, 0.20), (0.30, 0.90))
+    assert speed.line_b == Screenline((0.70, 0.20), (0.70, 0.90))
+    assert speed.distance_m == pytest.approx(18.5)
+    assert speed.max_kmh == pytest.approx(MAX_KMH)
+
+    yaml_path.write_text(_MINIMAL_YAML + _SPEED_YAML + "  max_kmh: 80\n")
+    assert DaemonConfig.from_yaml(yaml_path).speed.max_kmh == pytest.approx(80.0)
+
+
+def test_the_commented_speed_example_in_sensor_yaml_is_valid(tmp_path: Path) -> None:
+    from camina.service.sensor_daemon import DaemonConfig
+
+    shipped = (Path(__file__).parents[1] / "configs" / "sensor.yaml").read_text()
+    lines = shipped.splitlines()
+    start = lines.index("# speed:")
+    example = [ln.removeprefix("# ") for ln in lines[start : start + 5]]
+    yaml_path = tmp_path / "sensor.yaml"
+    yaml_path.write_text(shipped + "\n" + "\n".join(example) + "\n")
+
+    speed = DaemonConfig.from_yaml(yaml_path).speed
+    assert speed is not None and speed.distance_m == pytest.approx(20.0)
+
+
+def test_a_speed_block_without_a_distance_is_refused(tmp_path: Path) -> None:
+    from camina.service.sensor_daemon import DaemonConfig
+
+    yaml_path = tmp_path / "sensor.yaml"
+    yaml_path.write_text(_MINIMAL_YAML + _SPEED_YAML.replace("  distance_m: 18.5\n", ""))
+    with pytest.raises(KeyError, match="distance_m"):
+        DaemonConfig.from_yaml(yaml_path)
+
+
+@pytest.mark.parametrize("with_speed", [False, True])
+def test_compose_gives_the_detector_a_speed_estimator_only_when_calibrated(
+    tmp_path: Path, with_speed: bool
+) -> None:
+    from dataclasses import replace
+
+    from camina.core.counting import Screenline
+    from camina.core.speed import SpeedEstimator, SpeedLines
+    from camina.service.compose import compose
+
+    lines = SpeedLines(Screenline((0.3, 0.0), (0.3, 1.0)), Screenline((0.7, 0.0), (0.7, 1.0)), 20.0)
+    cfg = replace(_make_cfg(tmp_path), speed=lines if with_speed else None)
+    captured: dict = {}
+
+    def _capturing_detect_factory(**kwargs):
+        captured.update(kwargs)
+        return lambda _f: []
+
+    daemon = compose(
+        cfg,
+        ncnn_model_path=tmp_path / "the_ncnn_dir",
+        camera_factory=_fake_camera_factory,
+        detect_factory=_capturing_detect_factory,
+    )
+    try:
+        if with_speed:
+            assert isinstance(captured["speed"], SpeedEstimator)
+            assert captured["speed"].lines == lines
+            assert captured["speed"].forget_after_s >= cfg.max_occlusion_s
+        else:
+            assert captured["speed"] is None
+    finally:
+        daemon._outbox.close()
+        daemon._daily.close()
+        daemon._http.close()

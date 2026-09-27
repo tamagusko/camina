@@ -45,6 +45,9 @@ class WindowSnapshot:
     counts: dict[str, int]
     partial: bool
     counts_by_direction: dict[str, dict[str, int]] | None = None
+    # Mean speed of the tracks measured this window, km/h, per class; classes
+    # with no measured track are absent (camina/core/speed.py).
+    avg_speed_kmh: dict[str, float] = field(default_factory=dict)
 
     def total(self) -> int:
         """Sum of counts across all classes."""
@@ -80,6 +83,7 @@ class WindowedCounter:
     _seen_track_ids: dict[str, set[int]] = field(init=False)
     _counts: dict[str, int] = field(init=False)
     _counts_by_direction: dict[str, dict[str, int]] | None = field(init=False, default=None)
+    _speeds: dict[str, list[float]] = field(init=False)
     _is_first_window: bool = field(init=False, default=True)
     _started_at: datetime = field(init=False)
 
@@ -101,6 +105,7 @@ class WindowedCounter:
         self._window_end = self._window_start + timedelta(seconds=self.window_seconds)
         self._seen_track_ids = {cls: set() for cls in self.classes}
         self._counts = {cls: 0 for cls in self.classes}
+        self._speeds = {}
 
     # ---------- Public API ----------
 
@@ -164,6 +169,15 @@ class WindowedCounter:
                 directional_counts = self._counts_by_direction[direction]
                 directional_counts[class_name] = directional_counts.get(class_name, 0) + 1
 
+    def add_speed(self, class_name: str, kmh: float) -> None:
+        """Record one track's measured speed in the current window.
+
+        Each measured track counts once in its class's window mean. Classes not
+        in ``self.classes`` are dropped.
+        """
+        if class_name in self._seen_track_ids:
+            self._speeds.setdefault(class_name, []).append(kmh)
+
     def maybe_rollover(self, now: datetime) -> WindowSnapshot | None:
         """Close the current window if ``now`` is past its end; else None."""
         now = self._as_utc(now)
@@ -202,6 +216,7 @@ class WindowedCounter:
                 if self._counts_by_direction is not None
                 else None
             ),
+            avg_speed_kmh={cls: round(sum(v) / len(v), 1) for cls, v in self._speeds.items() if v},
         )
         # Start a new window aligned to ``now`` (handles long gaps correctly).
         self._window_start = self._align_to_window(now)
@@ -209,6 +224,7 @@ class WindowedCounter:
         self._seen_track_ids = {cls: set() for cls in self.classes}
         self._counts = {cls: 0 for cls in self.classes}
         self._counts_by_direction = None
+        self._speeds = {}
         self._is_first_window = False
         return snapshot
 

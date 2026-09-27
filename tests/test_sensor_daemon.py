@@ -432,3 +432,83 @@ def test_heartbeats_land_on_wall_clock_boundaries() -> None:
     assert seconds_to_next_boundary(t + 899.5, quarter) == pytest.approx(0.5)
     assert seconds_to_next_boundary(t, quarter) == pytest.approx(quarter)  # never 0
     assert seconds_to_next_boundary(t + 60, 300) == pytest.approx(240)
+
+
+# ---------- Speed ----------
+
+
+def _capturing_handler(received: list[dict]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        received.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True, "latest_config_version": ""})
+
+    return handler
+
+
+def test_daemon_passes_capture_times_and_publishes_window_speeds(tmp_path: Path) -> None:
+    """A frame source yielding ``(frame, t_capture)`` has ``t`` handed to the
+    detector; speeds the detector took land in the window's payload."""
+    received: list[dict] = []
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(_capturing_handler(received)))
+    stamps: list[float] = []
+    pending: list[tuple[str, float]] = []
+
+    def detect(_frame, t):
+        stamps.append(t)
+        pending.append(("car", 30.0 + 10.0 * len(stamps)))
+        return [CountedTrack(f"car-{len(stamps)}", "car", "AB")]
+
+    def take_speeds():
+        out = list(pending)
+        pending.clear()
+        return out
+
+    detect.take_speeds = take_speeds  # type: ignore[attr-defined]
+    daemon._detect_and_track = detect
+    daemon._frame_source = iter([(object(), 12.5), (object(), 12.6)])
+    try:
+        daemon._main_loop()
+        snapshot = daemon._counter.force_snapshot(daemon._counter.window_end)
+        daemon._publish_counts(snapshot)
+        assert stamps == [12.5, 12.6]
+        assert snapshot.avg_speed_kmh == {"car": 45.0}
+        assert received[-1]["avg_speed_kmh"] == {"car": 45.0}
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
+
+
+def test_rejected_speeds_are_logged_per_window(tmp_path: Path, caplog) -> None:
+    import logging
+    from types import SimpleNamespace
+
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    detect = SimpleNamespace(speed=SimpleNamespace(rejected=3))
+    try:
+        with caplog.at_level(logging.INFO, logger="camina.service.sensor_daemon"):
+            daemon._log_tracking(detect)
+            detect.speed.rejected = 4
+            daemon._log_tracking(detect)
+            daemon._log_tracking(SimpleNamespace())  # speed off: no speed line
+        lines = [r.getMessage() for r in caplog.records if "Window speed" in r.message]
+        assert lines == ["Window speed: rejected=3", "Window speed: rejected=1"]
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
+
+
+def test_without_speed_the_payload_is_unchanged(tmp_path: Path) -> None:
+    """Plain frames and a detector with no speed handle: no avg_speed_kmh values."""
+    received: list[dict] = []
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(_capturing_handler(received)))
+    daemon._frame_source = iter([object()])
+    daemon._detect_and_track = lambda _frame: [CountedTrack("car-1", "car", "AB")]
+    try:
+        daemon._main_loop()
+        snapshot = daemon._counter.force_snapshot(daemon._counter.window_end)
+        daemon._publish_counts(snapshot)
+        assert received[-1]["counts"]["car"] == 1
+        assert received[-1]["avg_speed_kmh"] == {}
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()

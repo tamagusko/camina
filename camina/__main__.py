@@ -34,7 +34,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--dry-run", action="store_true", help="compose everything, then exit without running"
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING"],
+        help="level of the camina loggers; DEBUG logs each timed road user's speed",
+    )
     args = parser.parse_args(argv)
+    logging.getLogger("camina").setLevel(args.log_level)
 
     if not args.config.exists():
         logger.error("Config file not found: %s", args.config)

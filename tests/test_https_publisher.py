@@ -579,3 +579,23 @@ def test_fresh_counts_rejected_for_clock_skew_stay_buffered(outbox: OfflineBuffe
     assert publisher.drain_outbox() == 0
     assert outbox.stats().pending == 1
     assert publisher.clock_skew is True
+
+
+def test_window_speeds_pass_the_counts_payload_validation() -> None:
+    from camina.core.counter import WindowedCounter
+
+    counter = WindowedCounter(classes=["car", "cyclist"], window_seconds=900)
+    counter.add(1, "car", counter.window_start)
+    counter.add_speed("car", 42.3)
+    snap = counter.force_snapshot(counter.window_end)
+    payload = CountsPayload(
+        sensor_id="cam-01",
+        window_start=snap.window_start,
+        window_end=snap.window_end,
+        partial=snap.partial,
+        counts=snap.counts,
+        avg_speed_kmh=snap.avg_speed_kmh,
+        config_version="v1",
+        fw_version="0.2.0",
+    )
+    assert payload.model_dump(mode="json")["avg_speed_kmh"] == {"car": 42.3}
