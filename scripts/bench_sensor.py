@@ -128,10 +128,12 @@ def run_benchmark(
     source = iter(frames)
     while clock() - started < duration_s:
         try:
-            frame = next(source)
+            item = next(source)
         except StopIteration:
             break
-        tuple(detect(frame))
+        # The Pi camera yields (frame, capture time), as the daemon expects.
+        frame, t = item if isinstance(item, tuple) else (item, None)
+        tuple(detect(frame) if t is None else detect(frame, t))
         completed = clock() - started
         frame_times.append(completed)
         if not middle_sampled and completed >= duration_s / 2:

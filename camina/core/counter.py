@@ -40,6 +40,7 @@ DEFAULT_ANCHOR: datetime = datetime(1970, 1, 1, tzinfo=timezone.utc)
 # users, so no published value is one person's speed (k_min, as for counts).
 SPEED_K_MIN = 5
 
+
 @dataclass(frozen=True)
 class WindowSnapshot:
     """Immutable per-window result emitted by `WindowedCounter`."""

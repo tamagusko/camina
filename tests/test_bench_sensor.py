@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from scripts import bench_sensor
 
@@ -91,3 +92,24 @@ def test_benchmark_reports_failed_threshold_or_unavailable_throttle() -> None:
         duration_s=1.0,
     )
     assert report["pass_criteria"]["passed"] is False
+
+
+def test_benchmark_unpacks_camera_frames_with_capture_times() -> None:
+    # The Pi camera yields (frame, capture time); the detector must get both.
+    seen: list[tuple[Any, float | None]] = []
+
+    def detect(frame: Any, t: float | None = None) -> list[Any]:
+        assert not isinstance(frame, tuple)
+        seen.append((frame, t))
+        return []
+
+    ticks = iter(float(i) for i in range(100))
+    report = bench_sensor.run_benchmark(
+        [("f1", 0.5), ("f2", 0.6)],
+        detect,
+        duration_s=50,
+        telemetry=lambda: {"cpu_temp_c": None, "rss_mb": None, "throttled": None},
+        clock=lambda: next(ticks),
+    )
+    assert seen == [("f1", 0.5), ("f2", 0.6)]
+    assert report["frames_processed"] == 2
