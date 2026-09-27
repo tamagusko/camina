@@ -72,6 +72,7 @@ export function CityMapShell({ city, streets, initialMetrics, mock }: Props) {
         mock={mock}
         selectedId={selected}
         onSelectStreet={selectStreet}
+        onShowAll={() => setSelected(null)}
       />
       <StreetSidePanel
         // Remount per street: the panel's admin state then starts empty for

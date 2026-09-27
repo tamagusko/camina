@@ -19,9 +19,9 @@ const MAPLIBRE_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
 // One light theme: a white, quiet basemap under the coloured streets.
 const BASEMAP = "https://tiles.openfreemap.org/styles/positron";
 interface Shown { rows: MetricValue[]; metric: Metric; timeWindow: TimeWindow; }
-interface Props { city: string; streets: StreetSummary[]; initialMetrics: MetricValue[]; mock?: boolean; selectedId?: string | null; onSelectStreet?: (streetId: string) => void; }
+interface Props { city: string; streets: StreetSummary[]; initialMetrics: MetricValue[]; mock?: boolean; selectedId?: string | null; onSelectStreet?: (streetId: string) => void; onShowAll?: () => void; }
 
-export function StreetMap({ city, streets, initialMetrics, mock = false, selectedId = null, onSelectStreet }: Props) {
+export function StreetMap({ city, streets, initialMetrics, mock = false, selectedId = null, onSelectStreet, onShowAll }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
@@ -144,21 +144,21 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, selecte
   }, [selectedId, streets, mapReady]);
 
   return <div className="relative h-[100dvh] w-full overflow-hidden bg-bg">
-    <div className="pointer-events-none absolute inset-0 z-10">
+    <div className={cn("pointer-events-none absolute inset-0", streetsOpen ? "z-40" : "z-10")}>
       <header ref={headerRef} onKeyDown={(event) => { if (event.key === "Escape" && streetsOpen) { event.stopPropagation(); setStreetsOpen(false); streetsButtonRef.current?.focus(); } }} className="pointer-events-auto absolute left-4 top-4 w-[calc(100%-32px)] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:w-auto md:p-4">
         <div className={cn("flex items-center gap-x-3 gap-y-2 md:block", selectedName && "flex-wrap")}>
           <div className="flex items-center gap-3"><strong className="text-sm tracking-wide">CAMINA</strong><span className="hidden text-sm text-ink-2 md:inline">Street counts, Dublin</span><span className="whitespace-nowrap text-xs text-ink-2"><span className="max-md:sr-only">Updated </span>{lastSeen ? formatDublinUpdated(lastSeen) : "—"}</span>{mock && <MockBadge />}</div>
           <button ref={streetsButtonRef} onClick={() => setStreetsOpen((open) => !open)} aria-expanded={streetsOpen} aria-controls="streets-list" title={selectedName ?? undefined} className={cn("min-h-11 min-w-0 truncate rounded-sm border border-line px-3 text-sm text-ink-1 hover:opacity-70 md:ml-0 md:mt-2 md:w-auto md:max-w-[320px]", selectedName ? "w-full text-left md:text-center" : "ml-auto shrink-0")}>{selectedName ?? "All streets"}</button>
         </div>
         {streetsOpen && <div ref={listRef} id="streets-list" className="mt-2 max-h-[min(50dvh,400px)] overflow-y-auto border-t border-line pt-2" role="group" aria-label="All streets">
-          {[...streets].sort((a, b) => a.displayName.localeCompare(b.displayName)).map((street) => <button key={street.id} className="block min-h-11 w-full rounded-sm px-3 py-2 text-left text-sm text-ink-1 hover:bg-line" onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const buttons = [...(listRef.current?.querySelectorAll("button") ?? [])]; const index = buttons.indexOf(event.currentTarget); buttons[(index + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length]?.focus(); } }} onClick={() => { onSelectStreet?.(street.id); setStreetsOpen(false); }}>{street.displayName}</button>)}
+          {[{ id: null, displayName: "All streets" }, ...[...streets].sort((a, b) => a.displayName.localeCompare(b.displayName))].map((street) => <button key={street.id ?? "all"} aria-current={street.id === selectedId ? "true" : undefined} className={cn("block min-h-11 w-full rounded-sm px-3 py-2 text-left text-sm text-ink-1 hover:bg-line", street.id === selectedId && "font-semibold")} onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const buttons = [...(listRef.current?.querySelectorAll("button") ?? [])]; const index = buttons.indexOf(event.currentTarget); buttons[(index + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length]?.focus(); } }} onClick={() => { if (street.id) onSelectStreet?.(street.id); else onShowAll?.(); setStreetsOpen(false); }}>{street.displayName}</button>)}
         </div>}
       </header>
       <div className="pointer-events-auto absolute right-4 top-4 hidden w-[280px] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:flex md:flex-col md:gap-2">
         <MetricToggle value={mode} onChange={setMode} /><ClassFilter selected={selectedClass} onChange={setSelectedClass} /><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} />
       </div>
       <div className="pointer-events-auto absolute bottom-4 left-4 hidden w-[340px] md:block"><ColourLegend mode={mode} timeWindow={timeWindow} /></div>
-      <div className="pointer-events-auto absolute bottom-4 left-4 right-4 flex flex-col gap-2 rounded-md border border-line bg-surface p-2 shadow-[var(--card-shadow)] md:hidden">
+      <div className={cn("pointer-events-auto absolute bottom-4 left-4 right-4 flex flex-col gap-2 rounded-md border border-line bg-surface p-2 shadow-[var(--card-shadow)] md:hidden", streetsOpen && "invisible")}>
         <ColourLegend mode={mode} timeWindow={timeWindow} compact />
         <MetricToggle value={mode} onChange={setMode} />
         <div className="flex gap-2"><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} /><div className="min-w-0 flex-1"><ClassFilter selected={selectedClass} onChange={setSelectedClass} /></div></div>
