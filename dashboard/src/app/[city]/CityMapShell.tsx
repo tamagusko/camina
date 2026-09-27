@@ -70,6 +70,7 @@ export function CityMapShell({ city, streets, initialMetrics, mock }: Props) {
         streets={streets}
         initialMetrics={initialMetrics}
         mock={mock}
+        selectedId={selected}
         onSelectStreet={selectStreet}
       />
       <StreetSidePanel

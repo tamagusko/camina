@@ -3,8 +3,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { Map as MaplibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { CITY_VIEWS, USUAL_RAMP, VIRIDIS_5, initialViewBounds, mapColourValue, rampExpression, streetPaintStatus, usualExpression, type MapMode } from "@/lib/geo";
+import { CITY_VIEWS, USUAL_RAMP, VIRIDIS_5, initialViewBounds, mapColourValue, rampExpression, selectionOpacity, streetCentre, streetPaintStatus, usualExpression, type MapMode } from "@/lib/geo";
 import { usualLevel } from "@/lib/typical";
+import { cn } from "@/lib/cn";
 import { formatDublinUpdated } from "@/lib/format-time";
 import type { Metric, MetricValue, RoadUserClass, StreetSummary, TimeWindow } from "@/lib/types";
 import { MockBadge } from "@/components/layout/MockBadge";
@@ -18,9 +19,9 @@ const MAPLIBRE_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
 // One light theme: a white, quiet basemap under the coloured streets.
 const BASEMAP = "https://tiles.openfreemap.org/styles/positron";
 interface Shown { rows: MetricValue[]; metric: Metric; timeWindow: TimeWindow; }
-interface Props { city: string; streets: StreetSummary[]; initialMetrics: MetricValue[]; mock?: boolean; onSelectStreet?: (streetId: string) => void; }
+interface Props { city: string; streets: StreetSummary[]; initialMetrics: MetricValue[]; mock?: boolean; selectedId?: string | null; onSelectStreet?: (streetId: string) => void; }
 
-export function StreetMap({ city, streets, initialMetrics, mock = false, onSelectStreet }: Props) {
+export function StreetMap({ city, streets, initialMetrics, mock = false, selectedId = null, onSelectStreet }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
@@ -39,6 +40,7 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
   const [streetsOpen, setStreetsOpen] = useState(false);
   const fallback = useMemo<Viewport>(() => CITY_VIEWS[city] ?? { center: [-6.26, 53.35], zoom: 13 }, [city]);
   const { viewport, attachTo, pinned } = useMapQuery(fallback);
+  const selectedName = streets.find((s) => s.id === selectedId)?.displayName ?? null;
   const lastSeen = shown.rows.map((m) => m.lastSeen).filter((v): v is string => !!v).sort().at(-1);
 
   useEffect(() => {
@@ -102,12 +104,51 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
     map.setPaintProperty("streets-visible", "line-color", lineColour(paintMode(mode, shown)));
   }, [streets, shown, mode, mapReady]);
 
+  // A selected street keeps its colour, drawn a little thicker; the others
+  // fade. The map centres on it inside the part the panel leaves visible,
+  // at the same zoom.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const opacity = (full: number) => selectionOpacity(selectedId, full) as maplibregl.DataDrivenPropertyValueSpecification<number>;
+    map.setPaintProperty("streets-casing", "line-opacity", opacity(0.9));
+    map.setPaintProperty("streets-visible", "line-opacity", opacity(1));
+    map.setPaintProperty("streets-stale", "line-opacity", opacity(1));
+    map.setPaintProperty("streets-visible", "line-width", ["case",
+      ["==", ["get", "street_id"], selectedId ?? ""], 6,
+      ["==", ["get", "status"], "suppressed"], 3, 4] as maplibregl.ExpressionSpecification);
+    const street = streets.find((s) => s.id === selectedId);
+    if (!street) return;
+    // The street panel (a side sheet on desktop, a bottom sheet on phones) and
+    // the header cover part of the map: centre within what is left visible,
+    // again whenever the panel changes size (it grows as its numbers load).
+    const panel = document.querySelector<HTMLElement>('[role="dialog"]');
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const centre = () => {
+      const sheet = panel?.getBoundingClientRect();
+      const header = headerRef.current?.getBoundingClientRect();
+      const desktop = window.matchMedia("(min-width: 768px)").matches;
+      map.easeTo({
+        center: streetCentre(street),
+        padding: desktop
+          ? { top: 0, bottom: 0, left: 0, right: sheet?.width ?? 0 }
+          : { top: (header?.bottom ?? 0) + 8, bottom: sheet?.height ?? 0, left: 0, right: 0 },
+        duration: still ? 0 : 500,
+      });
+    };
+    centre();
+    if (!panel) return;
+    const observer = new ResizeObserver(centre);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [selectedId, streets, mapReady]);
+
   return <div className="relative h-[100dvh] w-full overflow-hidden bg-bg">
     <div className="pointer-events-none absolute inset-0 z-10">
       <header ref={headerRef} onKeyDown={(event) => { if (event.key === "Escape" && streetsOpen) { event.stopPropagation(); setStreetsOpen(false); streetsButtonRef.current?.focus(); } }} className="pointer-events-auto absolute left-4 top-4 w-[calc(100%-32px)] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:w-auto md:p-4">
-        <div className="flex items-center gap-3 md:block">
+        <div className={cn("flex items-center gap-x-3 gap-y-2 md:block", selectedName && "flex-wrap")}>
           <div className="flex items-center gap-3"><strong className="text-sm tracking-wide">CAMINA</strong><span className="hidden text-sm text-ink-2 md:inline">Street counts, Dublin</span><span className="whitespace-nowrap text-xs text-ink-2"><span className="max-md:sr-only">Updated </span>{lastSeen ? formatDublinUpdated(lastSeen) : "—"}</span>{mock && <MockBadge />}</div>
-          <button ref={streetsButtonRef} onClick={() => setStreetsOpen((open) => !open)} aria-expanded={streetsOpen} aria-controls="streets-list" className="ml-auto min-h-11 rounded-sm border border-line px-3 text-sm text-ink-1 hover:opacity-70 md:ml-0 md:mt-2">All streets</button>
+          <button ref={streetsButtonRef} onClick={() => setStreetsOpen((open) => !open)} aria-expanded={streetsOpen} aria-controls="streets-list" title={selectedName ?? undefined} className={cn("min-h-11 min-w-0 truncate rounded-sm border border-line px-3 text-sm text-ink-1 hover:opacity-70 md:ml-0 md:mt-2 md:w-auto md:max-w-[320px]", selectedName ? "w-full text-left md:text-center" : "ml-auto shrink-0")}>{selectedName ?? "All streets"}</button>
         </div>
         {streetsOpen && <div ref={listRef} id="streets-list" className="mt-2 max-h-[min(50dvh,400px)] overflow-y-auto border-t border-line pt-2" role="group" aria-label="All streets">
           {[...streets].sort((a, b) => a.displayName.localeCompare(b.displayName)).map((street) => <button key={street.id} className="block min-h-11 w-full rounded-sm px-3 py-2 text-left text-sm text-ink-1 hover:bg-line" onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const buttons = [...(listRef.current?.querySelectorAll("button") ?? [])]; const index = buttons.indexOf(event.currentTarget); buttons[(index + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length]?.focus(); } }} onClick={() => { onSelectStreet?.(street.id); setStreetsOpen(false); }}>{street.displayName}</button>)}

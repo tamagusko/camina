@@ -104,3 +104,19 @@ export const USUAL_RAMP = ["#2166ac", "#67a9cf", "var(--ink-2)", "#ef8a62", "#b2
 export function usualExpression(quiet: string, ramp: readonly string[] = USUAL_RAMP) {
   return ["match", ["get", "level"], ...USUAL_LEVELS.flatMap((level, i) => [level, ramp[i]]), quiet];
 }
+
+/** How much the other streets fade while one is selected. */
+const FADED = 0.25;
+
+/** Line opacity: the selected street keeps `full`, the others fade. */
+export function selectionOpacity(selectedId: string | null, full: number) {
+  return selectedId ? ["case", ["==", ["get", "street_id"], selectedId], full, full * FADED] : full;
+}
+
+/** The middle of a street's extent, [lon, lat], to centre the map on it. */
+export function streetCentre(street: StreetSummary): [number, number] {
+  const ring = street.bbox.coordinates[0] ?? [];
+  const lons = ring.map((p) => p[0]!);
+  const lats = ring.map((p) => p[1]!);
+  return [(Math.min(...lons) + Math.max(...lons)) / 2, (Math.min(...lats) + Math.max(...lats)) / 2];
+}

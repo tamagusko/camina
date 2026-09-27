@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ColourLegend } from "@/components/map/ColourLegend";
-import { USUAL_RAMP, mapColourValue, rampExpression, streetPaintStatus, usualExpression, VIRIDIS_5 } from "@/lib/geo";
+import { USUAL_RAMP, mapColourValue, rampExpression, selectionOpacity, streetCentre, streetPaintStatus, usualExpression, VIRIDIS_5 } from "@/lib/geo";
 import { ROAD_USER_CLASSES, type MetricValue } from "@/lib/types";
 
 const QUIET = "#a8a8a8";
@@ -20,6 +20,11 @@ function evaluate(expr: Expr, properties: Record<string, unknown>): unknown {
     case "feature-state": return null;
     case "to-number": { const v = evaluate(args[0], properties); return v === null ? null : Number(v); }
     case "coalesce": return args.map((a) => evaluate(a, properties)).find((v) => v !== null) ?? null;
+    case "==": return evaluate(args[0], properties) === evaluate(args[1], properties);
+    case "case": {
+      for (let i = 0; i < args.length - 1; i += 2) if (evaluate(args[i], properties)) return evaluate(args[i + 1], properties);
+      return evaluate(args[args.length - 1], properties);
+    }
     case "match": {
       const input = evaluate(args[0], properties);
       for (let i = 1; i < args.length - 1; i += 2) if (args[i] === input) return args[i + 1];
@@ -115,5 +120,24 @@ describe("vs usual mode", () => {
       expect(html).toContain(text);
     }
     expect(html).toContain("same time and weekday in the past 4 weeks");
+  });
+});
+
+describe("selected street", () => {
+  it("keeps the selected street fully visible and fades the others", () => {
+    const expr = selectionOpacity("a", 0.9);
+    expect(evaluate(expr, { street_id: "a" })).toBe(0.9);
+    expect(evaluate(expr, { street_id: "b" })).toBeLessThan(0.5);
+  });
+  it("shows every street as before when none is selected", () => {
+    expect(selectionOpacity(null, 0.9)).toBe(0.9);
+  });
+  it("centres on the middle of the street's extent", () => {
+    const street = { id: "s", displayName: "S", city: "dublin",
+      geom: { type: "MultiLineString" as const, coordinates: [[[-6.3, 53.3], [-6.1, 53.5]]] },
+      bbox: { type: "Polygon" as const, coordinates: [[[-6.3, 53.3], [-6.1, 53.3], [-6.1, 53.5], [-6.3, 53.5], [-6.3, 53.3]]] } };
+    const [lon, lat] = streetCentre(street);
+    expect(lon).toBeCloseTo(-6.2);
+    expect(lat).toBeCloseTo(53.4);
   });
 });
