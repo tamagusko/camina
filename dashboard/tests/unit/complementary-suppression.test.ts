@@ -105,7 +105,8 @@ describe("publication rules", () => {
   });
 });
 
-describe("mock adapter over the one-day fixture", () => {
+// Exhaustive sweeps over the fixture: ~4 s here, over 5 s on a CI runner.
+describe("mock adapter over the one-day fixture", { timeout: 30_000 }, () => {
   const from = new Date("2026-04-20T00:00:00Z");
   const to = new Date("2026-04-21T00:00:00Z");
 
