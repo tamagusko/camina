@@ -90,7 +90,9 @@ class DaemonConfig:
     classes: list[str]
     fw_version: str
     publish_interval_seconds: int = 900
-    heartbeat_interval_seconds: int = 600
+    # Boot default only: the server's CAMINA_HEARTBEAT_MINUTES wins after the
+    # first config handshake. 15 min in the pilot (free database), goal 5 min.
+    heartbeat_interval_seconds: int = 900
     outbox_max_rows: int = 10_000
     # NCNN inference.
     ncnn_model_path: Path = Path("models/camina_v1_yolo11n_ncnn_model")
@@ -119,7 +121,7 @@ class DaemonConfig:
             classes=list(data["classes"]),
             fw_version=data.get("fw_version", "0.0.0"),
             publish_interval_seconds=int(data.get("publish_interval_seconds", 900)),
-            heartbeat_interval_seconds=int(data.get("heartbeat_interval_seconds", 600)),
+            heartbeat_interval_seconds=int(data.get("heartbeat_interval_seconds", 900)),
             outbox_max_rows=int(data.get("outbox_max_rows", 10_000)),
             ncnn_model_path=Path(
                 data.get("ncnn_model_path", "models/camina_v1_yolo11n_ncnn_model")
@@ -143,6 +145,11 @@ def _tracking_rules(data: dict) -> dict:
         "min_class_hits": min_class_hits,
         "relink": relink,
     }
+
+
+def seconds_to_next_boundary(now_s: float, interval_s: int) -> float:
+    """Seconds from ``now_s`` (Unix time) to the next multiple of ``interval_s``; never 0."""
+    return interval_s - (now_s % interval_s)
 
 
 def _parse_screenline(
@@ -444,8 +451,12 @@ class SensorDaemon:
             self._publish_daily(snap)
 
     def _heartbeat_loop(self) -> None:
-        interval = self._config.heartbeat_interval_seconds
-        while not self._shutdown.wait(timeout=interval):
+        # Fire on wall-clock boundaries (:00, :15, ...), in step with the count
+        # windows, so heartbeats and counts wake the database together. The
+        # interval is re-read each time, so a config change applies at once.
+        while not self._shutdown.wait(
+            timeout=seconds_to_next_boundary(time.time(), self._config.heartbeat_interval_seconds)
+        ):
             # Route through the worker so the heartbeat POST shares the single
             # publish thread (no separate network path off the detection loop).
             self._enqueue(("heartbeat",))

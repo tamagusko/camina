@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
+import { heartbeatMinutes } from "../src/lib/heartbeat";
 import { sensorConfigResponseSchema } from "../src/lib/schemas";
 
 type Client = ReturnType<typeof postgres>;
@@ -70,7 +71,8 @@ export async function provisionSensor(
 
 const DEFAULT_CONFIG = {
   publish_interval_minutes: 15,
-  heartbeat_interval_minutes: 5,
+  // Overridden on every read by CAMINA_HEARTBEAT_MINUTES (src/lib/heartbeat.ts).
+  heartbeat_interval_minutes: heartbeatMinutes(),
   daily_publish_time_utc: "00:00",
   detection_zone: null,
   frame_skip: 1,

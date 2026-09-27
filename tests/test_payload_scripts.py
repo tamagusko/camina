@@ -17,7 +17,7 @@ def test_one_day_stream_is_deterministic_and_covers_all_endpoints() -> None:
     second = generate_payloads(days=1, seed=0, start=start)
     assert first == second
     assert sum(row["endpoint"] == "counts" for row in first) == 97  # one duplicate resend
-    assert sum(row["endpoint"] == "heartbeat" for row in first) == 288
+    assert sum(row["endpoint"] == "heartbeat" for row in first) == 96
     assert sum(row["endpoint"] == "daily" for row in first) == 1
     assert any(row["body"].get("partial") for row in first if row["endpoint"] == "counts")
     assert any(

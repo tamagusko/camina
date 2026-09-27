@@ -65,7 +65,7 @@ describe("POST /api/ingest/sensors/[id]/counts — mock mode", () => {
     );
     const res = await POST(postRequest(countsBody(), DEV_TOKEN), ctx);
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, latest_config_version: "mock-v1" });
+    expect(await res.json()).toMatchObject({ ok: true, latest_config_version: "mock-v1+hb15" });
   });
 
   it("rejects a missing/bad token (401)", async () => {

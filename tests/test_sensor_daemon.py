@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Thread
 
 import httpx
+import pytest
 
 from camina.core.counter import WindowedCounter, WindowSnapshot
 from camina.io.config_poller import ConfigPoller
@@ -341,3 +342,16 @@ def test_tracking_losses_are_logged_per_window(tmp_path: Path, caplog) -> None:
     finally:
         daemon._test_client.close()  # type: ignore[attr-defined]
         daemon.stop()
+
+
+def test_heartbeats_land_on_wall_clock_boundaries() -> None:
+    """Aligned with the 15-min windows, a heartbeat and the counts wake the
+    database together once per quarter-hour instead of at unrelated times."""
+    from camina.service.sensor_daemon import seconds_to_next_boundary
+
+    quarter = 900
+    t = 1_790_000_000 - (1_790_000_000 % quarter)  # a quarter-hour boundary
+    assert seconds_to_next_boundary(t + 1, quarter) == pytest.approx(899)
+    assert seconds_to_next_boundary(t + 899.5, quarter) == pytest.approx(0.5)
+    assert seconds_to_next_boundary(t, quarter) == pytest.approx(quarter)  # never 0
+    assert seconds_to_next_boundary(t + 60, 300) == pytest.approx(240)

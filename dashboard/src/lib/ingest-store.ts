@@ -1,3 +1,4 @@
+import { withHeartbeat } from "@/lib/heartbeat";
 import "server-only";
 import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -287,7 +288,8 @@ export async function readSensorConfigVersion(
     .from(sensors)
     .where(eq(sensors.id, sensorId))
     .limit(1);
-  return rows[0]?.configVersion ?? null;
+  const version = rows[0]?.configVersion;
+  return version == null ? null : withHeartbeat({}, version).config_version;
 }
 
 // config_json is a jsonb object. Rows provisioned before that fix hold a
@@ -321,10 +323,7 @@ export async function readSensorConfig(
     .limit(1);
   const row = rows[0];
   if (!row) return null;
-  return {
-    config: configObject(row.configJson),
-    config_version: row.configVersion,
-  };
+  return withHeartbeat(configObject(row.configJson), row.configVersion);
 }
 
 // ── Per-sensor token lookups (H6) ──────────────────────────────────

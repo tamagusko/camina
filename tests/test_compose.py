@@ -343,3 +343,14 @@ def test_compose_passes_the_tracking_rules_and_a_gate_that_outlives_occlusion(
         daemon._outbox.close()
         daemon._daily.close()
         daemon._http.close()
+
+
+def test_the_heartbeat_defaults_to_15_minutes_for_the_pilot(tmp_path: Path) -> None:
+    """15 min keeps the free Neon database asleep between quarter-hours; the goal is 5 min."""
+    from camina.service.sensor_daemon import DaemonConfig
+
+    yaml_path = tmp_path / "sensor.yaml"
+    yaml_path.write_text(_MINIMAL_YAML)
+    assert DaemonConfig.from_yaml(yaml_path).heartbeat_interval_seconds == 900
+    shipped = DaemonConfig.from_yaml(Path(__file__).parents[1] / "configs" / "sensor.yaml")
+    assert shipped.heartbeat_interval_seconds == 900

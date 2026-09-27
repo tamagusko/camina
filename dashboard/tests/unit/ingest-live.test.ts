@@ -90,8 +90,8 @@ describeWithDatabase("ingest live persistence", () => {
   });
 
   it("reads a changed config version from the sensor row", async () => {
-    expect(await readSensorConfigVersion(sensorId, database)).toBe("test-v1");
+    expect(await readSensorConfigVersion(sensorId, database)).toBe("test-v1+hb15"); // tagged with CAMINA_HEARTBEAT_MINUTES (default 15)
     await database.update(sensors).set({ configVersion: "test-v2" }).where(eq(sensors.id, sensorId));
-    expect(await readSensorConfigVersion(sensorId, database)).toBe("test-v2");
+    expect(await readSensorConfigVersion(sensorId, database)).toBe("test-v2+hb15");
   });
 });

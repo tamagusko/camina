@@ -148,12 +148,15 @@ def generate_payloads(
     days: int = 7,
     seed: int = 0,
     start: datetime = datetime(2026, 9, 21, tzinfo=UTC),
+    heartbeat_minutes: int = 15,
 ) -> list[dict[str, Any]]:
     """Build endpoint/body records in simulated network-send order."""
     if days < 1:
         raise ValueError("days must be at least 1")
     if start.tzinfo is None:
         raise ValueError("start must be timezone-aware")
+    if heartbeat_minutes < 1 or 60 % heartbeat_minutes:
+        raise ValueError("heartbeat_minutes must divide 60")
     start = start.astimezone(UTC).replace(second=0, microsecond=0)
     rng = random.Random(seed)
     classes = load_canonical_classes()
@@ -167,9 +170,13 @@ def generate_payloads(
         sequence += 1
 
     total_minutes = days * 24 * 60
-    for minute in range(5, total_minutes + 1, 5):
+    for minute in range(heartbeat_minutes, total_minutes + 1, heartbeat_minutes):
         heartbeat_time = start + timedelta(minutes=minute)
-        ts = heartbeat_time - timedelta(minutes=7) if minute == 11 * 60 + 5 else heartbeat_time
+        ts = (
+            heartbeat_time - timedelta(minutes=7)
+            if minute == 11 * 60 + heartbeat_minutes
+            else heartbeat_time
+        )
         heartbeat = HeartbeatPayload(
             sensor_id=SENSOR_ID,
             ts=ts,
@@ -231,11 +238,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--heartbeat-minutes", type=int, default=15, help="15 in the pilot; the goal is 5"
+    )
     parser.add_argument("--start", default="2026-09-21T00:00:00Z")
     parser.add_argument("--output", type=Path, default=Path("-"))
     args = parser.parse_args()
     start = datetime.fromisoformat(args.start.replace("Z", "+00:00"))
-    rows = generate_payloads(days=args.days, seed=args.seed, start=start)
+    rows = generate_payloads(
+        days=args.days, seed=args.seed, start=start, heartbeat_minutes=args.heartbeat_minutes
+    )
     stream = sys.stdout if str(args.output) == "-" else args.output.open("w", encoding="utf-8")
     try:
         for row in rows:

@@ -66,7 +66,11 @@ describe.runIf(Boolean(process.env.DATABASE_URL_TEST))("sensor config_json", () 
     const { readSensorConfig } = await import("@/lib/ingest-store");
     for (const [id, version] of [[plain, "sql-v1"], [legacy, "legacy-v1"]] as const) {
       const cfg = await readSensorConfig(id);
-      expect(cfg).toEqual({ config: CONFIG, config_version: version });
+      // The deployment heartbeat (CAMINA_HEARTBEAT_MINUTES, default 15) wins over the stored value.
+      expect(cfg).toEqual({
+        config: { ...CONFIG, heartbeat_interval_minutes: 15 },
+        config_version: `${version}+hb15`,
+      });
     }
   });
 
