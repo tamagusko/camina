@@ -80,4 +80,8 @@ describe("street panel states", () => {
     expect(renderToStaticMarkup(<StreetSidePanel street={street} metric={{ ...busy, stale: true }} onClose={() => {}} />)).not.toContain("usual");
     expect(renderToStaticMarkup(<StreetSidePanel street={street} metric={{ ...busy, typical: null }} onClose={() => {}} />)).not.toContain("usual");
   });
+  it("puts the class icon beside each class name", () => {
+    const html = renderToStaticMarkup(<StreetSidePanel street={street} metric={metric} reading={reading} onClose={() => {}} />);
+    expect(html).toMatch(/<th scope="row"[^>]*>(?:(?!<\/th>).)*<svg[^>]*aria-hidden="true"(?:(?!<\/th>).)*Car<\/th>/);
+  });
 });
