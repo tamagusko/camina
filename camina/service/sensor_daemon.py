@@ -266,6 +266,9 @@ class SensorDaemon:
             return
         self._stopped = True
         self._shutdown.set()
+        close_frame_source = getattr(self._frame_source, "close", None)
+        if close_frame_source is not None:
+            close_frame_source()
         if self._heartbeat_thread is not None:
             self._heartbeat_thread.join(timeout=5.0)
         # Drain any in-flight publish jobs before closing state: the sentinel

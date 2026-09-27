@@ -272,6 +272,27 @@ def test_stop_skips_empty_open_window(tmp_path: Path) -> None:
     daemon._test_client.close()  # type: ignore[attr-defined]
 
 
+def test_stop_closes_active_frame_source(tmp_path: Path) -> None:
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    closed = []
+
+    def frames():
+        try:
+            yield object()
+            yield object()
+        finally:
+            closed.append(True)
+
+    daemon._frame_source = frames()
+    next(daemon._frame_source)
+    try:
+        daemon.stop()
+        assert closed == [True]
+    finally:
+        daemon._frame_source.close()
+        daemon._test_client.close()  # type: ignore[attr-defined]
+
+
 def test_daemon_wires_fast_fail_inline_retry(tmp_path: Path) -> None:
     """F6: the daemon's in-loop HttpClient uses the fast-fail policy so an
     outage cannot stall the detection loop (the outbox owns durable retries)."""
