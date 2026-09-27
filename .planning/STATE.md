@@ -1,6 +1,7 @@
 # STATE
-Version: 2.4 — 2026-09-27 — live data layer, CI, direction end to end, dashboard redesign,
-tracker occlusion rules (PR feat/dashboard-live → dev)
+Version: 2.5 — 2026-09-27 — live data layer, CI on Node 24, direction end to end, dashboard
+redesign, tracker occlusion rules, edge + dashboard bug sweep, speed (S7b code), Pi bench
+tooling (S6 prep), multi-clip count eval (PR #43, feat/dashboard-live → dev)
 Last verified: 2026-09-27. The 2026-09-15 audit folder was removed from the tree; it is in git
 history (`git show 594756c:.planning/audit-2026-09-15/AUDIT.md`).
 
@@ -22,12 +23,22 @@ M1 / S1 — **done** 2026-09-24 (#21). On `feat/dashboard-live` (2026-09-27), aw
 - Tracker: occlusion in seconds (5 s), class confirmation (3 detections), rider rule, 3× faster;
   re-linking built but **off** (it doubled the count error on the only clip,
   `docs/benchmarks/2026-09-27_tracker_occlusion.md`).
+- Bug sweep: 11 edge fixes (window boundaries, outbox and publisher loss paths, config persist,
+  shutdown) and 4 dashboard fixes (mock window end, live `now()`, daily date check, cron secret
+  name). Count error on the clip unchanged (verified base vs head).
+- **S7b** code: speed from two calibrated lines (`camina/core/speed.py`), off by default; a class
+  speed is published only over ≥ 5 timed road users. Procedure: `docs/CALIBRATION_SETUP.md`.
+  Not validated against a reference speed.
+- **S6** prep: `scripts/bench_sensor.py` (FPS, temperature, RSS, throttling; JSON + Markdown);
+  heartbeats carry `throttled` and `rss_mb` (accepted by the dashboard, not stored yet).
+- **S7** prep: `training.count_eval` scores several clips and pools them; second-clip filming
+  protocol in `training/EVALUATION.md`.
 Also open: #41 (YOLO26n pipeline), #42 (auto-labelling; draft, waits on #41).
 
 ## Verified working (dev host, 2026-09-27)
-- Edge: 269 pytest green; ruff clean; the Pi runtime imports neither PyTorch nor Ultralytics.
-- Dashboard: 194 vitest with a local PostGIS (174 + 20 skipped without); tsc, ESLint and the
-  mock build clean; UI acceptance script 91/91 at 1440 and 390 px, light and dark.
+- Edge: 327 pytest green; ruff clean; the Pi runtime imports neither PyTorch nor Ultralytics.
+- Dashboard: 225 vitest + 22 skipped without a database; tsc, ESLint and the mock build clean.
+- Independent verification gate (Fable) on all of the above: pass after two fixes.
 - Privacy: an attacker test differences every aggregation level, window and class filter:
   0 recoverable values below 5 (mock week and live replay).
 - systemd unit: Type=notify + WatchdogSec=300 + time-sync gate (never run on a Pi).
@@ -61,19 +72,20 @@ a decision. P0 blocks everything after it.
 
 | P | Task | Stage | Who | Done when |
 |---|---|---|---|---|
-| P0 | CI green on PR #43 (Node 20.11 cannot load Vitest's ESM deps) | S2 | agent | Dashboard + Python jobs pass on GitHub |
-| P0 | Bug sweep, edge (Python) and dashboard | — | agent | Each bug has a failing test, then a fix |
+| P0 | CI green on PR #43 (Node 20.11 cannot load Vitest's ESM deps) | S2 | **done** (Node 24) | Dashboard + Python jobs pass on GitHub |
+| P0 | Bug sweep, edge (Python) and dashboard | — | **done** (15 fixes) | Each bug has a failing test, then a fix |
 | P0 | Record and hand-count a **second clip** (occlusions, a bus stopping at the line) | S7 | Tiago | `videos/<clip>.counts.csv` exists; `count_eval` run on both clips |
-| P1 | Two-clip evaluation: `count_eval` sums error over several clips; clip-2 protocol | S7 | agent | One command reports per-clip and total error |
-| P1 | Pi bench tooling: `scripts/bench_sensor.py` (FPS, temp, RSS, throttle) + heartbeat health fields | S6 | agent | Unit tests with fakes; runs unchanged on the Pi |
-| P1 | Speed from screenline timing + calibration method doc | S7b | agent | Unit tests; `avg_speed_kmh` in the payload; `docs/CALIBRATION_SETUP.md` |
+| P1 | Two-clip evaluation: `count_eval` sums error over several clips; clip-2 protocol | S7 | **done** | One command reports per-clip and total error |
+| P1 | Pi bench tooling: `scripts/bench_sensor.py` (FPS, temp, RSS, throttle) + heartbeat health fields | S6 | **done** (untested on a Pi) | Unit tests with fakes; runs unchanged on the Pi |
+| P1 | Speed from screenline timing + calibration method doc | S7b | **done** (code only) | Unit tests; `avg_speed_kmh` in the payload; `docs/CALIBRATION_SETUP.md` |
 | P1 | First Pi run: 30-min bench, FPS ≥ 5 at 640 | S6 | Tiago (+ Sonia) | Report in `docs/benchmarks/` |
 | P2 | Merge order: #43 → #41 (YOLO26n) → #42 (auto-labelling) | S13 | Tiago | PRs merged into `dev` |
 | P2 | Label the 235 `dev_expanded` images in Roboflow (SUV, van, e-scooter) | S13 | Tiago | Reviewed labels exported; retrain; error on both clips |
 | P2 | Decide re-linking with clip 2 (`count_eval --relink`) | S7 | agent after clip 2 | Adopt only if it lowers the two-clip error |
-| P2 | Neon + Vercel live deploy, UCD OAuth app | S5 | Tiago (accounts) | Live map shows a provisioned street |
+| P2 | Neon + Vercel live deploy, UCD OAuth app; set `CRON_SECRET` on Vercel | S5 | Tiago (accounts) | Live map shows a provisioned street |
 | P3 | DPO/ethics, host site, enclosure, signage | S8 | Tiago | Sign-off filed; unit on a street |
 | P3 | Speed reference measurements (radar gun or timed passes) | S7b | Tiago | ≥ 20 vehicles scored |
+| P2 | Protocol: a restart inside a 15-min window overwrites the pre-restart partial (`ingest-store.ts`) | S4 | agent, needs a decision | Partial windows merge without double-counting replays |
 | — | Digital twin | — | paused | Resumes with a sensor network or funding |
 
 ## Next action
