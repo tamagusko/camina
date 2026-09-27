@@ -159,6 +159,37 @@ describe("POST /api/ingest/sensors/[id]/counts — mock mode", () => {
   });
 });
 
+describe("POST /api/ingest/sensors/[id]/heartbeat — mock mode", () => {
+  it("accepts enriched heartbeat telemetry", async () => {
+    vi.stubEnv("CAMINA_DEV_INGEST_TOKEN", DEV_TOKEN);
+    vi.resetModules();
+    const { POST } = await import(
+      "@/app/api/ingest/sensors/[id]/heartbeat/route"
+    );
+    const now = new Date().toISOString();
+    const req = new Request("http://localhost/api/ingest/sensors/D01/heartbeat", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${DEV_TOKEN}`,
+      },
+      body: JSON.stringify({
+        sensor_id: "D01",
+        ts: now,
+        uptime_s: 120,
+        cpu_temp_c: 52.1,
+        throttled: 0,
+        rss_mb: 123.5,
+        config_version: "cfg-1",
+        fw_version: "fw-1",
+      }),
+    });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true });
+  });
+});
+
 describe("verifyIngestToken — per-sensor lookup (H6)", () => {
   it("returns 403 when the token belongs to a different sensor", async () => {
     vi.stubEnv("CAMINA_DATA_SOURCE", "live");
@@ -316,5 +347,49 @@ describe("ingest-store — pure upsert/skew logic (H2/H5)", () => {
     });
     // Promotion rule enforced in SQL via setWhere.
     expect(captured.conflict?.setWhere).toBeTruthy();
+  });
+
+  it("accepts new heartbeat fields while inserting only existing DB columns", async () => {
+    const { persistHeartbeat } = await import("@/lib/ingest-store");
+    const { heartbeatPayloadSchema } = await import("@/lib/schemas");
+    const captured: { values?: Record<string, unknown> } = {};
+    const insertChain = {
+      values(values: Record<string, unknown>) {
+        captured.values = values;
+        return insertChain;
+      },
+      onConflictDoUpdate() {
+        return Promise.resolve();
+      },
+    };
+    const updateChain = {
+      set() {
+        return updateChain;
+      },
+      where() {
+        return Promise.resolve();
+      },
+    };
+    const fakeDb = {
+      insert: () => insertChain,
+      update: () => updateChain,
+    };
+    const payload = heartbeatPayloadSchema.parse({
+      sensor_id: "D01",
+      ts: new Date().toISOString(),
+      uptime_s: 5,
+      config_version: "cfg-1",
+      fw_version: "fw-1",
+      throttled: 0,
+      rss_mb: 88.25,
+    });
+    await persistHeartbeat(
+      payload,
+      "D01",
+      fakeDb as unknown as Parameters<typeof persistHeartbeat>[2]
+    );
+    expect(captured.values).toMatchObject({ sensorId: "D01", uptimeS: 5 });
+    expect(captured.values).not.toHaveProperty("throttled");
+    expect(captured.values).not.toHaveProperty("rssMb");
   });
 });

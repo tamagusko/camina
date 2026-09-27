@@ -270,6 +270,17 @@ describe("heartbeatPayloadSchema", () => {
     expect(() => heartbeatPayloadSchema.parse({ ...minimal, outbox_depth: 1.5 })).toThrow();
   });
 
+  it("accepts optional Pi hardware telemetry", () => {
+    expect(() =>
+      heartbeatPayloadSchema.parse({ ...minimal, throttled: 0x50000, rss_mb: 128.25 })
+    ).not.toThrow();
+    expect(() =>
+      heartbeatPayloadSchema.parse({ ...minimal, throttled: null, rss_mb: null })
+    ).not.toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, throttled: -1 })).toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, rss_mb: -0.1 })).toThrow();
+  });
+
   it("rejects unknown keys (strict)", () => {
     const bad = { ...minimal, debug_field: true };
     expect(() => heartbeatPayloadSchema.parse(bad)).toThrow();

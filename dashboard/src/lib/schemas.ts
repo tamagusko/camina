@@ -189,6 +189,9 @@ export const heartbeatPayloadSchema = z
     ts: z.string().datetime(),
     uptime_s: z.number().int().nonnegative(),
     cpu_temp_c: z.number().nullable().optional(),
+    // Integer bitmask from vcgencmd get_throttled; 0 means healthy, null unavailable.
+    throttled: z.number().int().min(0).max(4_294_967_295).nullable().optional(),
+    rss_mb: z.number().nonnegative().nullable().optional(),
     last_window_end: z.string().datetime().nullable().optional(),
     config_version: z.string(),
     fw_version: z.string(),

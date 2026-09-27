@@ -416,6 +416,26 @@ def test_heartbeat_outbox_fields_must_be_nonnegative() -> None:
         HeartbeatPayload(**shared, outbox_depth=1.5)
 
 
+def test_heartbeat_accepts_optional_hardware_telemetry() -> None:
+    shared = {
+        "sensor_id": "cam-01",
+        "uptime_s": 10,
+        "config_version": "v1",
+        "fw_version": "0.2.0",
+    }
+    hb = HeartbeatPayload(**shared, throttled=0x50000, rss_mb=128.25)
+    assert hb.throttled == 0x50000
+    assert hb.rss_mb == 128.25
+    assert HeartbeatPayload(**shared).throttled is None
+    assert HeartbeatPayload(**shared).rss_mb is None
+    with pytest.raises(ValueError):
+        HeartbeatPayload(**shared, throttled=-1)
+    with pytest.raises(ValueError):
+        HeartbeatPayload(**shared, throttled=1.5)
+    with pytest.raises(ValueError):
+        HeartbeatPayload(**shared, rss_mb=-0.1)
+
+
 def test_outbox_item_4xx_is_dropped_as_poison(outbox: OfflineBuffer) -> None:
     """F3: a permanently-rejected (4xx) buffered item is dropped, not retried."""
     outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
