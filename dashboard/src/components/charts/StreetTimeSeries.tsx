@@ -57,6 +57,7 @@ export function StreetTimeSeries({ readings }: Props) {
               fontSize: 12,
             }}
             labelStyle={{ color: "var(--ink-1)" }}
+            itemStyle={{ color: "var(--ink-1)" }}
           />
           <Legend wrapperStyle={{ fontSize: 12 }} />
           {ROAD_USER_CLASSES.map((cls: RoadUserClass, i) => (
