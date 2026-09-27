@@ -188,12 +188,20 @@ class HttpsPublisher:
     def _send_outbox_item(self, item: OutboxItem) -> SendOutcome:
         path = f"/sensors/{self._sensor_id}/{item.endpoint}"
         try:
-            self._http.request(
+            response = self._http.request(
                 "POST",
                 path,
                 content=item.payload,
                 idempotency_key=f"outbox-{item.id}",
             )
+            parsed = self._parse_response(response.content)
+            if parsed is not None and not parsed.ok:
+                logger.warning(
+                    "Outbox item %d (%s) was not accepted by the backend; will retry",
+                    item.id,
+                    item.endpoint,
+                )
+                return SendOutcome.RETRY
             self._clock_skew = False
             return SendOutcome.SENT
         except httpx.HTTPStatusError as exc:

@@ -452,6 +452,27 @@ def test_outbox_item_5xx_is_retried_not_dropped(outbox: OfflineBuffer) -> None:
     client.close()
 
 
+def test_outbox_item_is_retained_when_response_ok_is_false(outbox: OfflineBuffer) -> None:
+    outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": False, "latest_config_version": "v1"})
+
+    client = HttpClient(
+        "https://api.test",
+        token="t",
+        retry=_fast_retry(),
+        transport=httpx.MockTransport(handler),
+    )
+    publisher = HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
+    try:
+        assert publisher.drain_outbox() == 0
+        assert outbox.stats().pending == 1
+        assert outbox.peek(1)[0].attempts == 1
+    finally:
+        client.close()
+
+
 def test_outbox_transport_error_does_not_charge_attempt(outbox: OfflineBuffer) -> None:
     outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
 
