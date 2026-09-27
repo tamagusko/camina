@@ -8,9 +8,11 @@ export function dataUpdatedAt(readings: StreetReading[], bucketMinutes: number):
 }
 
 /** Fallback share targets for browsers without the Web Share API. */
-export function shareLinks(title: string, url: string): { whatsapp: string; email: string } {
+export function shareLinks(title: string, url: string): { whatsapp: string; linkedin: string; email: string } {
   return {
     whatsapp: `https://wa.me/?text=${encodeURIComponent(`${title} ${url}`)}`,
+    // LinkedIn takes only the URL; the post preview comes from the page's metadata.
+    linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`,
     email: `mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(url)}`,
   };
 }

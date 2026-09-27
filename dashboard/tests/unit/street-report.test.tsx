@@ -27,9 +27,10 @@ describe("data updated", () => {
 });
 
 describe("share links", () => {
-  it("builds WhatsApp and email links with the title and URL encoded", () => {
+  it("builds WhatsApp, LinkedIn and email links with the title and URL encoded", () => {
     const links = shareLinks("N11 & Montrose", "https://camina-dublin.vercel.app/dublin/street/n11");
     expect(links.whatsapp).toBe("https://wa.me/?text=N11%20%26%20Montrose%20https%3A%2F%2Fcamina-dublin.vercel.app%2Fdublin%2Fstreet%2Fn11");
+    expect(links.linkedin).toBe("https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fcamina-dublin.vercel.app%2Fdublin%2Fstreet%2Fn11");
     expect(links.email).toBe("mailto:?subject=N11%20%26%20Montrose&body=https%3A%2F%2Fcamina-dublin.vercel.app%2Fdublin%2Fstreet%2Fn11");
   });
 });

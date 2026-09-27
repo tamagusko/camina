@@ -9,7 +9,7 @@ const ICON_BUTTON =
 const MENU_ITEM = "block w-full px-4 py-2.5 text-left text-sm text-[var(--ink-1)] hover:bg-[var(--line)]";
 
 /** Share and print, as two quiet icons. Phones get the system share sheet;
- *  other browsers a small menu (WhatsApp, email, copy link). */
+ *  other browsers a small menu (WhatsApp, LinkedIn, email, copy link). */
 export function ReportActions({ title }: { title: string }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -60,6 +60,7 @@ export function ReportActions({ title }: { title: string }) {
       {links && (
         <div role="menu" className="absolute right-0 top-12 z-10 w-44 overflow-hidden rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--surface)] py-1 shadow-[var(--card-shadow)]">
           <a role="menuitem" href={links.whatsapp} target="_blank" rel="noopener noreferrer" className={MENU_ITEM} onClick={() => setOpen(false)}>WhatsApp</a>
+          <a role="menuitem" href={links.linkedin} target="_blank" rel="noopener noreferrer" className={MENU_ITEM} onClick={() => setOpen(false)}>LinkedIn</a>
           <a role="menuitem" href={links.email} className={MENU_ITEM} onClick={() => setOpen(false)}>Email</a>
           <button role="menuitem" type="button" onClick={copy} className={MENU_ITEM}>{copied ? "Link copied" : "Copy link"}</button>
         </div>
