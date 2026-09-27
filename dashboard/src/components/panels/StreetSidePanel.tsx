@@ -4,7 +4,7 @@ import Link from "next/link";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatDublinUpdated } from "@/lib/format-time";
-import { ROAD_USER_CLASSES, type MetricValue, type RoadUserClass, type StreetReading, type StreetSummary } from "@/lib/types";
+import { ROAD_USER_CLASSES, classLabel, type MetricValue, type RoadUserClass, type StreetReading, type StreetSummary } from "@/lib/types";
 
 interface Props { street: StreetSummary | null; metric: MetricValue | null; reading?: StreetReading | null; onClose: () => void; }
 export const PANEL_CLASS = cn("pointer-events-auto fixed z-30 overflow-y-auto border border-line bg-surface text-ink-1 shadow-[var(--card-shadow)]", "inset-x-0 bottom-0 max-h-[75dvh] rounded-t-md", "md:left-auto md:bottom-auto md:right-0 md:top-0 md:h-full md:w-[400px] md:rounded-none md:max-h-none");
@@ -51,6 +51,8 @@ export function StreetSidePanel({ street, metric, reading, onClose }: Props) {
   if (!street) return null;
   const current = reading === undefined ? fetched : reading;
   const [ab, ba] = directions(street);
+  // Direction columns only when the sensor sends direction cells (schema 1.1).
+  const split = current?.countsByDirection;
   const perClass = current ? ROAD_USER_CLASSES.filter((cls) => (current.counts[cls] ?? 0) > 0).sort((a, b) => (current.counts[b] ?? 0) - (current.counts[a] ?? 0)) : [];
   const readingHidden = current ? [current.counts, current.countsByDirection?.AB ?? {}, current.countsByDirection?.BA ?? {}].some((cells) => Object.values(cells).some((value) => value === null)) : false;
   const hasHidden = Boolean(metric?.hasHidden) || readingHidden;
@@ -61,10 +63,10 @@ export function StreetSidePanel({ street, metric, reading, onClose }: Props) {
       <div className="flex items-start justify-between gap-3"><h2 ref={headingRef} tabIndex={-1} className="text-[length:var(--t-lg)] font-semibold leading-7">{street.displayName}</h2><button onClick={onClose} aria-label="Close street panel" className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-sm md:flex"><X size={20} /></button></div>
       <p className="mt-2 text-sm text-ink-2">{status}</p>
       <div className="mt-5 rounded-md border border-line p-4"><p className="text-xs text-ink-2">Road users · last 15 min</p><p className="mt-1 text-[length:var(--t-xl)] font-bold tabular-nums">{metric ? fmt(metric.totalCount) : "—"}</p>
-        {current?.countsByDirection && <p className="mt-2 text-sm text-ink-2">{`${ab} ${publishedSum(current.countsByDirection.AB)} · ${ba} ${publishedSum(current.countsByDirection.BA)}`}</p>}
+        {split && <p className="mt-2 text-sm text-ink-2">{`${ab} ${publishedSum(split.AB)} · ${ba} ${publishedSum(split.BA)}`}</p>}
       </div>
       <div className="mt-5"><h3 className="mb-2 text-sm font-semibold">By class</h3>
-        {perClass.length ? <div className="overflow-x-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b border-line text-xs text-ink-2"><th className="w-[34%] py-2 text-left font-normal">Class</th><th className="w-[20%] text-right font-normal">→ {ab}</th><th className="w-[20%] text-right font-normal">→ {ba}</th><th className="w-[26%] text-right font-normal">km/h</th></tr></thead><tbody>{perClass.map((cls) => <tr key={cls} className="border-b border-line"><th scope="row" className="py-2 text-left font-normal capitalize">{cls.replaceAll("_", " ")}</th><td className="text-right tabular-nums">{current?.countsByDirection ? fmt(current.countsByDirection.AB[cls]) : fmt(current?.counts[cls])}</td><td className="text-right tabular-nums">{current?.countsByDirection ? fmt(current.countsByDirection.BA[cls]) : "—"}</td><td className="text-right tabular-nums text-ink-2">{fmt(current?.avgSpeedKmh[cls])}</td></tr>)}</tbody></table></div> : <p className="text-sm text-ink-2">No published counts in this window.</p>}
+        {perClass.length ? <div className="overflow-x-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b border-line text-xs text-ink-2"><th className="w-[34%] py-2 text-left font-normal">Class</th><th className="text-right font-normal">Count</th>{split && <><th className="text-right font-normal">→ {ab}</th><th className="text-right font-normal">→ {ba}</th></>}<th className="text-right font-normal">km/h</th></tr></thead><tbody>{perClass.map((cls) => <tr key={cls} className="border-b border-line"><th scope="row" className="py-2 text-left font-normal">{classLabel(cls)}</th><td className="text-right tabular-nums">{fmt(current?.counts[cls])}</td>{split && <><td className="text-right tabular-nums">{fmt(split.AB[cls])}</td><td className="text-right tabular-nums">{fmt(split.BA[cls])}</td></>}<td className="text-right tabular-nums text-ink-2">{fmt(current?.avgSpeedKmh[cls])}</td></tr>)}</tbody></table></div> : <p className="text-sm text-ink-2">No published counts in this window.</p>}
         {hasHidden && <p className="mt-2 text-xs text-ink-2">{HIDDEN_NOTE}</p>}
       </div>
       <Link href={`/${street.city}/street/${street.id}` as never} className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Detailed view →</Link>

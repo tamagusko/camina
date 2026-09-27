@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { StreetSidePanel } from "@/components/panels/StreetSidePanel";
-import { ROAD_USER_CLASSES, type MetricValue, type StreetReading, type StreetSummary } from "@/lib/types";
+import { ROAD_USER_CLASSES, classLabel, type MetricValue, type StreetReading, type StreetSummary } from "@/lib/types";
 
 const zeros = Object.fromEntries(ROAD_USER_CLASSES.map((c) => [c, 0])) as Record<(typeof ROAD_USER_CLASSES)[number], number>;
 const street: StreetSummary = { id: "test", displayName: "Test Road", city: "dublin", geom: { type: "MultiLineString", coordinates: [[[-6.3, 53.3], [-6.2, 53.4]]] }, bbox: { type: "Polygon", coordinates: [[[-6.3, 53.3], [-6.2, 53.3], [-6.2, 53.4], [-6.3, 53.3]]] } };
@@ -20,13 +20,30 @@ describe("street panel states", () => {
     expect(html).toMatch(/Road users · last 15 min<\/p><p[^>]*>12</);
     // Tile: plain direction sums, no arrows; the arrows stay in the column headers.
     expect(html).toMatch(/>NE 7 · SW 5</);
-    // A class whose direction pair is hidden keeps its row, with dashes.
-    expect(html).toMatch(/>bus<\/th><td[^>]*>—<\/td><td[^>]*>—</);
+    // Every shown row carries its count; a hidden direction pair shows dashes.
+    expect(html).toMatch(/>Count<\/th><th[^>]*>→ NE<\/th><th[^>]*>→ SW<\/th><th[^>]*>km\/h</);
+    expect(html).toMatch(/>Car<\/th><td[^>]*>12<\/td><td[^>]*>7<\/td><td[^>]*>5</);
+    expect(html).toMatch(/>Bus<\/th><td[^>]*>6<\/td><td[^>]*>—<\/td><td[^>]*>—</);
     // Status line carries only freshness; the tile label carries the period.
     expect(html).not.toContain("Latest 15 min");
     expect(html).toContain("→ NE");
     expect(html).toContain("→ SW");
     expect(html).toContain("Detailed view");
+  });
+
+  it("shows no direction for a street whose sensor sends none", () => {
+    const { countsByDirection: _, ...undirected } = reading;
+    const html = renderToStaticMarkup(<StreetSidePanel street={street} metric={metric} reading={undirected} onClose={() => {}} />);
+    expect(html).not.toMatch(/→ [NSEW]/);
+    expect(html).not.toMatch(/>NE \d/);
+    expect(html).toMatch(/>Class<\/th><th[^>]*>Count<\/th><th[^>]*>km\/h</);
+    expect(html).toMatch(/>Car<\/th><td[^>]*>12<\/td><td[^>]*>—</);
+  });
+
+  it("spells classes the same way everywhere", () => {
+    expect(ROAD_USER_CLASSES.map(classLabel)).toEqual([
+      "Person", "Cyclist", "Car", "E-scooter", "SUV", "Motorcyclist", "Bus", "Delivery van", "Truck",
+    ]);
   });
 
   it("distinguishes stale from never reported", () => {
