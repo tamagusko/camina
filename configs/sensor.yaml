@@ -55,3 +55,19 @@ max_occlusion_s: 5.0   # seconds a hidden road user keeps its track (any frame r
 min_class_hits: 3      # detections of its winning class before a track counts under it
 relink: false          # re-link a track after an occlusion: off, it doubled the error on
                        # the hand-counted clip (docs/benchmarks/2026-09-27_tracker_occlusion.md)
+
+# Speed (camina/core/speed.py). Off unless this block is present; without it
+# the payload's avg_speed_kmh stays empty. Calibrate per site first:
+# docs/CALIBRATION_SETUP.md. Not yet validated against a reference speed.
+# - line_a, line_b: two lines across the road, [x, y] in fractions of the frame,
+#   both drawn in the same orientation (e.g. both top to bottom), at the two
+#   marks on the road.
+# - distance_m: ground distance between the two marks along the road, metres.
+# - max_kmh: faster measurements are rejected as implausible (default 150).
+# A track timed from one line to the other gives distance_m / time; the
+# window publishes each class's mean over its timed tracks.
+# speed:
+#   line_a: [[0.30, 0.20], [0.30, 0.90]]
+#   line_b: [[0.70, 0.20], [0.70, 0.90]]
+#   distance_m: 20.0
+#   max_kmh: 150

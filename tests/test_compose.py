@@ -394,6 +394,20 @@ def test_daemon_config_reads_the_speed_lines(tmp_path: Path) -> None:
     assert DaemonConfig.from_yaml(yaml_path).speed.max_kmh == pytest.approx(80.0)
 
 
+def test_the_commented_speed_example_in_sensor_yaml_is_valid(tmp_path: Path) -> None:
+    from camina.service.sensor_daemon import DaemonConfig
+
+    shipped = (Path(__file__).parents[1] / "configs" / "sensor.yaml").read_text()
+    lines = shipped.splitlines()
+    start = lines.index("# speed:")
+    example = [ln.removeprefix("# ") for ln in lines[start : start + 5]]
+    yaml_path = tmp_path / "sensor.yaml"
+    yaml_path.write_text(shipped + "\n" + "\n".join(example) + "\n")
+
+    speed = DaemonConfig.from_yaml(yaml_path).speed
+    assert speed is not None and speed.distance_m == pytest.approx(20.0)
+
+
 def test_a_speed_block_without_a_distance_is_refused(tmp_path: Path) -> None:
     from camina.service.sensor_daemon import DaemonConfig
 
