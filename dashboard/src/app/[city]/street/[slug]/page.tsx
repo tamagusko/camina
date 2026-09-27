@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { CreditFooter } from "@/components/layout/CreditFooter";
 import { MockBadge, MockNotice } from "@/components/layout/MockBadge";
 import { StreetTimeSeries } from "@/components/charts/StreetTimeSeries";
 import { PrintFooter, ReportActions } from "@/components/report/ReportActions";
@@ -72,6 +73,7 @@ export default async function StreetDetailPage({ params }: Props) {
       </section>
       <ReportSummary readings={readings} />
       <PrintFooter />
+      <CreditFooter />
     </main>
   );
 }

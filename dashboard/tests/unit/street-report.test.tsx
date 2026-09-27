@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { MockBadge, MockNotice } from "@/components/layout/MockBadge";
+import { CreditFooter } from "@/components/layout/CreditFooter";
 import { ReportActions } from "@/components/report/ReportActions";
 import { ReportSummary } from "@/components/report/ReportSummary";
 import { dataUpdatedAt, shareLinks } from "@/lib/report";
@@ -62,5 +63,18 @@ describe("mock notice", () => {
   });
   it("gives the badge the same sentence as its tooltip", () => {
     expect(renderToStaticMarkup(createElement(MockBadge))).toContain(`title="${sentence}"`);
+  });
+});
+
+describe("credit footer", () => {
+  it("names the author, links the email and the issue tracker", () => {
+    const html = renderToStaticMarkup(createElement(CreditFooter));
+    expect(html).toContain("Tiago Tamagusko");
+    expect(html).toContain('href="mailto:tamagusko@gmail.com"');
+    expect(html).toMatch(/href="https:\/\/github.com\/tamagusko\/camina\/issues"[^>]*>\s*Report a problem/);
+  });
+  it("spells out the issue link in print, where it cannot be clicked", () => {
+    const html = renderToStaticMarkup(createElement(CreditFooter));
+    expect(html).toMatch(/Report a problem<span class="hidden print:inline">: github.com\/tamagusko\/camina\/issues<\/span>/);
   });
 });
