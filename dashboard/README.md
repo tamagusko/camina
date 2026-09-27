@@ -141,6 +141,22 @@ Every figure is built from published values only, so values under 5 stay hidden.
   routes to that test before shipping.
 - Counts and speeds below 5 are suppressed (k-anonymity, `K_MIN = 5`).
 
+## Public mock demo
+
+https://camina-dublin.vercel.app serves the mock data (badge "Mock data"), for showing the
+concept. Vercel project `camina-dublin`, linked at the repo root with root directory
+`dashboard`; production env: `CAMINA_DATA_SOURCE=mock`, `AUTH_SECRET`. The fixtures are
+gitignored, so it is built locally, where they exist, and uploaded prebuilt:
+
+```bash
+python3 scripts/generate_mock_dublin.py          # from the repo root
+mv dashboard/.env.local /tmp/                    # it holds dev-only flags; keep them out
+npx vercel pull --yes --environment=production
+npx vercel build --prod                          # needs pnpm on PATH
+npx vercel deploy --prebuilt --prod
+mv /tmp/.env.local dashboard/
+```
+
 ## Deployment (stage S5)
 
 - Not deployed yet. When ready:
