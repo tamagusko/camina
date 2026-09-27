@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { MockBadge, MockNotice } from "@/components/layout/MockBadge";
-import { CreditFooter } from "@/components/layout/CreditFooter";
+import { CreditFooter, MAP_CREDIT_HTML, MapCredit } from "@/components/layout/CreditFooter";
 import { ReportActions } from "@/components/report/ReportActions";
 import { ReportSummary } from "@/components/report/ReportSummary";
 import { dataUpdatedAt, shareLinks } from "@/lib/report";
@@ -83,5 +83,12 @@ describe("links in the printed report", () => {
   it("underlines the email and issue links so they read as clickable", () => {
     const html = renderToStaticMarkup(createElement(CreditFooter));
     expect(html.match(/<a [^>]*print:underline/g)).toHaveLength(2);
+  });
+});
+
+describe("map credit", () => {
+  it("fits the map's attribution line: name to email, and the issue tracker", () => {
+    expect(MAP_CREDIT_HTML).toBe('<a href="mailto:tamagusko@gmail.com">Tiago Tamagusko</a> · <a href="https://github.com/tamagusko/camina/issues" target="_blank" rel="noopener noreferrer">Report a problem</a>');
+    expect(renderToStaticMarkup(createElement(MapCredit))).toContain('href="mailto:tamagusko@gmail.com">Tiago Tamagusko</a>');
   });
 });

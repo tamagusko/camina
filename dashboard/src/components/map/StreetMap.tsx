@@ -8,6 +8,7 @@ import { usualLevel } from "@/lib/typical";
 import { cn } from "@/lib/cn";
 import { formatDublinUpdated } from "@/lib/format-time";
 import type { Metric, MetricValue, RoadUserClass, StreetSummary, TimeWindow } from "@/lib/types";
+import { MAP_CREDIT_HTML, MapCredit } from "@/components/layout/CreditFooter";
 import { MockBadge } from "@/components/layout/MockBadge";
 import { ClassFilter } from "./ClassFilter";
 import { ColourLegend } from "./ColourLegend";
@@ -73,7 +74,7 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, selecte
     // Phone: pinch and double-tap zoom; attribution is the sheet's last line.
     if (window.matchMedia("(min-width: 768px)").matches) {
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
-      map.addControl(new maplibregl.AttributionControl(), "bottom-right");
+      map.addControl(new maplibregl.AttributionControl({ customAttribution: MAP_CREDIT_HTML }), "bottom-right");
     }
     map.on("load", () => {
       map.addSource("streets", { type: "geojson", data: featureCollection(streets, shown, mode) });
@@ -162,7 +163,7 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, selecte
         <ColourLegend mode={mode} timeWindow={timeWindow} compact />
         <MetricToggle value={mode} onChange={setMode} />
         <div className="flex gap-2"><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} /><div className="min-w-0 flex-1"><ClassFilter selected={selectedClass} onChange={setSelectedClass} /></div></div>
-        <p className="text-[11px] leading-tight text-ink-2"><a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noreferrer">© OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a></p>
+        <p className="text-[11px] leading-tight text-ink-2"><a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noreferrer">© OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> · <MapCredit /></p>
       </div>
     </div>
     {/* After the overlay in DOM order, so Tab reaches the product controls
