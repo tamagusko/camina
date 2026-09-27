@@ -40,6 +40,26 @@ describe("street panel states", () => {
     expect(html).toMatch(/>Car<\/th><td[^>]*>12<\/td><td[^>]*>—</);
   });
 
+  it("shows a dash, not 0, when every class is hidden", () => {
+    const hiddenAll = Object.fromEntries(ROAD_USER_CLASSES.map((c) => [c, null])) as StreetReading["counts"];
+    const html = renderToStaticMarkup(<StreetSidePanel street={street}
+      metric={{ ...metric, value: 0, totalCount: 0, hasHidden: true, classBreakdown: { ...zeros, car: null } }}
+      reading={{ ...reading, counts: { ...zeros, car: null }, countsByDirection: { AB: hiddenAll, BA: hiddenAll } }}
+      onClose={() => {}} />);
+    expect(html).toMatch(/Road users · last 15 min<\/p><p[^>]*>—</);
+    expect(html).not.toMatch(/>NE \S+ · SW/);
+    expect(html).toContain("Some values under 5 are hidden.");
+  });
+
+  it("keeps a true 0 as 0", () => {
+    const html = renderToStaticMarkup(<StreetSidePanel street={street}
+      metric={{ ...metric, value: 0, totalCount: 0, hasHidden: false, classBreakdown: zeros }}
+      reading={{ ...reading, hasHidden: false, counts: zeros, countsByDirection: { AB: zeros, BA: zeros } }}
+      onClose={() => {}} />);
+    expect(html).toMatch(/Road users · last 15 min<\/p><p[^>]*>0</);
+    expect(html).toMatch(/>NE 0 · SW 0</);
+  });
+
   it("spells classes the same way everywhere", () => {
     expect(ROAD_USER_CLASSES.map(classLabel)).toEqual([
       "Person", "Cyclist", "Car", "E-scooter", "SUV", "Motorcyclist", "Bus", "Delivery van", "Truck",
