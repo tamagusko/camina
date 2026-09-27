@@ -300,13 +300,6 @@ class SensorDaemon:
             if self._shutdown.is_set():
                 break
             now = datetime.now(tz=timezone.utc)
-            for counted in self._detect_and_track(frame):
-                track_id, class_name = counted
-                direction = getattr(counted, "direction", None)
-                self._counter.add(
-                    track_id=track_id, class_name=class_name, now=now, direction=direction
-                )
-
             snapshot = self._counter.maybe_rollover(now)
             if snapshot is not None:
                 self._log_tracking(self._detect_and_track)
@@ -323,6 +316,13 @@ class SensorDaemon:
                 # delivered-or-buffered (F2).
                 self._daily.mark_published(daily_snapshot.day)
                 self._enqueue(("daily", daily_snapshot))
+
+            for counted in self._detect_and_track(frame):
+                track_id, class_name = counted
+                direction = getattr(counted, "direction", None)
+                self._counter.add(
+                    track_id=track_id, class_name=class_name, now=now, direction=direction
+                )
 
             if time.monotonic() - last_watchdog >= _WATCHDOG_INTERVAL_S:
                 self._notifier.watchdog()
