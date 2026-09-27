@@ -120,7 +120,7 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
       <div className="pointer-events-auto absolute right-4 top-4 hidden w-[250px] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:flex md:flex-col md:gap-2">
         <MetricToggle value={metric} onChange={setMetric} /><ClassFilter selected={selectedClass} onChange={setSelectedClass} /><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} />
       </div>
-      <div className="pointer-events-auto absolute bottom-4 left-4 hidden w-[300px] md:block"><ColourLegend metric={metric} timeWindow={timeWindow} /></div>
+      <div className="pointer-events-auto absolute bottom-4 left-4 hidden w-[340px] md:block"><ColourLegend metric={metric} timeWindow={timeWindow} /></div>
       <div className="pointer-events-auto absolute bottom-4 left-4 right-4 flex flex-col gap-2 rounded-md border border-line bg-surface p-2 shadow-[var(--card-shadow)] md:hidden">
         <ColourLegend metric={metric} timeWindow={timeWindow} compact />
         <div className="flex justify-between gap-2"><MetricToggle value={metric} onChange={setMetric} /><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} /></div>
