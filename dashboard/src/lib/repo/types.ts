@@ -29,6 +29,8 @@ export interface StreetsRepo {
     metric: Metric;
     classes?: RoadUserClass[];
     window: TimeWindow;
+    /** Clock override (tests); defaults to now(). */
+    now?: Date;
   }): Promise<MetricValue[]>;
   /** Admin-only: reveals sensor identifiers and GPS for a given street.
    *  Callers must gate this on an admin session. */

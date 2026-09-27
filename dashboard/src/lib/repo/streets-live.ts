@@ -11,7 +11,7 @@ import {
   type TimeWindow,
 } from "@/lib/types";
 import { K_MIN, publishedSum, publishedTotal } from "@/lib/privacy";
-import { isStale } from "./streets-mock";
+import { isStaleFor, lastCompletedCellEnd } from "./streets-mock";
 import type { StreetsRepo } from "./types";
 
 const WINDOW_MS: Record<TimeWindow, number> = {
@@ -202,9 +202,10 @@ export const liveStreetsRepo: StreetsRepo = {
     return out;
   },
 
-  async latestMetrics({ city, metric, classes, window }) {
-    const now = new Date();
-    const cutoff = new Date(now.getTime() - WINDOW_MS[window]);
+  async latestMetrics({ city, metric, classes, window, now = new Date() }) {
+    // Whole cells ending at the last completed one (window=now is that cell).
+    const end = lastCompletedCellEnd(now);
+    const cutoff = new Date(end.getTime() - WINDOW_MS[window]);
     const streetRows = rows<{ id: string }>(await db().execute(sql`
       SELECT id FROM streets WHERE city = ${city} AND active = true ORDER BY id
     `));
@@ -212,6 +213,7 @@ export const liveStreetsRepo: StreetsRepo = {
       WITH ${publishedCells(sql`
         JOIN streets s ON s.id = c.street_id
         WHERE s.city = ${city} AND r.window_start >= ${cutoff.toISOString()}
+          AND r.window_start < ${end.toISOString()}
           ${classFilter(classes)}`)}
       SELECT street_id, class_name, ${FOLD}
       FROM published GROUP BY street_id, class_name
@@ -263,7 +265,7 @@ export const liveStreetsRepo: StreetsRepo = {
         classBreakdown: counts,
         speedBreakdown: speeds,
         avgSpeedKmh,
-        stale: isStale(lastSeen, now),
+        stale: isStaleFor(window, lastSeen, now),
         lastSeen,
       };
     });

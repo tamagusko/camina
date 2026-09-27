@@ -10,6 +10,7 @@ import {
   type TimeWindow,
 } from "@/lib/types";
 import type { StreetsRepo } from "@/lib/repo/types";
+import { lastCompletedCellEnd } from "@/lib/repo/streets-mock";
 
 const K_MIN = 5;
 // Upper bound for a hidden direction cell (it may be hidden by complementary
@@ -233,7 +234,8 @@ const WINDOW_MS: Record<TimeWindow, number> = {
  * 60 and 1440 min (all classes and under a class filter), and latestMetrics
  * for every window, all classes and each leave-one-out class filter — and run
  * the adversary street by street against the 15-min grid of the last 30 d.
- * `now` is the instant latestMetrics measures its windows back from.
+ * `now` is the clock handed to latestMetrics; its windows are whole cells
+ * ending at the last completed one (lastCompletedCellEnd).
  */
 export async function attackAggregation(
   repo: StreetsRepo,
@@ -246,11 +248,12 @@ export async function attackAggregation(
   const all = [...ROAD_USER_CLASSES];
   const filters: RoadUserClass[][] = [all, ...all.map((x) => all.filter((c) => c !== x))];
   const metrics = new Map<string, Observation[]>(streets.map((id) => [id, []]));
+  const wTo = lastCompletedCellEnd(now).getTime();
   for (const window of Object.keys(WINDOW_MS) as TimeWindow[]) {
-    const wFrom = now.getTime() - WINDOW_MS[window];
+    const wFrom = wTo - WINDOW_MS[window];
     for (const classes of filters) {
       const rows = await repo.latestMetrics({
-        city, metric: "counts", window,
+        city, metric: "counts", window, now,
         classes: classes.length === all.length ? undefined : classes,
       });
       const tag = classes.length === all.length ? "all" : `all−${all.find((c) => !classes.includes(c))}`;
@@ -258,13 +261,13 @@ export async function attackAggregation(
         const obs = metrics.get(row.streetId);
         if (!obs) continue;
         obs.push({
-          label: `metrics ${window} ${tag} total`, classes, from: wFrom, to: now.getTime(),
+          label: `metrics ${window} ${tag} total`, classes, from: wFrom, to: wTo,
           value: row.totalCount, hasHidden: row.hasHidden,
         });
         if (classes.length !== all.length) continue;
         for (const cls of all) {
           obs.push({
-            label: `metrics ${window} ${cls}`, classes: [cls], from: wFrom, to: now.getTime(),
+            label: `metrics ${window} ${cls}`, classes: [cls], from: wFrom, to: wTo,
             value: row.classBreakdown[cls],
           });
         }

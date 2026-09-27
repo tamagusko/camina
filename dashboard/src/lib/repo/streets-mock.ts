@@ -64,6 +64,20 @@ export function isStale(lastSeen: string | null, now: Date): boolean {
 
 const CELL_MS = 15 * 60_000;
 
+/** End of the last completed 15-min cell: the latest window_end <= now. A
+ *  sensor publishes the cell [S, S+15) at S+15, so this is the newest cell a
+ *  street can have; every window ends here. */
+export function lastCompletedCellEnd(now: Date): Date {
+  return new Date(Math.floor(now.getTime() / CELL_MS) * CELL_MS);
+}
+
+/** Stale for this window: silent for > 2 cells, or — for "now", which is that
+ *  one cell — the last completed cell has not arrived (late, not 0). */
+export function isStaleFor(window: TimeWindow, lastSeen: string | null, now: Date): boolean {
+  if (isStale(lastSeen, now)) return true;
+  return window === "now" && new Date(lastSeen!).getTime() < lastCompletedCellEnd(now).getTime();
+}
+
 type DirectionalMockReading = MockReading & {
   direction_ab_count?: number | null;
   direction_ba_count?: number | null;
@@ -92,7 +106,7 @@ function cellKey(r: MockReading): string {
   return `${t}|${r.class_name}`;
 }
 
-function windowCutoff(window: TimeWindow, now: Date): Date {
+function windowCutoff(window: TimeWindow, end: Date): Date {
   const map: Record<TimeWindow, number> = {
     now: 15 * 60_000,
     "1h": 60 * 60_000,
@@ -100,7 +114,7 @@ function windowCutoff(window: TimeWindow, now: Date): Date {
     "7d": 7 * 24 * 60 * 60_000,
     "30d": 30 * 24 * 60 * 60_000,
   };
-  return new Date(now.getTime() - map[window]);
+  return new Date(end.getTime() - map[window]);
 }
 
 export const mockStreetsRepo: StreetsRepo = {
@@ -211,7 +225,7 @@ export const mockStreetsRepo: StreetsRepo = {
     return out;
   },
 
-  async latestMetrics({ city, metric, classes, window }): Promise<MetricValue[]> {
+  async latestMetrics({ city, metric, classes, window, now: clock }): Promise<MetricValue[]> {
     const [streets, coverage, readings] = await Promise.all([
       loadStreets(),
       loadCoverage(),
@@ -223,8 +237,9 @@ export const mockStreetsRepo: StreetsRepo = {
       streets.filter((s) => s.city === city && s.active).map((s) => s.id)
     );
     const requested = classes ?? [...ROAD_USER_CLASSES];
-    const now = deriveNow(readings);
-    const cutoff = windowCutoff(window, now).getTime();
+    const now = clock ?? deriveNow(readings);
+    const end = lastCompletedCellEnd(now).getTime();
+    const cutoff = windowCutoff(window, new Date(end)).getTime();
 
     // sensor_id → street_id (multi-coverage supported: one sensor can cover many streets).
     const sensorToStreets = new Map<string, string[]>();
@@ -251,7 +266,8 @@ export const mockStreetsRepo: StreetsRepo = {
         if (end > (lastSeenMs.get(streetId) ?? 0)) lastSeenMs.set(streetId, end);
       }
       if (!requested.includes(r.class_name as RoadUserClass)) continue;
-      if (new Date(r.window_start).getTime() < cutoff) continue;
+      const start = new Date(r.window_start).getTime();
+      if (start < cutoff || start >= end) continue;
       for (const streetId of streetsForSensor) {
         const byKey = cells.get(streetId);
         if (!byKey) continue;
@@ -300,7 +316,7 @@ export const mockStreetsRepo: StreetsRepo = {
         classBreakdown,
         speedBreakdown,
         avgSpeedKmh,
-        stale: isStale(lastSeen, now),
+        stale: isStaleFor(window, lastSeen, now),
         lastSeen,
       });
     }
