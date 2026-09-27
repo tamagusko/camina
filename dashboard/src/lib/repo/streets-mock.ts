@@ -306,10 +306,10 @@ export const mockStreetsRepo: StreetsRepo = {
 
     for (const r of readings) {
       const streetsForSensor = sensorToStreets.get(r.sensor_id) ?? [];
-      const end = new Date(r.window_end).getTime();
+      const windowEnd = new Date(r.window_end).getTime();
       for (const streetId of streetsForSensor) {
         if (!citySet.has(streetId)) continue;
-        if (end > (lastSeenMs.get(streetId) ?? 0)) lastSeenMs.set(streetId, end);
+        if (windowEnd > (lastSeenMs.get(streetId) ?? 0)) lastSeenMs.set(streetId, windowEnd);
       }
       if (!requested.includes(r.class_name as RoadUserClass)) continue;
       const start = new Date(r.window_start).getTime();

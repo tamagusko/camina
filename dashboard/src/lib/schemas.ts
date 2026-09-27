@@ -163,7 +163,16 @@ export const sensorConfigResponseSchema = z
 export const dailyPayloadSchema = z.object({
   schema_version: z.string(),
   sensor_id: z.string(),
-  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  // A real calendar date: 2026-02-30 would fail the Postgres date insert (500).
+  day: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine((day) => {
+      const t = Date.parse(`${day}T00:00:00Z`);
+      return !Number.isNaN(t) && new Date(t).toISOString().startsWith(day);
+    }, {
+      message: "day must be a calendar date",
+    }),
   totals: classCountsSchema,
   window_count: z.number().int().nonnegative(),
   late: z.boolean().default(false),
