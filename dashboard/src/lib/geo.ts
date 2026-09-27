@@ -59,10 +59,15 @@ export function initialViewBounds(
   return unionBbox(streets);
 }
 
-export function rampExpression(ramp: readonly string[], metric: "counts" | "speed") {
+/** Counts under 5 per 15 min — a published 0, or a mean below the first
+ *  step — paint `quiet` (the legend's "<5" key), never the 5–24 colour. */
+export function rampExpression(ramp: readonly string[], metric: "counts" | "speed", quiet = "#a8a8a8") {
   const thresholds = metric === "counts" ? [25, 75, 200, 500] : [10, 20, 30, 50];
-  return ["step", ["coalesce", ["to-number", ["get", "metric"]], 0], ramp[0],
-    ...thresholds.flatMap((threshold, index) => [threshold, ramp[index + 1]])];
+  const input = ["coalesce", ["to-number", ["get", "metric"]], 0];
+  const steps = thresholds.flatMap((threshold, index) => [threshold, ramp[index + 1]]);
+  return metric === "counts"
+    ? ["step", input, quiet, 5, ramp[0], ...steps]
+    : ["step", input, ramp[0], ...steps];
 }
 
 const BUCKETS_PER_WINDOW: Record<TimeWindow, number> = { now: 1, "1h": 4, "24h": 96, "7d": 672, "30d": 2880 };

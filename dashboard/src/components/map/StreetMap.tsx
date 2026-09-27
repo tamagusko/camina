@@ -80,7 +80,7 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
     map.on("load", () => {
       map.addSource("streets", { type: "geojson", data: featureCollection(streets, shown) });
       map.addLayer({ id: "streets-casing", type: "line", source: "streets", filter: ["==", ["get", "status"], "live"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(), "line-opacity": .9, "line-width": 7 } });
-      map.addLayer({ id: "streets-visible", type: "line", source: "streets", filter: ["!=", ["get", "status"], "stale"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["case", ["==", ["get", "status"], "suppressed"], getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim(), rampExpression(VIRIDIS_5, shown.metric)] as unknown as maplibregl.ExpressionSpecification, "line-width": ["case", ["==", ["get", "status"], "suppressed"], 3, 4] as maplibregl.ExpressionSpecification } });
+      map.addLayer({ id: "streets-visible", type: "line", source: "streets", filter: ["!=", ["get", "status"], "stale"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": lineColour(shown.metric), "line-width": ["case", ["==", ["get", "status"], "suppressed"], 3, 4] as maplibregl.ExpressionSpecification } });
       map.addLayer({ id: "streets-stale", type: "line", source: "streets", filter: ["==", ["get", "status"], "stale"], layout: { "line-cap": "butt" }, paint: { "line-color": getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim(), "line-width": 3, "line-dasharray": [2, 2] } });
       map.addLayer({ id: "streets-hit", type: "line", source: "streets", paint: { "line-color": "#000", "line-opacity": 0, "line-width": 22 } });
       map.on("click", "streets-hit", (event) => { const id = event.features?.[0]?.properties?.street_id as string | undefined; if (id) onSelectStreet?.(id); });
@@ -103,7 +103,7 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
     const map = mapRef.current;
     if (!map || !mapReady) return;
     (map.getSource("streets") as maplibregl.GeoJSONSource).setData(featureCollection(streets, shown));
-    map.setPaintProperty("streets-visible", "line-color", ["case", ["==", ["get", "status"], "suppressed"], getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim(), rampExpression(VIRIDIS_5, shown.metric)] as unknown as maplibregl.ExpressionSpecification);
+    map.setPaintProperty("streets-visible", "line-color", lineColour(shown.metric));
   }, [streets, shown, mapReady]);
 
   return <div className="relative h-[100dvh] w-full overflow-hidden bg-bg">
@@ -132,6 +132,12 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, onSelec
         before the basemap's; z-10 keeps the overlay painted on top. */}
     <div ref={containerRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
   </div>;
+}
+
+// Suppressed streets and counts under 5 share the quiet grey (legend "<5").
+function lineColour(metric: Metric): maplibregl.ExpressionSpecification {
+  const quiet = getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim();
+  return ["case", ["==", ["get", "status"], "suppressed"], quiet, rampExpression(VIRIDIS_5, metric, quiet)] as unknown as maplibregl.ExpressionSpecification;
 }
 
 function featureCollection(streets: StreetSummary[], { rows, metric, timeWindow }: Shown): GeoJSON.FeatureCollection<GeoJSON.MultiLineString> {

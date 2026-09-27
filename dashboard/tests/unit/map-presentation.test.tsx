@@ -4,6 +4,7 @@ import { ColourLegend } from "@/components/map/ColourLegend";
 import { mapColourValue, rampExpression, streetPaintStatus, VIRIDIS_5 } from "@/lib/geo";
 import { ROAD_USER_CLASSES, type MetricValue } from "@/lib/types";
 
+const QUIET = "#a8a8a8";
 const zeros = Object.fromEntries(ROAD_USER_CLASSES.map((c) => [c, 0])) as MetricValue["classBreakdown"];
 const metric: MetricValue = { streetId: "test", value: 12, totalCount: 12, hasHidden: false, classBreakdown: zeros, speedBreakdown: {}, avgSpeedKmh: null, stale: false, lastSeen: "2026-09-26T13:30:00Z" };
 
@@ -37,6 +38,13 @@ describe("map colour ramp", () => {
     expect(evaluate(counts, { metric: 900 })).toBe(VIRIDIS_5[4]);
     expect(evaluate(rampExpression(VIRIDIS_5, "speed"), { metric: 25 })).toBe(VIRIDIS_5[2]);
   });
+  it("paints a published 0 (and a mean under 5) quiet grey, not the 5–24 step", () => {
+    const counts = rampExpression(VIRIDIS_5, "counts", QUIET);
+    expect(evaluate(counts, { metric: 0 })).toBe(QUIET);
+    expect(evaluate(counts, {})).toBe(QUIET);
+    expect(evaluate(counts, { metric: 4.9 })).toBe(QUIET);
+    expect(evaluate(counts, { metric: 5 })).toBe(VIRIDIS_5[0]);
+  });
 });
 
 describe("legend stays true in every window", () => {
@@ -59,9 +67,12 @@ describe("legend stays true in every window", () => {
 
 describe("fixed map legend", () => {
   it("uses fixed count thresholds and a readable text equivalent", () => {
-    expect(rampExpression(VIRIDIS_5, "counts")).toEqual(["step", expect.any(Array), VIRIDIS_5[0], 25, VIRIDIS_5[1], 75, VIRIDIS_5[2], 200, VIRIDIS_5[3], 500, VIRIDIS_5[4]]);
+    expect(rampExpression(VIRIDIS_5, "counts", QUIET)).toEqual(["step", expect.any(Array), QUIET, 5, VIRIDIS_5[0], 25, VIRIDIS_5[1], 75, VIRIDIS_5[2], 200, VIRIDIS_5[3], 500, VIRIDIS_5[4]]);
     const html = renderToStaticMarkup(<ColourLegend metric="counts" />);
     expect(html).toContain("Road users per 15 min");
+    // The quiet grey has its own key: under 5 (none, or hidden).
+    expect(html).toContain("var(--ink-3)");
+    expect(html).toMatch(/>&lt;5</);
     expect(html).toContain("5–24");
     expect(html).toContain("500+");
     expect(html).toContain("No recent data");
