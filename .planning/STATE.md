@@ -53,6 +53,29 @@ D9 → DPIA-lite + statement + signage · D10 → SD card · D11 → not funded 
 D13 → fix in next paper · D14 → YOLO26n as S13 candidate · D15 → heartbeat every 15 min in
 the free-tier pilot (`CAMINA_HEARTBEAT_MINUTES`), goal 5 min.
 
+## Priority map (2026-09-27)
+
+Who: **agent** = code work that needs no hardware, no accounts and no people (done in this
+session, tests first, one worktree each); **Tiago** = needs a person, hardware, an account or
+a decision. P0 blocks everything after it.
+
+| P | Task | Stage | Who | Done when |
+|---|---|---|---|---|
+| P0 | CI green on PR #43 (Node 20.11 cannot load Vitest's ESM deps) | S2 | agent | Dashboard + Python jobs pass on GitHub |
+| P0 | Bug sweep, edge (Python) and dashboard | — | agent | Each bug has a failing test, then a fix |
+| P0 | Record and hand-count a **second clip** (occlusions, a bus stopping at the line) | S7 | Tiago | `videos/<clip>.counts.csv` exists; `count_eval` run on both clips |
+| P1 | Two-clip evaluation: `count_eval` sums error over several clips; clip-2 protocol | S7 | agent | One command reports per-clip and total error |
+| P1 | Pi bench tooling: `scripts/bench_sensor.py` (FPS, temp, RSS, throttle) + heartbeat health fields | S6 | agent | Unit tests with fakes; runs unchanged on the Pi |
+| P1 | Speed from screenline timing + calibration method doc | S7b | agent | Unit tests; `avg_speed_kmh` in the payload; `docs/CALIBRATION_SETUP.md` |
+| P1 | First Pi run: 30-min bench, FPS ≥ 5 at 640 | S6 | Tiago (+ Sonia) | Report in `docs/benchmarks/` |
+| P2 | Merge order: #43 → #41 (YOLO26n) → #42 (auto-labelling) | S13 | Tiago | PRs merged into `dev` |
+| P2 | Label the 235 `dev_expanded` images in Roboflow (SUV, van, e-scooter) | S13 | Tiago | Reviewed labels exported; retrain; error on both clips |
+| P2 | Decide re-linking with clip 2 (`count_eval --relink`) | S7 | agent after clip 2 | Adopt only if it lowers the two-clip error |
+| P2 | Neon + Vercel live deploy, UCD OAuth app | S5 | Tiago (accounts) | Live map shows a provisioned street |
+| P3 | DPO/ethics, host site, enclosure, signage | S8 | Tiago | Sign-off filed; unit on a street |
+| P3 | Speed reference measurements (radar gun or timed passes) | S7b | Tiago | ≥ 20 vehicles scored |
+| — | Digital twin | — | paused | Resumes with a sensor network or funding |
+
 ## Next action
 - Merge the dashboard PR after CI is green.
 - S5: create the Vercel + Neon projects, set the env from `dashboard/.env.example`
