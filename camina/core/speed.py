@@ -183,15 +183,14 @@ class SpeedEstimator:
 
     def _measure(self, key: str, first: _Crossing, second: _Crossing) -> float | None:
         """Speed for the pair, or ``None`` (and ``rejected`` += 1) if implausible."""
-        dt = second.t - first.t
-        if first.direction != second.direction or self.lines.first_line(first.direction) != (
-            first.line
-        ):
+        dt = float(second.t - first.t)
+        in_order = self.lines.first_line(first.direction) == first.line
+        if first.direction != second.direction or not in_order:
             reason = "wrong order or direction"
-        elif dt <= 0 or (kmh := self.lines.distance_m / dt * _MS_TO_KMH) > self.lines.max_kmh:
+        elif dt <= 0 or self.lines.distance_m / dt * _MS_TO_KMH > self.lines.max_kmh:
             reason = f"faster than {self.lines.max_kmh:g} km/h"
         else:
-            return kmh
+            return self.lines.distance_m / dt * _MS_TO_KMH
         self.rejected += 1
         logger.debug("speed of %s rejected: %s", key, reason)
         return None

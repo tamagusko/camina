@@ -29,6 +29,8 @@ from camina.core.counter import (
     WindowedCounter,
     WindowSnapshot,
 )
+from camina.core.counting import Screenline
+from camina.core.speed import MAX_KMH, SpeedLines
 from camina.core.tracking_rules import check_tracking_rules
 from camina.io.config_poller import ConfigPoller
 from camina.io.config_state import config_state_path, load_config_state, save_config_state
@@ -108,6 +110,8 @@ class DaemonConfig:
     max_occlusion_s: float = 5.0
     min_class_hits: int = 3
     relink: bool = False  # re-link after occlusion; off until measured on a second clip
+    # Speed (camina/core/speed.py): two calibrated lines; None = no speeds.
+    speed: SpeedLines | None = None
 
     @classmethod
     def from_yaml(cls, path: Path) -> DaemonConfig:
@@ -130,6 +134,7 @@ class DaemonConfig:
             conf_threshold=float(data.get("conf_threshold", 0.3)),
             screenline=_parse_screenline(data.get("screenline")),
             min_move=float(data.get("min_move", 1.0)),
+            speed=_parse_speed(data.get("speed")),
             **_tracking_rules(data),
         )
 
@@ -160,6 +165,19 @@ def _parse_screenline(
         return None
     (x1, y1), (x2, y2) = raw
     return ((float(x1), float(y1)), (float(x2), float(y2)))
+
+
+def _parse_speed(raw: dict | None) -> SpeedLines | None:
+    """The ``speed`` block of ``sensor.yaml`` -> ``SpeedLines``; absent -> ``None``."""
+    if raw is None:
+        return None
+    (a1, a2), (b1, b2) = raw["line_a"], raw["line_b"]
+    return SpeedLines(
+        line_a=Screenline((float(a1[0]), float(a1[1])), (float(a2[0]), float(a2[1]))),
+        line_b=Screenline((float(b1[0]), float(b1[1])), (float(b2[0]), float(b2[1]))),
+        distance_m=float(raw["distance_m"]),
+        max_kmh=float(raw.get("max_kmh", MAX_KMH)),
+    )
 
 
 class SensorDaemon:
@@ -237,6 +255,7 @@ class SensorDaemon:
         self._notifier = SystemdNotifier()
         # Tracker/gate counters at the last window rollover (logged as deltas).
         self._tracking_seen = (0, 0)
+        self._speed_rejected_seen = 0
 
     # ---------- Public API ----------
 
@@ -296,16 +315,25 @@ class SensorDaemon:
 
     def _main_loop(self) -> None:
         last_watchdog = time.monotonic()
-        for frame in self._frame_source:
+        take_speeds = getattr(self._detect_and_track, "take_speeds", None)
+        for item in self._frame_source:
             if self._shutdown.is_set():
                 break
+            # A frame source may yield (frame, capture time in s); speeds need it.
+            frame, t = item if isinstance(item, tuple) else (item, None)
             now = datetime.now(tz=timezone.utc)
-            for counted in self._detect_and_track(frame):
+            results = (
+                self._detect_and_track(frame) if t is None else self._detect_and_track(frame, t)
+            )
+            for counted in results:
                 track_id, class_name = counted
                 direction = getattr(counted, "direction", None)
                 self._counter.add(
                     track_id=track_id, class_name=class_name, now=now, direction=direction
                 )
+            if take_speeds is not None:
+                for class_name, kmh in take_speeds():
+                    self._counter.add_speed(class_name, kmh)
 
             snapshot = self._counter.maybe_rollover(now)
             if snapshot is not None:
@@ -329,7 +357,8 @@ class SensorDaemon:
                 last_watchdog = time.monotonic()
 
     def _log_tracking(self, detect_and_track: object) -> None:
-        """Log, at INFO, this window's tracks dropped unconfirmed and re-links."""
+        """Log, at INFO, this window's tracks dropped unconfirmed, re-links and,
+        when speed is on, rejected speed measurements."""
         gate = getattr(detect_and_track, "gate", None)
         tracker = getattr(detect_and_track, "tracker", None)
         dropped = getattr(gate, "unconfirmed_dropped", 0)
@@ -341,6 +370,10 @@ class SensorDaemon:
             dropped - seen_dropped,
             relinks - seen_relinks,
         )
+        speed = getattr(detect_and_track, "speed", None)
+        if speed is not None:
+            logger.info("Window speed: rejected=%d", speed.rejected - self._speed_rejected_seen)
+            self._speed_rejected_seen = speed.rejected
 
     # ---------- Publish worker ----------
 
@@ -398,6 +431,7 @@ class SensorDaemon:
             snapshot=snapshot,
             config_version=self._poller.current_version,
             fw_version=self._config.fw_version,
+            avg_speed_kmh=snapshot.avg_speed_kmh,
         )
         if result.latest_config_version:
             self._poller.check(result.latest_config_version)

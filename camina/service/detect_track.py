@@ -14,6 +14,9 @@
   confidence-weighted majority vote, so a car/SUV flicker stays one track.
 - With a ``CountGate``, each track is yielded once, when it counts, and only
   once its class is confirmed (``min_class_hits``).
+- With a ``SpeedEstimator``, a track timed across the two calibrated lines has
+  its ``(class_name, km/h)`` queued; the daemon collects them per frame with
+  ``detect_and_track.take_speeds()`` (``camina.core.speed``).
 
 The requested ``imgsz`` must equal the export's ``metadata.yaml``: an NCNN
 model run at another size returns garbage boxes.
@@ -32,6 +35,7 @@ import yaml
 
 from camina.core.counting import CountGate
 from camina.core.riders import drop_riders
+from camina.core.speed import SpeedEstimator
 from camina.core.tracker import MAX_OCCLUSION_S, MIN_CLASS_HITS, Sort, class_groups
 from camina.service.ncnn_detector import NcnnDetector
 from camina.utils.taxonomy import load_class_aliases
@@ -70,6 +74,7 @@ def make_detect_and_track(
     max_occlusion_s: float = MAX_OCCLUSION_S,
     min_class_hits: int = MIN_CLASS_HITS,
     relink: bool = False,
+    speed: SpeedEstimator | None = None,
 ) -> Callable[..., Iterable[DetectResult]]:
     """Build a ``detect_and_track(frame)`` closure wiring YOLO NCNN -> Sort.
 
@@ -90,6 +95,10 @@ def make_detect_and_track(
             the gate counts it under that class.
         relink: Re-link detections to tracks lost behind an occlusion (off
             by default; see ``Sort``).
+        speed: When set, time each confirmed track across the two calibrated
+            lines; ``take_speeds()`` on the closure returns and clears the
+            ``(class_name, km/h)`` measured since the last call. Frame times
+            ``t`` must then be capture times.
 
     Returns:
         A closure ``detect_and_track(frame, t=None)`` that runs YOLO inference,
@@ -125,6 +134,12 @@ def make_detect_and_track(
         relink=relink,
     )
     n_model_classes = len(model_names)
+    speeds: list[tuple[str, float]] = []
+
+    def take_speeds() -> list[tuple[str, float]]:
+        taken = speeds.copy()
+        speeds.clear()
+        return taken
 
     def detect_and_track(frame: np.ndarray, t: float | None = None) -> Iterable[DetectResult]:
         t = time.monotonic() if t is None else t
@@ -134,12 +149,17 @@ def make_detect_and_track(
             (int(track_id), classes[int(cls)], (x1, y1, x2, y2))
             for x1, y1, x2, y2, track_id, cls in tracker.update(dets, t)
         ]
-        if gate is None:
-            yield from ((f"{name}-{tid}", name) for tid, name, _ in tracks)
-            return
         class_of = {str(tid): name for tid, name, _ in tracks}
         size = (frame.shape[1], frame.shape[0])
         unconfirmed = {str(tid) for tid in tracker.unconfirmed_ids}
+        if speed is not None:
+            boxes = ((str(tid), box) for tid, _, box in tracks)
+            speeds.extend(
+                (class_of[ev.key], ev.kmh) for ev in speed.step(boxes, size, t, unconfirmed)
+            )
+        if gate is None:
+            yield from ((f"{name}-{tid}", name) for tid, name, _ in tracks)
+            return
         boxes = ((str(tid), box) for tid, _, box in tracks)
         for event in gate.step(boxes, size, t, unconfirmed):
             name = class_of[event.key]
@@ -153,6 +173,8 @@ def make_detect_and_track(
     # logs the tracker's and the gate's counters per window.
     detect_and_track.tracker = tracker  # type: ignore[attr-defined]
     detect_and_track.gate = gate  # type: ignore[attr-defined]
+    detect_and_track.speed = speed  # type: ignore[attr-defined]
+    detect_and_track.take_speeds = take_speeds  # type: ignore[attr-defined]
     return detect_and_track
 
 

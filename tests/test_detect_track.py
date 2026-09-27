@@ -442,3 +442,53 @@ def test_a_track_dying_before_its_class_confirms_is_not_counted(
     assert seen == []
     assert gate.unconfirmed_dropped == 1
     assert f.gate is gate  # type: ignore[attr-defined]
+
+
+# ---------- Speed ----------
+
+
+def _speed_lines():
+    from camina.core.counting import Screenline
+    from camina.core.speed import SpeedLines
+
+    # 480 px frame: lines at x = 120 and 360 px, 12 m apart on the road.
+    return SpeedLines(
+        Screenline((0.25, 0.0), (0.25, 1.0)), Screenline((0.75, 0.0), (0.75, 1.0)), 12.0
+    )
+
+
+def test_with_speed_lines_a_car_crossing_both_has_its_speed_taken(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """20 px per 0.1 s = 200 px/s; the 240 px between the lines take 1.2 s: 36 km/h."""
+    from camina.core.speed import SpeedEstimator
+    from camina.service import detect_track
+
+    frames = [_car_at(20.0 * i) for i in range(25)]
+    monkeypatch.setattr(detect_track, "NcnnDetector", _fake_detector_factory(frames))
+    f = detect_track.make_detect_and_track(
+        ncnn_model_path="ignored", classes=CLASSES, imgsz=480, speed=SpeedEstimator(_speed_lines())
+    )
+    frame = np.zeros((480, 480, 3), dtype=np.uint8)
+    speeds = []
+    for i in range(25):
+        list(f(frame, t=0.1 * i))
+        speeds += f.take_speeds()  # type: ignore[attr-defined]
+
+    assert len(speeds) == 1
+    assert speeds[0][0] == "car"
+    assert speeds[0][1] == pytest.approx(36.0, abs=0.1)
+    assert f.take_speeds() == []  # type: ignore[attr-defined]
+
+
+def test_without_speed_lines_no_speed_is_taken(monkeypatch: pytest.MonkeyPatch) -> None:
+    from camina.service import detect_track
+
+    frames = [_car_at(20.0 * i) for i in range(25)]
+    monkeypatch.setattr(detect_track, "NcnnDetector", _fake_detector_factory(frames))
+    f = detect_track.make_detect_and_track(ncnn_model_path="ignored", classes=CLASSES, imgsz=480)
+    frame = np.zeros((480, 480, 3), dtype=np.uint8)
+    for i in range(25):
+        list(f(frame, t=0.1 * i))
+    assert f.take_speeds() == []  # type: ignore[attr-defined]
+    assert f.speed is None  # type: ignore[attr-defined]
