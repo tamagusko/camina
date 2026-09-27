@@ -36,6 +36,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_ANCHOR: datetime = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
+# Privacy: publish a class's mean speed only over at least this many timed road
+# users, so no published value is one person's speed (k_min, as for counts).
+SPEED_K_MIN = 5
+
+
 @dataclass(frozen=True)
 class WindowSnapshot:
     """Immutable per-window result emitted by `WindowedCounter`."""
@@ -44,6 +49,10 @@ class WindowSnapshot:
     window_end: datetime
     counts: dict[str, int]
     partial: bool
+    counts_by_direction: dict[str, dict[str, int]] | None = None
+    # Mean speed of the tracks measured this window, km/h, per class; classes
+    # with no measured track are absent (camina/core/speed.py).
+    avg_speed_kmh: dict[str, float] = field(default_factory=dict)
 
     def total(self) -> int:
         """Sum of counts across all classes."""
@@ -78,6 +87,8 @@ class WindowedCounter:
     _window_end: datetime = field(init=False)
     _seen_track_ids: dict[str, set[int]] = field(init=False)
     _counts: dict[str, int] = field(init=False)
+    _counts_by_direction: dict[str, dict[str, int]] | None = field(init=False, default=None)
+    _speeds: dict[str, list[float]] = field(init=False)
     _is_first_window: bool = field(init=False, default=True)
     _started_at: datetime = field(init=False)
 
@@ -99,6 +110,7 @@ class WindowedCounter:
         self._window_end = self._window_start + timedelta(seconds=self.window_seconds)
         self._seen_track_ids = {cls: set() for cls in self.classes}
         self._counts = {cls: 0 for cls in self.classes}
+        self._speeds = {}
 
     # ---------- Public API ----------
 
@@ -132,7 +144,9 @@ class WindowedCounter:
         """
         return self._is_first_window
 
-    def add(self, track_id: int, class_name: str, now: datetime) -> None:
+    def add(
+        self, track_id: int, class_name: str, now: datetime, direction: str | None = None
+    ) -> None:
         """Register a tracked object in the current window.
 
         Duplicate `(track_id, class_name)` within the same window is a no-op.
@@ -143,6 +157,8 @@ class WindowedCounter:
         """
         if class_name not in self._seen_track_ids:
             return
+        if direction not in (None, "AB", "BA"):
+            raise ValueError("direction must be 'AB', 'BA', or None")
         now = self._as_utc(now)
         if now >= self._window_end:
             # Caller didn't roll over in time; attribute to the boundary so
@@ -152,6 +168,20 @@ class WindowedCounter:
         if track_id not in self._seen_track_ids[class_name]:
             self._seen_track_ids[class_name].add(track_id)
             self._counts[class_name] += 1
+            if direction is not None:
+                if self._counts_by_direction is None:
+                    self._counts_by_direction = {"AB": {}, "BA": {}}
+                directional_counts = self._counts_by_direction[direction]
+                directional_counts[class_name] = directional_counts.get(class_name, 0) + 1
+
+    def add_speed(self, class_name: str, kmh: float) -> None:
+        """Record one track's measured speed in the current window.
+
+        Each measured track counts once in its class's window mean. Classes not
+        in ``self.classes`` are dropped.
+        """
+        if class_name in self._seen_track_ids:
+            self._speeds.setdefault(class_name, []).append(kmh)
 
     def maybe_rollover(self, now: datetime) -> WindowSnapshot | None:
         """Close the current window if ``now`` is past its end; else None."""
@@ -186,12 +216,24 @@ class WindowedCounter:
             window_end=self._window_end,
             counts=dict(self._counts),
             partial=is_partial,
+            counts_by_direction=(
+                {key: dict(value) for key, value in self._counts_by_direction.items()}
+                if self._counts_by_direction is not None
+                else None
+            ),
+            avg_speed_kmh={
+                cls: round(sum(v) / len(v), 1)
+                for cls, v in self._speeds.items()
+                if len(v) >= SPEED_K_MIN
+            },
         )
         # Start a new window aligned to ``now`` (handles long gaps correctly).
         self._window_start = self._align_to_window(now)
         self._window_end = self._window_start + timedelta(seconds=self.window_seconds)
         self._seen_track_ids = {cls: set() for cls in self.classes}
         self._counts = {cls: 0 for cls in self.classes}
+        self._counts_by_direction = None
+        self._speeds = {}
         self._is_first_window = False
         return snapshot
 
@@ -270,7 +312,7 @@ class DailyAccumulator:
 
     def add_window(self, snapshot: WindowSnapshot) -> None:
         """Add a window's counts to the running total for its day (UTC)."""
-        day = snapshot.window_start.astimezone(timezone.utc).date()
+        day = _as_utc(snapshot.window_start).date()
         current = self._load(day)
         if current is None:
             totals = {cls: 0 for cls in self._classes}

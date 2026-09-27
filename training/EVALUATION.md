@@ -103,6 +103,68 @@ same line. `python -m training.count_eval --video … --truth …` then prints t
 error per class and direction, with the S7 verdict (within 20 % for ≥ 20 true crossings,
 else within 5).
 
+### Several clips at once
+
+`count_eval` can score more than one clip in the same run: repeat `--video`/`--truth`
+(paired in the order given), or list clips in a YAML manifest:
+
+```yaml
+# e.g. training/eval_manifest.yaml — video/truth paths resolve relative to this file
+clips:
+  - video: videos/test.mov
+    truth: videos/test.counts.csv
+  - video: videos/test2.mov
+    truth: videos/test2.counts.csv
+```
+
+```bash
+python -m training.count_eval \
+    --video videos/test.mov --truth videos/test.counts.csv \
+    --video videos/test2.mov --truth videos/test2.counts.csv
+# equivalently
+python -m training.count_eval --manifest training/eval_manifest.yaml
+```
+
+With a single `--video`/`--truth` pair the output is unchanged: one table and "S7 on
+this clip". With several clips, each clip prints its own table under a
+`--- <video> ---` header, then a pooled table sums truth and counted per class and
+direction across every clip and the S7 verdict — same 20 %/5-count thresholds as a
+single clip — is reported on that pooled table as "S7 on pooled counts". `--model`,
+`--min-move` and `--relink` apply to every clip in the run; there is no per-clip
+override.
+
+### Second clip — what to film
+
+One clip (30 crossings, ~100 s) cannot support any threshold decision or the re-link
+question on its own — see the caveats in
+`docs/benchmarks/2026-09-27_tracker_occlusion.md`. The second clip should cover what
+the first one could not:
+
+- **A bus or truck stopping at or near the screenline** — a real occlusion, not the
+  tracker's ordinary frame-to-frame gaps.
+- **Pedestrians passing close to signs or bollards next to the line** — the exact
+  static-false-positive failure mode the tracker-occlusion write-up found.
+- **A van** (`delivery_van` had zero true crossings in the first clip).
+- **Cyclists**, and **both directions** for every class that plausibly appears in both.
+- **At least 10 minutes**, if the site allows it, so more cells clear 20 true
+  crossings and the error is less sensitive to a single miscount.
+- **Camera placement matching the planned sensor mount** (height, angle, distance to
+  the line) — a different angle tests a different problem, not more data for this one.
+- **Recorded on a separate device**, never the sensor itself; the Pi stores no frames
+  (`CLAUDE.md`).
+
+**Hand count.** Same tool as the first clip, one class per pass:
+`scripts/hand_count.py --video <clip> --screenline X1 Y1 X2 Y2 --out
+videos/<clip>.counts.csv`.
+
+**File naming.** `videos/<short-name>.<ext>` with `videos/<short-name>.counts.csv`
+alongside it, the same pairing as `videos/test.mov` / `videos/test.counts.csv`.
+
+**Privacy.** The clip is a temporary aid for this measurement, not a project asset:
+keep it local, do not commit it, and delete it once `count_eval` has scored it —
+the ground-truth protocol in `.planning/PLAN.md` (S7) calls for "a reference clip
+recorded on a separate device and deleted after scoring; the Pi never stores frames".
+
 ---
 
 ## 3. Comparability across versions

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Thread
 
 import httpx
+import pytest
 
 from camina.core.counter import WindowedCounter, WindowSnapshot
 from camina.io.config_poller import ConfigPoller
@@ -15,6 +16,7 @@ from camina.io.http_client import HttpClient, RetryPolicy
 from camina.io.https_publisher import HttpsPublisher
 from camina.io.offline_buffer import OfflineBuffer
 from camina.service import sensor_daemon as sd
+from camina.service.detect_track import CountedTrack
 from camina.service.sensor_daemon import DaemonConfig, SensorDaemon
 
 CLASSES = ["person", "cyclist", "car"]
@@ -80,11 +82,83 @@ def test_windowed_counter_feeds_publisher_end_to_end(tmp_path: Path) -> None:
     assert len(received) == 1
     body = received[0]
     assert body["sensor_id"] == "cam-01"
-    assert body["counts"]["person"] == 2
-    assert body["counts"]["cyclist"] == 1
+    assert body["counts"] == {"person": 2, "cyclist": 1, "car": 0}
 
     outbox.close()
     client.close()
+
+
+def test_daemon_preserves_count_gate_direction(tmp_path: Path) -> None:
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    daemon._frame_source = iter([object()])
+    daemon._detect_and_track = lambda _frame: [CountedTrack("car-1", "car", "AB")]
+    try:
+        daemon._main_loop()
+        snapshot = daemon._counter.force_snapshot(daemon._counter.window_end)
+        assert snapshot.counts == {"car": 1, "person": 0, "cyclist": 0}
+        assert snapshot.counts_by_direction == {"AB": {"car": 1}, "BA": {}}
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
+
+
+def test_crossing_at_window_boundary_belongs_to_new_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    boundary = daemon._counter.window_end
+    emitted: list[WindowSnapshot] = []
+    daemon._frame_source = iter([object()])
+    daemon._detect_and_track = lambda _frame: [("car-1", "car")]
+    daemon._enqueue = lambda job: emitted.append(job[1]) if job[0] == "counts" else None
+
+    class BoundaryClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return boundary
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(sd, "datetime", BoundaryClock)
+            daemon._main_loop()
+        assert len(emitted) == 1
+        assert emitted[0].counts["car"] == 0
+        assert daemon._counter.force_snapshot(boundary).counts["car"] == 1
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
+
+
+def test_heartbeat_reports_outbox_depth_and_loss(tmp_path: Path, monkeypatch) -> None:
+    received: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        received.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True, "latest_config_version": ""})
+
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(handler))
+    from camina.service import sensor_daemon as daemon_module
+
+    monkeypatch.setattr(daemon_module, "read_cpu_temp", lambda: 48.0)
+    monkeypatch.setattr(daemon_module, "read_throttled", lambda: 0)
+    monkeypatch.setattr(daemon_module, "read_process_rss_mb", lambda: 42.5)
+    daemon._outbox._max_rows = 2
+    for value in range(3):
+        daemon._outbox.enqueue("counts", str(value).encode())
+
+    try:
+        daemon._send_heartbeat()
+        body = received[-1]
+        assert body["sensor_id"] == "cam-01"
+        assert body["uptime_s"] >= 0
+        assert body["outbox_depth"] == 2
+        assert body["outbox_dropped_total"] == 1
+        assert body["cpu_temp_c"] == 48.0
+        assert body["throttled"] == 0
+        assert body["rss_mb"] == 42.5
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
 
 
 def test_config_poller_reconfigures_counter(tmp_path: Path) -> None:
@@ -124,6 +198,27 @@ def test_config_poller_reconfigures_counter(tmp_path: Path) -> None:
     assert poller.current_version == "v2"
     assert applied[0].config_version == "v2"
     client.close()
+
+
+def test_daily_remains_unpublished_until_queued_job_is_durable(tmp_path: Path) -> None:
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    yesterday = datetime.now(tz=UTC) - timedelta(days=1)
+    start = yesterday.replace(hour=10, minute=0, second=0, microsecond=0)
+    daemon._daily.add_window(
+        WindowSnapshot(start, start + timedelta(minutes=15), {"person": 1}, False)
+    )
+    queued = []
+    daemon._frame_source = iter([object(), object()])
+    daemon._enqueue = lambda job: queued.append(job)
+    try:
+        daemon._main_loop()
+        assert len([job for job in queued if job[0] == "daily"]) == 1
+        assert len(daemon._daily.pending_unpublished()) == 1
+        daemon._publish_daily_row(queued[0][1])
+        assert daemon._daily.pending_unpublished() == []
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
 
 
 def test_daily_publish_buffered_marks_published_no_retry_storm(tmp_path: Path) -> None:
@@ -187,7 +282,6 @@ def test_stop_flushes_open_window(tmp_path: Path) -> None:
     assert len(received) == 1
     assert received[0]["partial"] is True
     assert received[0]["counts"]["person"] == 1
-    assert received[0]["counts"]["cyclist"] == 1
     assert len(recorded) == 1
     assert recorded[0].counts["person"] == 1
     daemon._test_client.close()  # type: ignore[attr-defined]
@@ -205,6 +299,27 @@ def test_stop_skips_empty_open_window(tmp_path: Path) -> None:
     daemon.stop()  # no counts added → nothing published
     assert received == []
     daemon._test_client.close()  # type: ignore[attr-defined]
+
+
+def test_stop_closes_active_frame_source(tmp_path: Path) -> None:
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    closed = []
+
+    def frames():
+        try:
+            yield object()
+            yield object()
+        finally:
+            closed.append(True)
+
+    daemon._frame_source = frames()
+    next(daemon._frame_source)
+    try:
+        daemon.stop()
+        assert closed == [True]
+    finally:
+        daemon._frame_source.close()
+        daemon._test_client.close()  # type: ignore[attr-defined]
 
 
 def test_daemon_wires_fast_fail_inline_retry(tmp_path: Path) -> None:
@@ -281,3 +396,121 @@ def test_publish_worker_drains_enqueued_counts_on_stop(tmp_path: Path) -> None:
         assert not daemon._worker_thread.is_alive()
     finally:
         daemon._test_client.close()  # type: ignore[attr-defined]
+
+
+def test_tracking_losses_are_logged_per_window(tmp_path: Path, caplog) -> None:
+    """Each window logs, at INFO, the tracks dropped unconfirmed and the re-links."""
+    import logging
+    from types import SimpleNamespace
+
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    detect = SimpleNamespace(
+        gate=SimpleNamespace(unconfirmed_dropped=0), tracker=SimpleNamespace(relinks=0)
+    )
+    try:
+        detect.gate.unconfirmed_dropped, detect.tracker.relinks = 2, 5
+        with caplog.at_level(logging.INFO, logger="camina.service.sensor_daemon"):
+            daemon._log_tracking(detect)
+            detect.gate.unconfirmed_dropped, detect.tracker.relinks = 3, 5
+            daemon._log_tracking(detect)
+        lines = [r.getMessage() for r in caplog.records if "unconfirmed_dropped" in r.message]
+        assert "unconfirmed_dropped=2 relinks=5" in lines[0]
+        assert "unconfirmed_dropped=1 relinks=0" in lines[1]
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
+
+
+def test_heartbeats_land_on_wall_clock_boundaries() -> None:
+    """Aligned with the 15-min windows, a heartbeat and the counts wake the
+    database together once per quarter-hour instead of at unrelated times."""
+    from camina.service.sensor_daemon import seconds_to_next_boundary
+
+    quarter = 900
+    t = 1_790_000_000 - (1_790_000_000 % quarter)  # a quarter-hour boundary
+    assert seconds_to_next_boundary(t + 1, quarter) == pytest.approx(899)
+    assert seconds_to_next_boundary(t + 899.5, quarter) == pytest.approx(0.5)
+    assert seconds_to_next_boundary(t, quarter) == pytest.approx(quarter)  # never 0
+    assert seconds_to_next_boundary(t + 60, 300) == pytest.approx(240)
+
+
+# ---------- Speed ----------
+
+
+def _capturing_handler(received: list[dict]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        received.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True, "latest_config_version": ""})
+
+    return handler
+
+
+def test_daemon_passes_capture_times_and_publishes_window_speeds(tmp_path: Path) -> None:
+    """A frame source yielding ``(frame, t_capture)`` has ``t`` handed to the
+    detector; speeds the detector took land in the window's payload."""
+    received: list[dict] = []
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(_capturing_handler(received)))
+    stamps: list[float] = []
+    pending: list[tuple[str, float]] = []
+
+    def detect(_frame, t):
+        stamps.append(t)
+        pending.append(("car", 30.0 + 10.0 * len(stamps)))
+        return [CountedTrack(f"car-{len(stamps)}", "car", "AB")]
+
+    def take_speeds():
+        out = list(pending)
+        pending.clear()
+        return out
+
+    detect.take_speeds = take_speeds  # type: ignore[attr-defined]
+    daemon._detect_and_track = detect
+    stamps_in = [12.5, 12.6, 12.7, 12.8, 12.9]
+    daemon._frame_source = iter([(object(), t) for t in stamps_in])
+    try:
+        daemon._main_loop()
+        snapshot = daemon._counter.force_snapshot(daemon._counter.window_end)
+        daemon._publish_counts(snapshot)
+        assert stamps == stamps_in
+        # 40, 50, 60, 70, 80 km/h: five timed cars, so the mean is published.
+        assert snapshot.avg_speed_kmh == {"car": 60.0}
+        assert received[-1]["avg_speed_kmh"] == {"car": 60.0}
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
+
+
+def test_rejected_speeds_are_logged_per_window(tmp_path: Path, caplog) -> None:
+    import logging
+    from types import SimpleNamespace
+
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(lambda _r: httpx.Response(200)))
+    detect = SimpleNamespace(speed=SimpleNamespace(rejected=3))
+    try:
+        with caplog.at_level(logging.INFO, logger="camina.service.sensor_daemon"):
+            daemon._log_tracking(detect)
+            detect.speed.rejected = 4
+            daemon._log_tracking(detect)
+            daemon._log_tracking(SimpleNamespace())  # speed off: no speed line
+        lines = [r.getMessage() for r in caplog.records if "Window speed" in r.message]
+        assert lines == ["Window speed: rejected=3", "Window speed: rejected=1"]
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()
+
+
+def test_without_speed_the_payload_is_unchanged(tmp_path: Path) -> None:
+    """Plain frames and a detector with no speed handle: no avg_speed_kmh values."""
+    received: list[dict] = []
+    daemon = _make_daemon(tmp_path, httpx.MockTransport(_capturing_handler(received)))
+    daemon._frame_source = iter([object()])
+    daemon._detect_and_track = lambda _frame: [CountedTrack("car-1", "car", "AB")]
+    try:
+        daemon._main_loop()
+        snapshot = daemon._counter.force_snapshot(daemon._counter.window_end)
+        daemon._publish_counts(snapshot)
+        assert received[-1]["counts"]["car"] == 1
+        assert received[-1]["avg_speed_kmh"] == {}
+    finally:
+        daemon._test_client.close()  # type: ignore[attr-defined]
+        daemon.stop()

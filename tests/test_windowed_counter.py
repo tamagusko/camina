@@ -86,6 +86,24 @@ def test_different_track_ids_in_window_each_count() -> None:
     assert snap.counts["cyclist"] == 3
 
 
+def test_directional_counts_are_aggregated_per_class() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    c.add(1, "car", start + timedelta(seconds=1), direction="AB")
+    c.add(2, "car", start + timedelta(seconds=2), direction="BA")
+    c.add(3, "person", start + timedelta(seconds=3), direction="AB")
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.counts_by_direction == {"AB": {"car": 1, "person": 1}, "BA": {"car": 1}}
+
+
+def test_movement_counts_have_no_directional_map() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    c.add(1, "car", start + timedelta(seconds=1))
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.counts_by_direction is None
+
+
 def test_same_track_id_across_windows_counts_per_window() -> None:
     start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
     c = _start_counter(start)
@@ -182,3 +200,58 @@ def test_snapshot_total_helper() -> None:
     c.add(3, "cyclist", start + timedelta(seconds=3))
     snap = c.force_snapshot(start + timedelta(seconds=10))
     assert snap.total() == 3
+
+
+# ---------- Speeds ----------
+
+
+def test_window_average_speed_is_the_mean_of_the_measured_tracks_per_class() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    for kmh in (30.0, 35.0, 40.0, 45.0, 50.0):
+        c.add_speed("car", kmh)
+    for kmh in (18.04, 18.0, 18.0, 18.0, 17.96):
+        c.add_speed("cyclist", kmh)
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.avg_speed_kmh == {"car": 40.0, "cyclist": 18.0}
+
+
+def test_a_speed_needs_at_least_k_min_timed_road_users() -> None:
+    # Privacy: a mean over fewer than 5 vehicles is close to one person's speed.
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    for kmh in (30.0, 40.0, 50.0, 60.0):
+        c.add_speed("car", kmh)
+    for _ in range(5):
+        c.add_speed("cyclist", 20.0)
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.avg_speed_kmh == {"cyclist": 20.0}
+
+
+def test_classes_without_a_speed_are_omitted_and_unknown_classes_ignored() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    c.add(1, "person", start + timedelta(seconds=1))
+    for _ in range(5):
+        c.add_speed("car", 25.0)
+        c.add_speed("tram", 30.0)
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.avg_speed_kmh == {"car": 25.0}
+
+
+def test_speeds_reset_at_each_window() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    for _ in range(5):
+        c.add_speed("car", 25.0)
+    first = c.maybe_rollover(start + timedelta(minutes=15))
+    second = c.force_snapshot(start + timedelta(minutes=30))
+    assert first is not None and first.avg_speed_kmh == {"car": 25.0}
+    assert second.avg_speed_kmh == {}
+
+
+def test_without_speeds_the_snapshot_has_an_empty_speed_map() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    c.add(1, "car", start + timedelta(seconds=1))
+    assert c.force_snapshot(start + timedelta(minutes=15)).avg_speed_kmh == {}

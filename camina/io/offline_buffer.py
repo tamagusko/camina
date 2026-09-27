@@ -29,14 +29,18 @@ class SendOutcome(str, Enum):
     """Tri-state result a sender reports for one outbox item.
 
     ``SENT``  → delivered; delete the row.
-    ``RETRY`` → transient failure (transport error / 5xx / 408/425/429); stop
-                draining and preserve FIFO order so we retry later.
+    ``RETRY`` → server answered with 5xx or 429; charge an attempt, stop
+                draining, and preserve FIFO order so we retry later.
+    ``STOP``   → no retryable server failure was observed (transport failure,
+                timeout, 408, or 425); stop draining without charging an
+                attempt and preserve FIFO order.
     ``DROP``  → permanent rejection (4xx other than 408/425/429); delete the
                 row so a poison message cannot wedge the queue forever.
     """
 
     SENT = "sent"
     RETRY = "retry"
+    STOP = "stop"
     DROP = "drop"
 
 
@@ -121,11 +125,24 @@ class OfflineBuffer:
             raise TypeError("payload must be bytes")
         now = int(time.time())
         with self._lock:
-            self._drop_to_cap_locked(reserve=1)
-            cursor = self._conn.execute(
-                "INSERT INTO outbox (endpoint, payload, enqueued_at) VALUES (?, ?, ?)",
-                (endpoint, payload, now),
-            )
+            self._conn.execute("BEGIN")
+            try:
+                dropped = self._drop_to_cap_locked(reserve=1)
+                cursor = self._conn.execute(
+                    "INSERT INTO outbox (endpoint, payload, enqueued_at) VALUES (?, ?, ?)",
+                    (endpoint, payload, now),
+                )
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+            if dropped:
+                self._dropped += dropped
+                logger.warning(
+                    "OfflineBuffer: dropped %d oldest rows to enforce cap (total dropped=%d)",
+                    dropped,
+                    self._dropped,
+                )
             return int(cursor.lastrowid)
 
     def drain(
@@ -144,7 +161,9 @@ class OfflineBuffer:
           deleted and ``stats().poisoned`` is incremented so it cannot wedge
           the FIFO forever. Draining continues.
         - ``RETRY`` → the row's ``attempts`` counter is incremented and draining
-          stops, preserving FIFO order so we don't hammer a failing backend.
+          stops. This is reserved for server 5xx/429 responses.
+        - ``STOP`` → draining stops without incrementing attempts, for failures
+          where no eligible server response was received.
 
         Safety valve: any row whose ``attempts`` has reached ``max_attempts`` is
         dropped (counted as poisoned) before ``send_fn`` is called, so a row
@@ -174,7 +193,7 @@ class OfflineBuffer:
                     outcome = _normalize_outcome(send_fn(item))
                 except Exception:
                     logger.exception("send_fn raised on outbox item %d", item.id)
-                    outcome = SendOutcome.RETRY
+                    outcome = SendOutcome.STOP
                 if outcome is SendOutcome.SENT:
                     self._delete_locked(item.id)
                     sent += 1
@@ -187,11 +206,13 @@ class OfflineBuffer:
                         item.endpoint,
                         self._poisoned,
                     )
-                else:  # RETRY
+                elif outcome is SendOutcome.RETRY:
                     self._conn.execute(
                         "UPDATE outbox SET attempts = attempts + 1 WHERE id = ?",
                         (item.id,),
                     )
+                    break
+                else:  # STOP
                     break
         return sent
 
@@ -237,22 +258,17 @@ class OfflineBuffer:
     def _delete_locked(self, row_id: int) -> None:
         self._conn.execute("DELETE FROM outbox WHERE id = ?", (row_id,))
 
-    def _drop_to_cap_locked(self, reserve: int) -> None:
+    def _drop_to_cap_locked(self, reserve: int) -> int:
         """Ensure ``pending + reserve <= max_rows`` by deleting oldest rows."""
         pending = self._conn.execute("SELECT COUNT(*) FROM outbox").fetchone()[0]
         need_to_drop = pending + reserve - self._max_rows
         if need_to_drop <= 0:
-            return
+            return 0
         self._conn.execute(
             "DELETE FROM outbox WHERE id IN (SELECT id FROM outbox ORDER BY id ASC LIMIT ?)",
             (need_to_drop,),
         )
-        self._dropped += need_to_drop
-        logger.warning(
-            "OfflineBuffer: dropped %d oldest rows to enforce cap (total dropped=%d)",
-            need_to_drop,
-            self._dropped,
-        )
+        return int(need_to_drop)
 
 
 __all__ = [

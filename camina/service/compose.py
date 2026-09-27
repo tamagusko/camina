@@ -13,8 +13,9 @@ from pathlib import Path
 import numpy as np
 
 from camina.core.counting import CountGate, Screenline
+from camina.core.speed import SpeedEstimator
 from camina.service.camera import picamera2_frame_source
-from camina.service.detect_track import make_detect_and_track
+from camina.service.detect_track import DetectResult, make_detect_and_track
 from camina.service.sensor_daemon import DaemonConfig, SensorDaemon
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,11 @@ def compose(
     imgsz: int = 640,
     conf: float = 0.3,
     *,
-    camera_factory: Callable[[int], Iterator[np.ndarray]] = picamera2_frame_source,
+    camera_factory: Callable[[int], Iterator[np.ndarray | tuple[np.ndarray, float]]] = (
+        picamera2_frame_source
+    ),
     detect_factory: Callable[
-        ..., Callable[[np.ndarray], Iterable[tuple[str, str]]]
+        ..., Callable[[np.ndarray], Iterable[DetectResult]]
     ] = make_detect_and_track,
 ) -> SensorDaemon:
     """Compose a production ``SensorDaemon`` from config + NCNN model.
@@ -49,7 +52,9 @@ def compose(
             in-memory generators.
         detect_factory: Callable building the ``detect_and_track`` closure.
             Receives ``ncnn_model_path``, ``classes``, ``imgsz``, ``conf`` and
-            ``gate`` (a ``CountGate`` built from ``cfg``) as kwargs. CI tests
+            ``gate`` (a ``CountGate`` built from ``cfg``), ``max_occlusion_s``,
+            ``min_class_hits``, ``relink`` and ``speed`` (a ``SpeedEstimator``
+            when ``cfg.speed`` is set, else ``None``) as kwargs. CI tests
             inject a no-op returning ``[]`` per frame.
 
     Returns:
@@ -72,6 +77,16 @@ def compose(
         gate=CountGate(
             screenline=Screenline(*cfg.screenline) if cfg.screenline else None,
             min_move=cfg.min_move,
+            # Outlive the tracker's occlusion, or a revived track counts twice.
+            forget_after_s=2 * cfg.max_occlusion_s,
+        ),
+        max_occlusion_s=cfg.max_occlusion_s,
+        min_class_hits=cfg.min_class_hits,
+        relink=cfg.relink,
+        speed=(
+            SpeedEstimator(cfg.speed, forget_after_s=2 * cfg.max_occlusion_s)
+            if cfg.speed is not None
+            else None
         ),
     )
     return SensorDaemon(

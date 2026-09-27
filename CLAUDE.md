@@ -26,7 +26,7 @@ scripts/hand_count.py --video videos/test.mov --screenline 0.65 0.15 0.65 0.72 -
 # Pi runtime profile — what the device installs (docs/raspberry_pi_5.md)
 pip install --no-deps -r requirements-pi.txt
 
-# Dashboard (Node 20.11+, pnpm)
+# Dashboard (Node 22.12+, pnpm)
 scripts/run_dashboard.sh                                # mock mode → http://localhost:3000/dublin
 cd dashboard && pnpm lint && pnpm typecheck && pnpm test && pnpm build
 ```
@@ -57,7 +57,8 @@ makes them) and `CAMINA_DATA_SOURCE` unset — a test checks the production fail
 - **The daemon must not import PyTorch or Ultralytics** (`tests/test_pi_runtime.py`).
 - **`imgsz` is 640** and must equal the NCNN export's `metadata.yaml`; a mismatch gives garbage boxes.
 - **`NEXT_PUBLIC_CAMINA_DEV_ADMIN` never ships to production** (guard in `dashboard/next.config.mjs`).
-- **Free tiers only** (Vercel Hobby, Neon free). Dublin only.
+- **Free tiers only** (Vercel Hobby, Neon free). Dublin only. Hence heartbeats every 15 min
+  (`CAMINA_HEARTBEAT_MINUTES`, `dashboard/src/lib/heartbeat.ts`); the goal is 5 min once paid.
 
 ## Gotchas
 

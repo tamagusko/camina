@@ -22,7 +22,8 @@ classes:
 
 # Defaults used until the first successful backend contact.
 publish_interval_seconds: 900      # 15 min
-heartbeat_interval_seconds: 600    # 10 min
+heartbeat_interval_seconds: 900    # 15 min in the pilot (free database); goal 5 min.
+                                   # The dashboard's CAMINA_HEARTBEAT_MINUTES wins.
 outbox_max_rows: 10000             # ~10 days of 15-min windows + heartbeats
 
 # NCNN inference: CAMINAv1 (TRA 2026 YOLO11n). imgsz must equal the export
@@ -48,3 +49,26 @@ conf_threshold: 0.3
 #   from where it was first seen (both modes), so jitter on the line never counts.
 # screenline: [[0.65, 0.15], [0.65, 0.85]]
 min_move: 1.0
+
+# Tracking (camina/core/tracker.py).
+max_occlusion_s: 5.0   # seconds a hidden road user keeps its track (any frame rate)
+min_class_hits: 3      # detections of its winning class before a track counts under it
+relink: false          # re-link a track after an occlusion: off, it doubled the error on
+                       # the hand-counted clip (docs/benchmarks/2026-09-27_tracker_occlusion.md)
+
+# Speed (camina/core/speed.py). Off unless this block is present; without it
+# the payload's avg_speed_kmh stays empty. Calibrate per site first:
+# docs/CALIBRATION_SETUP.md. Not yet validated against a reference speed.
+# A class speed is published only over >= 5 timed road users (k_min).
+# - line_a, line_b: two lines across the road, [x, y] in fractions of the frame,
+#   both drawn in the same orientation (e.g. both top to bottom), at the two
+#   marks on the road.
+# - distance_m: ground distance between the two marks along the road, metres.
+# - max_kmh: faster measurements are rejected as implausible (default 150).
+# A track timed from one line to the other gives distance_m / time; the
+# window publishes each class's mean over its timed tracks.
+# speed:
+#   line_a: [[0.30, 0.20], [0.30, 0.90]]
+#   line_b: [[0.70, 0.20], [0.70, 0.90]]
+#   distance_m: 20.0
+#   max_kmh: 150

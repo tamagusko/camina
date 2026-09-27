@@ -4,6 +4,7 @@ import {
   dailyPayloadSchema,
   heartbeatPayloadSchema,
   readingsQuerySchema,
+  sensorConfigResponseSchema,
 } from "@/lib/schemas";
 
 describe("countsPayloadSchema", () => {
@@ -56,6 +57,39 @@ describe("countsPayloadSchema", () => {
     expect(() => countsPayloadSchema.parse(bad)).toThrow();
   });
 
+  it("accepts directional counts when they sum to the published total", () => {
+    const directional = {
+      ...valid,
+      schema_version: "1.1",
+      counts: { car: 5 },
+      counts_by_direction: { AB: { car: 2 }, BA: { car: 3 } },
+    };
+    expect(() => countsPayloadSchema.parse(directional)).not.toThrow();
+  });
+
+  it("rejects invalid direction keys and directional sum mismatches", () => {
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        counts_by_direction: { AB: { car: 2 }, CA: { car: 1 } },
+      })
+    ).toThrow();
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        counts: { car: 5 },
+        counts_by_direction: { AB: { car: 5 } },
+      })
+    ).toThrow();
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        counts: { car: 5 },
+        counts_by_direction: { AB: { car: 1 } },
+      })
+    ).toThrow();
+  });
+
   it("rejects window_end <= window_start", () => {
     const bad = { ...valid, window_end: valid.window_start };
     expect(() => countsPayloadSchema.parse(bad)).toThrow();
@@ -81,6 +115,101 @@ describe("countsPayloadSchema", () => {
     const { sensor_id: _omit, ...rest } = valid;
     expect(() => countsPayloadSchema.parse(rest)).toThrow();
   });
+
+  it("accepts schema 1.1 direction counts whose cells sum to each class total", () => {
+    const directional = {
+      ...valid,
+      schema_version: "1.1",
+      counts_by_direction: {
+        AB: { person: 40, cyclist: 91 },
+        BA: { person: 28 },
+      },
+    };
+    expect(() => countsPayloadSchema.parse(directional)).not.toThrow();
+  });
+
+  it("rejects unknown direction and class keys", () => {
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        schema_version: "1.1",
+        counts_by_direction: { north: { person: 68 } },
+      })
+    ).toThrow();
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        schema_version: "1.1",
+        counts_by_direction: { AB: { unicycle: 68 } },
+      })
+    ).toThrow();
+  });
+
+  it("rejects direction cells outside the count bounds", () => {
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        schema_version: "1.1",
+        counts_by_direction: { AB: { person: 65536 } },
+      })
+    ).toThrow();
+  });
+
+  it("rejects direction totals that do not equal counts", () => {
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        schema_version: "1.1",
+        counts_by_direction: { AB: { person: 40 }, BA: { person: 27 } },
+      })
+    ).toThrow();
+  });
+
+  it("requires schema 1.1 when direction is present and 1.0 when absent", () => {
+    expect(() =>
+      countsPayloadSchema.parse({
+        ...valid,
+        counts_by_direction: { AB: { person: 68, cyclist: 91 } },
+      })
+    ).toThrow();
+    expect(() =>
+      countsPayloadSchema.parse({ ...valid, schema_version: "1.1" })
+    ).toThrow();
+  });
+});
+
+describe("sensorConfigResponseSchema", () => {
+  const config = {
+    config_version: "cfg-2",
+    publish_interval_minutes: 15,
+    heartbeat_interval_minutes: 5,
+    daily_publish_time_utc: "00:00",
+    detection_zone: null,
+    frame_skip: 5,
+    min_track_hits: 3,
+  };
+
+  it("accepts the config response consumed by the edge poller", () => {
+    expect(sensorConfigResponseSchema.parse(config)).toEqual(config);
+  });
+
+  it("applies the edge schema defaults", () => {
+    const { daily_publish_time_utc: _time, detection_zone: _zone, ...minimal } =
+      config;
+    expect(sensorConfigResponseSchema.parse(minimal)).toMatchObject({
+      daily_publish_time_utc: "00:00",
+      detection_zone: null,
+    });
+  });
+
+  it("rejects invalid or unknown config fields", () => {
+    expect(() =>
+      sensorConfigResponseSchema.parse({ ...config, frame_skip: 0 })
+    ).toThrow();
+    expect(() =>
+      sensorConfigResponseSchema.parse({ ...config, debug: true })
+    ).toThrow();
+  });
 });
 
 describe("dailyPayloadSchema", () => {
@@ -98,6 +227,25 @@ describe("dailyPayloadSchema", () => {
       })
     ).toThrow();
   });
+
+  // The day goes into a Postgres date column: an impossible date passed the
+  // regex and made the insert throw, a 500 instead of a 400.
+  it("rejects a day that is not a calendar date", () => {
+    const payload = {
+      schema_version: "1.0",
+      sensor_id: "cam-dub-01",
+      totals: { person: 1 },
+      window_count: 1,
+      config_version: "abc",
+      fw_version: "0.2.0",
+      produced_at: "2026-04-22T00:00:00Z",
+    };
+    expect(dailyPayloadSchema.safeParse({ ...payload, day: "2026-02-28" }).success).toBe(true);
+    expect(dailyPayloadSchema.safeParse({ ...payload, day: "2028-02-29" }).success).toBe(true);
+    for (const day of ["2026-02-30", "2026-02-29", "2026-13-01", "2026-04-31", "2026-00-10"]) {
+      expect(dailyPayloadSchema.safeParse({ ...payload, day }).success, day).toBe(false);
+    }
+  });
 });
 
 describe("heartbeatPayloadSchema", () => {
@@ -111,6 +259,26 @@ describe("heartbeatPayloadSchema", () => {
 
   it("accepts a minimal payload", () => {
     expect(() => heartbeatPayloadSchema.parse(minimal)).not.toThrow();
+  });
+
+  it("accepts outbox telemetry and rejects negative values", () => {
+    expect(() =>
+      heartbeatPayloadSchema.parse({ ...minimal, outbox_depth: 12, outbox_dropped_total: 3 })
+    ).not.toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, outbox_depth: -1 })).toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, outbox_dropped_total: -1 })).toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, outbox_depth: 1.5 })).toThrow();
+  });
+
+  it("accepts optional Pi hardware telemetry", () => {
+    expect(() =>
+      heartbeatPayloadSchema.parse({ ...minimal, throttled: 0x50000, rss_mb: 128.25 })
+    ).not.toThrow();
+    expect(() =>
+      heartbeatPayloadSchema.parse({ ...minimal, throttled: null, rss_mb: null })
+    ).not.toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, throttled: -1 })).toThrow();
+    expect(() => heartbeatPayloadSchema.parse({ ...minimal, rss_mb: -0.1 })).toThrow();
   });
 
   it("rejects unknown keys (strict)", () => {

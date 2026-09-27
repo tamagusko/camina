@@ -3,342 +3,201 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { Map as MaplibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-
-import { CITY_VIEWS, CIVIDIS_5, VIRIDIS_5, initialViewBounds, rampExpression } from "@/lib/geo";
-import { ROAD_USER_CLASSES, type Metric, type MetricValue, type RoadUserClass, type StreetSummary, type TimeWindow } from "@/lib/types";
+import { CITY_VIEWS, USUAL_RAMP, VIRIDIS_5, initialViewBounds, mapColourValue, rampExpression, selectionOpacity, streetCentre, streetPaintStatus, usualExpression, type MapMode } from "@/lib/geo";
+import { usualLevel } from "@/lib/typical";
+import { cn } from "@/lib/cn";
+import { formatDublinUpdated } from "@/lib/format-time";
+import type { Metric, MetricValue, RoadUserClass, StreetSummary, TimeWindow } from "@/lib/types";
+import { MAP_CREDIT_HTML, MapCredit } from "@/components/layout/CreditFooter";
+import { MockBadge } from "@/components/layout/MockBadge";
 import { ClassFilter } from "./ClassFilter";
 import { ColourLegend } from "./ColourLegend";
 import { MetricToggle } from "./MetricToggle";
 import { TimeWindowPicker } from "./TimeWindowPicker";
 import { useMapQuery, type Viewport } from "./useMapQuery";
 
-// Basemap: OpenFreeMap's Positron style (vector tiles, no API key, no quota).
-// It is fetched live, so the map needs internet. Carto was dropped on
-// 2026-09-22: it watermarks every keyless tile.
-const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
-
-// MapLibre GL 6 cannot locate its worker once bundled; the worker is served
-// from public/ (scripts/copy-maplibre-worker.mjs runs before dev and build).
 const MAPLIBRE_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
+// One light theme: a white, quiet basemap under the coloured streets.
+const BASEMAP = "https://tiles.openfreemap.org/styles/positron";
+interface Shown { rows: MetricValue[]; metric: Metric; timeWindow: TimeWindow; }
+interface Props { city: string; streets: StreetSummary[]; initialMetrics: MetricValue[]; mock?: boolean; selectedId?: string | null; onSelectStreet?: (streetId: string) => void; onShowAll?: () => void; }
 
-
-interface Props {
-  city: string;
-  streets: StreetSummary[];
-  initialMetrics: MetricValue[];
-  onSelectStreet?: (streetId: string) => void;
-  onMetricsChange?: (metrics: MetricValue[]) => void;
-}
-
-const RAMPS = { counts: VIRIDIS_5, speed: CIVIDIS_5 } as const;
-const UNITS = { counts: "/ 15 min", speed: "km/h" } as const;
-
-export function StreetMap({ city, streets, initialMetrics, onSelectStreet, onMetricsChange }: Props) {
+export function StreetMap({ city, streets, initialMetrics, mock = false, selectedId = null, onSelectStreet, onShowAll }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const streetsButtonRef = useRef<HTMLButtonElement>(null);
   const mapRef = useRef<MaplibreMap | null>(null);
-
-  const [metric, setMetric] = useState<Metric>("counts");
-  const [classes, setClasses] = useState<RoadUserClass[]>([...ROAD_USER_CLASSES]);
-  const [timeWindow, setTimeWindow] = useState<TimeWindow>("1h");
-  const [metrics, setMetrics] = useState<MetricValue[]>(initialMetrics);
+  const mapViewRef = useRef<Viewport | null>(null);
+  const [mode, setMode] = useState<MapMode>("counts");
+  // "vs usual" colours the counts against their usual level: same fetch.
+  const metric: Metric = mode === "speed" ? "speed" : "counts";
+  const [selectedClass, setSelectedClass] = useState<RoadUserClass | null>(null);
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>("now");
+  // Rows are kept with the metric and window they were fetched for, so the map
+  // never colours old rows by a newly selected window's scale.
+  const [shown, setShown] = useState<Shown>({ rows: initialMetrics, metric: "counts", timeWindow: "now" });
   const [mapReady, setMapReady] = useState(false);
-
-  const fallback = useMemo<Viewport>(
-    () => CITY_VIEWS[city] ?? { center: [-6.26, 53.35], zoom: 13 },
-    [city]
-  );
+  const [streetsOpen, setStreetsOpen] = useState(false);
+  const fallback = useMemo<Viewport>(() => CITY_VIEWS[city] ?? { center: [-6.26, 53.35], zoom: 13 }, [city]);
   const { viewport, attachTo, pinned } = useMapQuery(fallback);
+  const selectedName = streets.find((s) => s.id === selectedId)?.displayName ?? null;
+  const lastSeen = shown.rows.map((m) => m.lastSeen).filter((v): v is string => !!v).sort().at(-1);
 
-  // Re-fetch metrics when the user changes filters, and keep an idle open map
-  // current by polling every 5 minutes. The first poll aligns to shortly after
-  // the next 15-min window boundary (when new counts land); after that it runs
-  // on a plain 5-min cadence. All timers are cleared on unmount / filter change.
+  useEffect(() => {
+    if (!streetsOpen) return;
+    listRef.current?.querySelector("button")?.focus();
+    const outside = (event: PointerEvent) => { if (!headerRef.current?.contains(event.target as Node)) setStreetsOpen(false); };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [streetsOpen]);
+
   useEffect(() => {
     const url = new URL("/api/metrics", window.location.origin);
     url.searchParams.set("city", city);
     url.searchParams.set("metric", metric);
     url.searchParams.set("window", timeWindow);
-    if (classes.length !== ROAD_USER_CLASSES.length) {
-      for (const c of classes) url.searchParams.append("class", c);
-    }
+    if (selectedClass) url.searchParams.set("class", selectedClass);
     let cancelled = false;
-    const run = () =>
-      fetch(url.toString(), { cache: "no-store" })
-        .then((r) => r.json())
-        .then((data: MetricValue[]) => {
-          if (cancelled) return;
-          setMetrics(data);
-          onMetricsChange?.(data);
-        })
-        .catch(() => {});
+    const run = () => fetch(url.toString(), { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("Metrics unavailable"); return r.json() as Promise<MetricValue[]>; }).then((rows) => { if (!cancelled) setShown({ rows, metric, timeWindow }); }).catch(() => {});
+    run();
+    const refresh = setInterval(run, 5 * 60_000);
+    return () => { cancelled = true; clearInterval(refresh); };
+  }, [city, metric, selectedClass, timeWindow]);
 
-    run(); // immediate fetch on mount / filter change
-
-    const REFRESH_MS = 5 * 60_000;
-    const BOUNDARY_MS = 15 * 60_000;
-    const msToBoundary = BOUNDARY_MS - (Date.now() % BOUNDARY_MS) + 5_000;
-    let intervalId: ReturnType<typeof setInterval> | undefined;
-    const timeoutId = setTimeout(() => {
-      run();
-      intervalId = setInterval(run, REFRESH_MS);
-    }, msToBoundary);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timeoutId);
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [city, metric, classes, timeWindow, onMetricsChange]);
-
-  // Initialise the map on mount.
   useEffect(() => {
     if (!containerRef.current) return;
-    // Diagnostic: dump every ancestor's clientHeight so we can spot the
-    // element that's collapsing to the wrong height.
-    {
-      const parts: string[] = [];
-      let el: HTMLElement | null = containerRef.current;
-      while (el) {
-        const tag = el.tagName.toLowerCase();
-        const cls = (el.getAttribute("class") ?? "").slice(0, 30);
-        parts.push(`${tag}.${cls}:${el.clientHeight}`);
-        el = el.parentElement;
-      }
-      parts.push(`window:${window.innerHeight}`);
-    }
     maplibregl.setWorkerUrl(MAPLIBRE_WORKER_URL);
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: BASEMAP_STYLE_URL,
-      center: viewport.center,
-      zoom: viewport.zoom,
-      minZoom: 12,   // city level — below this a street map is meaningless
-      maxZoom: 18,   // building level — enough to place a sensor
-      pitch: 0,
-      bearing: 0,
-      // Explicit interaction flags — defaults, but pinned here for clarity.
-      interactive: true,
-      dragPan: true,          // click-and-drag pan
-      scrollZoom: true,       // mouse-wheel / trackpad zoom
-      doubleClickZoom: true,  // double-click to zoom in
-      boxZoom: true,          // shift+drag to zoom to a region
-      keyboard: true,         // arrow keys pan, +/- zoom when map focused
-      touchZoomRotate: true,
-      dragRotate: false,      // keep map flat (no rotate gesture)
-      pitchWithRotate: false, // keep map flat (no pitch gesture)
-    });
-    console.info("[CAMINA] map created; streets incoming:", streets.length);
-
-    // Zoom in (+) / zoom out (-) buttons at bottom-right — classic maps layout.
-    map.addControl(
-      new maplibregl.NavigationControl({
-        visualizePitch: false,
-        showCompass: false,
-        showZoom: true,
-      }),
-      "bottom-right"
-    );
-
+    const savedView = mapViewRef.current;
+    const map = new maplibregl.Map({ container: containerRef.current, style: BASEMAP, center: savedView?.center ?? viewport.center, zoom: savedView?.zoom ?? viewport.zoom,
+      minZoom: 12, maxZoom: 18, pitch: 0, bearing: 0, dragRotate: false, pitchWithRotate: false, attributionControl: false });
+    // Phone: pinch and double-tap zoom; attribution is the sheet's last line.
+    if (window.matchMedia("(min-width: 768px)").matches) {
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+      map.addControl(new maplibregl.AttributionControl({ customAttribution: MAP_CREDIT_HTML }), "bottom-right");
+    }
     map.on("load", () => {
-      const fc: GeoJSON.FeatureCollection<GeoJSON.MultiLineString> = {
-        type: "FeatureCollection",
-        features: streets.map((s) => ({
-          type: "Feature",
-          id: s.id,
-          properties: { street_id: s.id, display_name: s.displayName },
-          geometry: s.geom,
-        })),
-      };
-      map.addSource("streets", { type: "geojson", data: fc, promoteId: "street_id" });
-
-      map.addLayer({
-        id: "streets-visible",
-        type: "line",
-        source: "streets",
-        layout: {
-          "line-cap": "round",
-          "line-join": "round",
-        },
-        paint: {
-          "line-color": "#afafaf",
-          "line-width": 4,
-        },
-      });
-
-      // Invisible wider hit-box (DESIGN.md §9-bis).
-      map.addLayer({
-        id: "streets-hit",
-        type: "line",
-        source: "streets",
-        paint: { "line-color": "#000000", "line-opacity": 0, "line-width": 22 },
-      });
-
-      map.on("click", "streets-hit", (e) => {
-        const id = e.features?.[0]?.properties?.street_id as string | undefined;
-        if (id && onSelectStreet) onSelectStreet(id);
-      });
-      map.on("mouseenter", "streets-hit", () => (map.getCanvas().style.cursor = "pointer"));
-      map.on("mouseleave", "streets-hit", () => (map.getCanvas().style.cursor = ""));
-
-      // Open on the streets themselves, not on the city centre — otherwise
-      // segments sit outside the first viewport and the map looks empty.
-      const bounds = initialViewBounds(streets, pinned);
-      if (bounds) {
-        map.fitBounds(bounds, { padding: 64, animate: false, maxZoom: 15 });
-      }
-      // Force a resize in case the container had zero dimensions at init
-      // time (can happen during strict-mode double-mount before final layout).
-      map.resize();
-      setMapReady(true);
-      console.info(
-        "[CAMINA] map ready; layers:",
-        map.getStyle().layers.map((l) => l.id),
-        "canvas:",
-        map.getCanvas().clientWidth + "×" + map.getCanvas().clientHeight
-      );
+      map.addSource("streets", { type: "geojson", data: featureCollection(streets, shown, mode) });
+      map.addLayer({ id: "streets-casing", type: "line", source: "streets", filter: ["==", ["get", "status"], "live"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(), "line-opacity": .9, "line-width": 7 } });
+      map.addLayer({ id: "streets-visible", type: "line", source: "streets", filter: ["!=", ["get", "status"], "stale"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": lineColour(paintMode(mode, shown)), "line-width": ["case", ["==", ["get", "status"], "suppressed"], 3, 4] as maplibregl.ExpressionSpecification } });
+      map.addLayer({ id: "streets-stale", type: "line", source: "streets", filter: ["==", ["get", "status"], "stale"], layout: { "line-cap": "butt" }, paint: { "line-color": getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim(), "line-width": 3, "line-dasharray": [2, 2] } });
+      map.addLayer({ id: "streets-hit", type: "line", source: "streets", paint: { "line-color": "#000", "line-opacity": 0, "line-width": 22 } });
+      map.on("click", "streets-hit", (event) => { const id = event.features?.[0]?.properties?.street_id as string | undefined; if (id) onSelectStreet?.(id); });
+      map.on("mouseenter", "streets-hit", () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "streets-hit", () => { map.getCanvas().style.cursor = ""; });
+      if (!pinned && !mapViewRef.current) { const bounds = initialViewBounds(streets, false); if (bounds) map.fitBounds(bounds, { padding: 64, animate: false, maxZoom: 15 }); }
+      map.resize(); setMapReady(true);
     });
-    map.on("error", (e) => {
-      console.error("[CAMINA] map error:", e?.error?.message ?? e);
-    });
-
+    map.on("error", (event) => console.error("Map error:", event.error));
     mapRef.current = map;
     const detach = attachTo(map);
-
-    // Observe the container so the canvas always matches its real dimensions,
-    // even if ancestor layout shifts (DevTools docking, window resize, etc.).
-    const ro = new ResizeObserver(() => {
-      map.resize();
-      const c = map.getCanvas();
-      console.info(
-        "[CAMINA] container resize → canvas:",
-        c.clientWidth + "×" + c.clientHeight
-      );
-    });
-    ro.observe(containerRef.current);
-
-    return () => {
-      ro.disconnect();
-      setMapReady(false);
-      detach();
-      map.remove();
-      mapRef.current = null;
-    };
-    // Map init is intentionally one-shot: city + street geometry are fixed
-    // per page load. If streets change later, we'd call getSource().setData().
+    const observer = new ResizeObserver(() => map.resize());
+    observer.observe(containerRef.current);
+    return () => { const center = map.getCenter(); mapViewRef.current = { center: [center.lng, center.lat], zoom: map.getZoom() }; observer.disconnect(); detach(); setMapReady(false); map.remove(); mapRef.current = null; };
+    // The map is created once per city; pan, zoom and data update it in place.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [city]);
 
-  // Keep the street source in sync if the parent re-renders with new data.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    const src = map.getSource("streets") as maplibregl.GeoJSONSource | undefined;
-    if (!src) return;
-    src.setData({
-      type: "FeatureCollection",
-      features: streets.map((s) => ({
-        type: "Feature",
-        id: s.id,
-        properties: { street_id: s.id, display_name: s.displayName },
-        geometry: s.geom,
-      })),
-    });
-  }, [streets, mapReady]);
+    (map.getSource("streets") as maplibregl.GeoJSONSource).setData(featureCollection(streets, shown, mode));
+    map.setPaintProperty("streets-visible", "line-color", lineColour(paintMode(mode, shown)));
+  }, [streets, shown, mode, mapReady]);
 
-  // Apply the current metric ramp whenever the metrics change.
+  // A selected street keeps its colour, drawn a little thicker; the others
+  // fade. The map centres on it inside the part the panel leaves visible,
+  // at the same zoom.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    applyMetricPaint(map, metric, metrics);
-  }, [metric, metrics, mapReady]);
+    const opacity = (full: number) => selectionOpacity(selectedId, full) as maplibregl.DataDrivenPropertyValueSpecification<number>;
+    map.setPaintProperty("streets-casing", "line-opacity", opacity(0.9));
+    map.setPaintProperty("streets-visible", "line-opacity", opacity(1));
+    map.setPaintProperty("streets-stale", "line-opacity", opacity(1));
+    map.setPaintProperty("streets-visible", "line-width", ["case",
+      ["==", ["get", "street_id"], selectedId ?? ""], 6,
+      ["==", ["get", "status"], "suppressed"], 3, 4] as maplibregl.ExpressionSpecification);
+    const street = streets.find((s) => s.id === selectedId);
+    if (!street) return;
+    // The street panel (a side sheet on desktop, a bottom sheet on phones) and
+    // the header cover part of the map: centre within what is left visible,
+    // again whenever the panel changes size (it grows as its numbers load).
+    const panel = document.querySelector<HTMLElement>('[role="dialog"]');
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const centre = () => {
+      const sheet = panel?.getBoundingClientRect();
+      const header = headerRef.current?.getBoundingClientRect();
+      const desktop = window.matchMedia("(min-width: 768px)").matches;
+      map.easeTo({
+        center: streetCentre(street),
+        padding: desktop
+          ? { top: 0, bottom: 0, left: 0, right: sheet?.width ?? 0 }
+          : { top: (header?.bottom ?? 0) + 8, bottom: sheet?.height ?? 0, left: 0, right: 0 },
+        duration: still ? 0 : 500,
+      });
+    };
+    centre();
+    if (!panel) return;
+    const observer = new ResizeObserver(centre);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [selectedId, streets, mapReady]);
 
-  const { min, max } = useMemo(() => rampRangeFor(metrics), [metrics]);
-
-  return (
-    <div
-      className="relative h-screen w-screen overflow-hidden bg-white"
-      style={{ height: "100dvh", width: "100vw" }}
-    >
-      {/* Inline styles override MapLibre's own .maplibregl-map CSS, which
-          would otherwise set position:relative and collapse the height. */}
-      <div
-        ref={containerRef}
-        style={{
-          position: "absolute",
-          top: 0,
-          right: 0,
-          bottom: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-        }}
-      />
-
-      {/* Top-right control stack (desktop) / single bottom bar collapses on mobile via CSS. */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="pointer-events-auto absolute right-3 top-16 hidden flex-col items-end gap-2 md:flex">
-          <MetricToggle value={metric} onChange={setMetric} />
-          <ClassFilter selected={classes} onChange={setClasses} />
-          <TimeWindowPicker value={timeWindow} onChange={setTimeWindow} />
+  return <div className="relative h-[100dvh] w-full overflow-hidden bg-bg">
+    <div className={cn("pointer-events-none absolute inset-0", streetsOpen ? "z-40" : "z-10")}>
+      <header ref={headerRef} onKeyDown={(event) => { if (event.key === "Escape" && streetsOpen) { event.stopPropagation(); setStreetsOpen(false); streetsButtonRef.current?.focus(); } }} className="pointer-events-auto absolute left-4 top-4 w-[calc(100%-32px)] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:w-auto md:p-4">
+        <div className={cn("flex items-center gap-x-3 gap-y-2 md:block", selectedName && "flex-wrap")}>
+          <div className="flex items-center gap-3"><strong className="text-sm tracking-wide">CAMINA</strong><span className="hidden text-sm text-ink-2 md:inline">Street counts, Dublin</span><span className="whitespace-nowrap text-xs text-ink-2"><span className="max-md:sr-only">Updated </span>{lastSeen ? formatDublinUpdated(lastSeen) : "—"}</span>{mock && <MockBadge />}</div>
+          <button ref={streetsButtonRef} onClick={() => setStreetsOpen((open) => !open)} aria-expanded={streetsOpen} aria-controls="streets-list" title={selectedName ?? undefined} className={cn("min-h-11 min-w-0 truncate rounded-sm border border-line px-3 text-sm text-ink-1 hover:opacity-70 md:ml-0 md:mt-2 md:w-auto md:max-w-[320px]", selectedName ? "w-full text-left md:text-center" : "ml-auto shrink-0")}>{selectedName ?? "All streets"}</button>
         </div>
-        <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 md:hidden">
-          <div className="flex items-center gap-2 rounded-pill bg-white px-2 py-2 shadow-medium">
-            <MetricToggle value={metric} onChange={setMetric} />
-            <ClassFilter selected={classes} onChange={setClasses} />
-            <TimeWindowPicker value={timeWindow} onChange={setTimeWindow} />
-          </div>
-        </div>
-
-        <div className="pointer-events-auto absolute bottom-4 left-4 hidden md:block">
-          <ColourLegend ramp={RAMPS[metric]} min={min} max={max} unit={UNITS[metric]} />
-        </div>
+        {streetsOpen && <div ref={listRef} id="streets-list" className="mt-2 max-h-[min(50dvh,400px)] overflow-y-auto border-t border-line pt-2" role="group" aria-label="All streets">
+          {[{ id: null, displayName: "All streets" }, ...[...streets].sort((a, b) => a.displayName.localeCompare(b.displayName))].map((street) => <button key={street.id ?? "all"} aria-current={street.id === selectedId ? "true" : undefined} className={cn("block min-h-11 w-full rounded-sm px-3 py-2 text-left text-sm text-ink-1 hover:bg-line", street.id === selectedId && "font-semibold")} onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const buttons = [...(listRef.current?.querySelectorAll("button") ?? [])]; const index = buttons.indexOf(event.currentTarget); buttons[(index + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length]?.focus(); } }} onClick={() => { if (street.id) onSelectStreet?.(street.id); else onShowAll?.(); setStreetsOpen(false); }}>{street.displayName}</button>)}
+        </div>}
+      </header>
+      <div className="pointer-events-auto absolute right-4 top-4 hidden w-[280px] rounded-md border border-line bg-surface p-3 shadow-[var(--card-shadow)] md:flex md:flex-col md:gap-2">
+        <MetricToggle value={mode} onChange={setMode} /><ClassFilter selected={selectedClass} onChange={setSelectedClass} /><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} />
+      </div>
+      <div className="pointer-events-auto absolute bottom-4 left-4 hidden w-[340px] md:block"><ColourLegend mode={mode} timeWindow={timeWindow} /></div>
+      <div className={cn("pointer-events-auto absolute bottom-4 left-4 right-4 flex flex-col gap-2 rounded-md border border-line bg-surface p-2 shadow-[var(--card-shadow)] md:hidden", streetsOpen && "invisible")}>
+        <ColourLegend mode={mode} timeWindow={timeWindow} compact />
+        <MetricToggle value={mode} onChange={setMode} />
+        <div className="flex gap-2"><TimeWindowPicker value={timeWindow} onChange={setTimeWindow} /><div className="min-w-0 flex-1"><ClassFilter selected={selectedClass} onChange={setSelectedClass} /></div></div>
+        <p className="text-[11px] leading-tight text-ink-2"><a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noreferrer">© OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> · <MapCredit /></p>
       </div>
     </div>
-  );
+    {/* After the overlay in DOM order, so Tab reaches the product controls
+        before the basemap's; z-10 keeps the overlay painted on top. */}
+    <div ref={containerRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
+  </div>;
 }
 
-// Silent-sensor streets paint in muted grey (DESIGN.md monochrome), not the
-// metric ramp — a stale sensor must never read as low-but-live traffic.
-const STALE_COLOUR = "#afafaf";
-
-function applyMetricPaint(map: MaplibreMap, metric: Metric, metrics: MetricValue[]) {
-  for (const m of metrics) {
-    map.setFeatureState(
-      { source: "streets", id: m.streetId },
-      { metric: m.value ?? 0, stale: m.stale }
-    );
-  }
-  const { min, max } = rampRangeFor(metrics);
-  map.setPaintProperty(
-    "streets-visible",
-    "line-color",
-    [
-      "case",
-      ["boolean", ["feature-state", "stale"], false],
-      STALE_COLOUR,
-      rampExpression(RAMPS[metric], min, max),
-    ] as unknown as maplibregl.ExpressionSpecification
-  );
-  map.setPaintProperty("streets-visible", "line-width", [
-    "interpolate",
-    ["linear"],
-    ["zoom"],
-    10,
-    2,
-    14,
-    4,
-    18,
-    6,
-  ] as unknown as maplibregl.ExpressionSpecification);
+// The mode the shown rows can be painted in: until speed rows arrive after a
+// switch, the old counts keep their own colours.
+function paintMode(mode: MapMode, shown: Shown): MapMode {
+  return mode === "usual" && shown.metric === "counts" ? "usual" : shown.metric;
 }
 
-function rampRangeFor(metrics: MetricValue[]) {
-  const values = metrics
-    .map((m) => m.value)
-    .filter((v): v is number => typeof v === "number");
-  if (values.length === 0) return { min: 0, max: 100 };
-  return {
-    min: Math.min(...values),
-    max: Math.max(...values),
-  };
+// Suppressed streets and counts under 5 share the quiet grey (legend "<5");
+// in "vs usual", so do streets without enough history.
+function lineColour(mode: MapMode): maplibregl.ExpressionSpecification {
+  const css = getComputedStyle(document.documentElement);
+  const quiet = css.getPropertyValue("--ink-3").trim();
+  const colour = mode === "usual"
+    ? usualExpression(quiet, USUAL_RAMP.map((c) => c.startsWith("var(") ? css.getPropertyValue(c.slice(4, -1)).trim() : c))
+    : rampExpression(VIRIDIS_5, mode, quiet);
+  return ["case", ["==", ["get", "status"], "suppressed"], quiet, colour] as unknown as maplibregl.ExpressionSpecification;
+}
+
+function featureCollection(streets: StreetSummary[], shown: Shown, mode: MapMode): GeoJSON.FeatureCollection<GeoJSON.MultiLineString> {
+  const { rows, metric, timeWindow } = shown;
+  const usual = paintMode(mode, shown) === "usual";
+  const byId = new Map(rows.map((row) => [row.streetId, row]));
+  return { type: "FeatureCollection", features: streets.map((street) => {
+    const row = byId.get(street.id);
+    const level = usual && row ? usualLevel(row.totalCount, row.typical) : null;
+    const base = streetPaintStatus(row);
+    const status = usual && base === "live" && !level ? "suppressed" : base;
+    return { type: "Feature", id: street.id, geometry: street.geom, properties: { street_id: street.id, status, level, metric: mapColourValue(row?.value ?? 0, metric, timeWindow) } };
+  }) };
 }
