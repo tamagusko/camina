@@ -21,7 +21,11 @@ A track whose class is not confirmed yet (``unconfirmed`` in ``step``; see
 ``camina.core.tracker``) is held when it qualifies, and counted, with the
 direction it qualified in, on the first frame its class is confirmed. If it is
 forgotten still unconfirmed it is not counted; ``unconfirmed_dropped`` counts
-those.
+those. The count event is emitted on the confirmation frame, so a pending
+crossing lands in the 15-minute window in which its class confirms, which near
+a boundary can be the window after the crossing. The delay is not bounded by
+``max_occlusion_s``: a track in view whose class keeps flipping stays pending
+until one class reaches ``min_class_hits``.
 """
 
 from __future__ import annotations

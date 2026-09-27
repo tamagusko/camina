@@ -64,6 +64,11 @@ as `counts`. For every class, a missing direction cell counts as zero and
 `AB + BA` MUST equal `counts[class]`. The backend rejects violations with 400.
 `avg_speed_kmh` remains per class rather than per direction.
 
+A road user is counted in the window in which its class is confirmed
+(`min_class_hits` detections), not always the one in which it crossed: a
+crossing held for its class near a window boundary can land in the next
+window. `AB + BA = counts` holds in every window.
+
 The edge sends raw measured window counts, direction cells, daily totals, and
 average speeds to its authenticated server. It does not apply `k_min` on the
 wire. The dashboard applies `k_min = 5` at public API read time, after summing
