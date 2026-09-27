@@ -112,15 +112,18 @@ class ConfigPoller:
                 self._last_error = "apply_failed"
             return False
 
-        with self._lock:
-            self._version = config.config_version
-            self._last_error = None
-
         if self._persist is not None:
             try:
                 self._persist(config.config_version)
             except Exception:
                 logger.exception("Persist callback raised for sensor %s", self._sensor_id)
+                with self._lock:
+                    self._last_error = "persist_failed"
+                return False
+
+        with self._lock:
+            self._version = config.config_version
+            self._last_error = None
 
         logger.info(
             "Applied new config version %s to sensor %s",
