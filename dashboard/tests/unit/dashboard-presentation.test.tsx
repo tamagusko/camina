@@ -6,7 +6,7 @@ import { ROAD_USER_CLASSES, type MetricValue, type StreetReading, type StreetSum
 const zeros = Object.fromEntries(ROAD_USER_CLASSES.map((c) => [c, 0])) as Record<(typeof ROAD_USER_CLASSES)[number], number>;
 const street: StreetSummary = { id: "test", displayName: "Test Road", city: "dublin", geom: { type: "MultiLineString", coordinates: [[[-6.3, 53.3], [-6.2, 53.4]]] }, bbox: { type: "Polygon", coordinates: [[[-6.3, 53.3], [-6.2, 53.3], [-6.2, 53.4], [-6.3, 53.3]]] } };
 const metric: MetricValue = { streetId: "test", value: 12, totalCount: 12, hasHidden: true, classBreakdown: { ...zeros, person: null, car: 12 }, speedBreakdown: {}, avgSpeedKmh: null, stale: false, lastSeen: "2026-09-26T13:30:00Z" };
-const reading: StreetReading = { bucket: "2026-09-26T13:15:00Z", missing: false, counts: { ...zeros, person: null, car: 12, bus: 6 }, avgSpeedKmh: {}, countsByDirection: { AB: { ...zeros, person: null, car: 7, bus: null }, BA: { ...zeros, person: null, car: 5, bus: null } } };
+const reading: StreetReading = { bucket: "2026-09-26T13:15:00Z", missing: false, hasHidden: true, counts: { ...zeros, person: null, car: 12, bus: 6 }, avgSpeedKmh: {}, countsByDirection: { AB: { ...zeros, person: null, car: 7, bus: null }, BA: { ...zeros, person: null, car: 5, bus: null } } };
 
 describe("street panel states", () => {
   it("renders direction cells and suppressed counts without small numbers", () => {

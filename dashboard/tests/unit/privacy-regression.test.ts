@@ -7,7 +7,7 @@ import { mockStreetsRepo } from "@/lib/repo/streets-mock";
 import { liveStreetsRepo } from "@/lib/repo/streets-live";
 import postgres from "postgres";
 import { ROAD_USER_CLASSES } from "@/lib/types";
-import { metricLeaks, readingLeaks } from "./recoverability";
+import { attackAggregation, metricLeaks, readingLeaks } from "./recoverability";
 
 const FORBIDDEN_KEYS = [
   "sensor_id",
@@ -241,6 +241,21 @@ describe.runIf(Boolean(process.env.DATABASE_URL_TEST))("privacy regression — l
           expect(metricLeaks(rows, metric)).toEqual([]);
         }
       }
+      // Across levels: 15 vs 60 vs 1440 min, metrics windows vs readings, and
+      // class filters, differenced pairwise (tests/unit/recoverability.ts).
+      const attack = await attackAggregation(
+        liveStreetsRepo, "privacy-random", new Date(start),
+        new Date(start + 96 * 900_000), new Date()
+      );
+      console.info(
+        `aggregation attack (live random day): ${attack.pairs} differences, ` +
+          `${attack.targets} hidden cells under published numbers, ` +
+          `${attack.leaks.length} informative, ${attack.recovered.length} recovered`
+      );
+      expect(attack.targets).toBeGreaterThan(0);
+      expect(attack.recovered.slice(0, 5)).toEqual([]);
+      expect(attack.recovered).toHaveLength(0);
+      expect(attack.leaks).toHaveLength(0);
     } finally {
       await client`DELETE FROM sensors WHERE id IN (${a}, ${b})`;
       await client`DELETE FROM streets WHERE id = ${randomStreet}`;

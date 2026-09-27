@@ -23,6 +23,7 @@ describe("adversary sanity — the checker catches the leaky shapes", () => {
     const row: StreetReading = {
       bucket: "2026-04-20T00:00:00.000Z",
       missing: false,
+      hasHidden: true,
       counts: { ...counts, cyclist: 6 },
       avgSpeedKmh: {},
       countsByDirection: { AB: { ...counts, cyclist: 5 }, BA: { ...counts, cyclist: null } },
@@ -88,7 +89,7 @@ describe("publication rules", () => {
         breakdown.push(counts[cls]);
       }
       const row: StreetReading = {
-        bucket: `r${i}`, missing: false, counts, avgSpeedKmh: {},
+        bucket: `r${i}`, missing: false, hasHidden: breakdown.includes(null), counts, avgSpeedKmh: {},
         countsByDirection: { AB: ab, BA: ba },
       };
       expect(readingLeaks([row])).toEqual([]);

@@ -30,6 +30,9 @@ export interface StreetSummary {
 export interface StreetReading {
   bucket: string;             // ISO timestamp of window start
   missing: boolean;           // true when no data covered this window (sensor down)
+  // true when a 15-min cell under this bucket was hidden, so a count here is
+  // the sum of the published cells only (src/lib/privacy.ts rule 3).
+  hasHidden: boolean;
   counts: Record<RoadUserClass, number | null>;  // null per class when missing
   avgSpeedKmh: Partial<Record<RoadUserClass, number | null>>;
   countsByDirection?: Record<"AB" | "BA", Record<RoadUserClass, number | null>>;
@@ -44,7 +47,7 @@ export interface MetricValue {
   // when `hasHidden`, never the true total. For metric "counts", `value`
   // equals this.
   totalCount: number;
-  // true when at least one class count is hidden below the k-floor.
+  // true when any 15-min cell under the window was hidden below the k-floor.
   hasHidden: boolean;
   // Per-class counts; null marks a value suppressed below the k-floor (1..4).
   // 0 is retained (no counted individual to re-identify).

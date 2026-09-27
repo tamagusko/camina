@@ -16,7 +16,16 @@ import {
   type StreetSummary,
   type TimeWindow,
 } from "@/lib/types";
-import { K_MIN, publishDirectionPair, publishedTotal, suppressCount } from "@/lib/privacy";
+import {
+  K_MIN,
+  emptyFold,
+  emptyRawCell,
+  foldCell,
+  publishFold,
+  publishedTotal,
+  type CellFold,
+  type RawCell,
+} from "@/lib/privacy";
 import type { StreetsRepo } from "./types";
 
 function toSummary(s: MockStreet): StreetSummary {
@@ -43,15 +52,6 @@ function nullBreakdown(): Record<RoadUserClass, number | null> {
   >;
 }
 
-// k-anonymity and complementary suppression rules live in src/lib/privacy.ts.
-function suppressBreakdown(
-  b: Record<RoadUserClass, number>
-): Record<RoadUserClass, number | null> {
-  return Object.fromEntries(
-    ROAD_USER_CLASSES.map((c) => [c, suppressCount(b[c])])
-  ) as Record<RoadUserClass, number | null>;
-}
-
 // Staleness: a silent sensor (no reading for more than two 15-min windows,
 // i.e. > 30 min) must not paint as a quiet street. Exported so the rule is
 // unit-testable independently of the fixtures.
@@ -62,16 +62,34 @@ export function isStale(lastSeen: string | null, now: Date): boolean {
   return now.getTime() - new Date(lastSeen).getTime() > STALE_AFTER_MS;
 }
 
-// Internal accumulator for windows that have data; counts are non-null while
-// aggregating and only widened to `number | null` on the emitted StreetReading.
-interface PresentBucket {
-  counts: Record<RoadUserClass, number>;
-  countsByDirection?: Record<"AB" | "BA", Record<RoadUserClass, number>>;
-  // Rows per class, and how many of them carried direction cells.
-  rows: Record<RoadUserClass, number>;
-  directionalRows: Record<RoadUserClass, number>;
-  avgSpeedKmh: Partial<Record<RoadUserClass, number | null>>;
-  speedCount: Partial<Record<RoadUserClass, number>>;
+const CELL_MS = 15 * 60_000;
+
+type DirectionalMockReading = MockReading & {
+  direction_ab_count?: number | null;
+  direction_ba_count?: number | null;
+};
+
+// Adds one sensor row to its base cell (street, class, 15-min window); the
+// privacy rules run on base cells only (src/lib/privacy.ts).
+function addReading(cell: RawCell, r: DirectionalMockReading): void {
+  cell.count += r.count;
+  cell.rows += 1;
+  const ab = r.direction_ab_count;
+  const ba = r.direction_ba_count;
+  if (ab !== undefined && ab !== null && ba !== undefined && ba !== null) {
+    cell.ab += ab;
+    cell.ba += ba;
+    cell.directionalRows += 1;
+  }
+  if (r.avg_speed_kmh !== null) {
+    cell.speedSum += r.avg_speed_kmh * r.count;
+    cell.speedCount += r.count;
+  }
+}
+
+function cellKey(r: MockReading): string {
+  const t = Math.floor(new Date(r.window_start).getTime() / CELL_MS) * CELL_MS;
+  return `${t}|${r.class_name}`;
 }
 
 function windowCutoff(window: TimeWindow, now: Date): Date {
@@ -109,10 +127,6 @@ export const mockStreetsRepo: StreetsRepo = {
     const sensorIds = coverage.filter((c) => c.street_id === streetId).map((c) => c.sensor_id);
     if (sensorIds.length === 0) return [];
 
-    type DirectionalMockReading = MockReading & {
-      direction_ab_count?: number | null;
-      direction_ba_count?: number | null;
-    };
     const hasDirectionalData = readings.some((reading) => {
       const directional = reading as DirectionalMockReading;
       return sensorIds.includes(reading.sensor_id) &&
@@ -125,53 +139,28 @@ export const mockStreetsRepo: StreetsRepo = {
     const toMs = to.getTime();
     const bucketMs = bucketMinutes * 60_000;
 
-    // Accumulate only the windows that actually have data. Counts stay
-    // non-null here so the running aggregation type-checks; nullability is
-    // applied when the gap-filled grid is emitted below.
-    const present = new Map<number, PresentBucket>();
+    // Base cells, summed across the street's sensors.
+    const cells = new Map<string, RawCell>();
     for (const r of readings) {
       if (!sensorIds.includes(r.sensor_id)) continue;
       if (!requested.includes(r.class_name as RoadUserClass)) continue;
       const t = new Date(r.window_start).getTime();
       if (t < fromMs || t >= toMs) continue;
-      const bucketStart = Math.floor(t / bucketMs) * bucketMs;
-      let row = present.get(bucketStart);
-      if (!row) {
-        row = {
-          counts: emptyBreakdown(),
-          rows: emptyBreakdown(),
-          directionalRows: emptyBreakdown(),
-          avgSpeedKmh: {},
-          speedCount: {},
-        };
-        present.set(bucketStart, row);
-      }
-      const cls = r.class_name as RoadUserClass;
-      row.counts[cls] += r.count;
-      row.rows[cls] += 1;
-      const directional = r as DirectionalMockReading;
-      if (
-        directional.direction_ab_count !== undefined &&
-        directional.direction_ab_count !== null &&
-        directional.direction_ba_count !== undefined &&
-        directional.direction_ba_count !== null
-      ) {
-        row.countsByDirection ??= { AB: emptyBreakdown(), BA: emptyBreakdown() };
-        row.countsByDirection.AB[cls] += directional.direction_ab_count;
-        row.countsByDirection.BA[cls] += directional.direction_ba_count;
-        row.directionalRows[cls] += 1;
-      }
-      if (r.avg_speed_kmh !== null) {
-        // Count-weighted running mean.
-        const prev = row.avgSpeedKmh[cls] ?? null;
-        const prevCount = row.speedCount[cls] ?? 0;
-        const total = prevCount + r.count;
-        row.avgSpeedKmh[cls] =
-          total > 0
-            ? ((prev ?? 0) * prevCount + r.avg_speed_kmh * r.count) / total
-            : r.avg_speed_kmh;
-        row.speedCount[cls] = total;
-      }
+      const key = cellKey(r);
+      const cell = cells.get(key) ?? emptyRawCell();
+      cells.set(key, cell);
+      addReading(cell, r as DirectionalMockReading);
+    }
+    // Published base cells, summed into the requested buckets (rule 3).
+    const present = new Map<number, Map<RoadUserClass, CellFold>>();
+    for (const [key, cell] of cells) {
+      const [t, cls] = key.split("|") as [string, RoadUserClass];
+      const bucketStart = Math.floor(Number(t) / bucketMs) * bucketMs;
+      const folds = present.get(bucketStart) ?? new Map<RoadUserClass, CellFold>();
+      present.set(bucketStart, folds);
+      const fold = folds.get(cls) ?? emptyFold();
+      folds.set(cls, fold);
+      foldCell(fold, cell);
     }
 
     // Gap-fill the full [from, to) grid at the bucket interval. Absent windows
@@ -180,34 +169,44 @@ export const mockStreetsRepo: StreetsRepo = {
     const gridStart = Math.floor(fromMs / bucketMs) * bucketMs;
     const out: StreetReading[] = [];
     for (let t = gridStart; t < toMs; t += bucketMs) {
-      const row = present.get(t);
-      out.push(
-        row
-          ? {
-              bucket: new Date(t).toISOString(),
-              missing: false,
-              // k-anonymity: null-out per-class counts below the k-floor.
-              counts: suppressBreakdown(row.counts),
-              countsByDirection: row.countsByDirection
-                ? publishDirections(row, row.countsByDirection)
-                : undefined,
-              avgSpeedKmh: Object.fromEntries(
-                requested.map((cls) => [
-                  cls,
-                  row.counts[cls] >= K_MIN ? (row.avgSpeedKmh[cls] ?? null) : null,
-                ])
-              ),
-            }
-          : {
-              bucket: new Date(t).toISOString(),
-              missing: true,
-              counts: nullBreakdown(),
-              countsByDirection: hasDirectionalData
-                ? { AB: nullBreakdown(), BA: nullBreakdown() }
-                : undefined,
-              avgSpeedKmh: {},
-            }
-      );
+      const folds = present.get(t);
+      const bucket = new Date(t).toISOString();
+      if (!folds) {
+        out.push({
+          bucket,
+          missing: true,
+          hasHidden: false,
+          counts: nullBreakdown(),
+          countsByDirection: hasDirectionalData
+            ? { AB: nullBreakdown(), BA: nullBreakdown() }
+            : undefined,
+          avgSpeedKmh: {},
+        });
+        continue;
+      }
+      const counts = emptyBreakdown() as Record<RoadUserClass, number | null>;
+      const AB = emptyBreakdown() as Record<RoadUserClass, number | null>;
+      const BA = emptyBreakdown() as Record<RoadUserClass, number | null>;
+      let directional = false;
+      let hasHidden = false;
+      for (const [cls, fold] of folds) {
+        const shown = publishFold(fold);
+        counts[cls] = shown.count;
+        AB[cls] = shown.AB;
+        BA[cls] = shown.BA;
+        directional ||= fold.directional;
+        hasHidden ||= fold.hidden;
+      }
+      out.push({
+        bucket,
+        missing: false,
+        hasHidden,
+        counts,
+        countsByDirection: directional ? { AB, BA } : undefined,
+        avgSpeedKmh: Object.fromEntries(
+          requested.map((cls) => [cls, folds.get(cls) ? publishFold(folds.get(cls)!).speed : null])
+        ),
+      });
     }
     return out;
   },
@@ -235,12 +234,9 @@ export const mockStreetsRepo: StreetsRepo = {
       sensorToStreets.set(c.sensor_id, list);
     }
 
-    // Numeric accumulators kept non-null while aggregating; k-anonymity
-    // suppression is applied only on emit so partial sums stay correct.
-    const rawBreakdown = new Map<string, Record<RoadUserClass, number>>();
-    const speedNumCls = new Map<string, Record<string, number>>();
-    const speedDenCls = new Map<string, Record<string, number>>();
-    for (const id of citySet) rawBreakdown.set(id, emptyBreakdown());
+    // Base cells per street, summed across the street's sensors.
+    const cells = new Map<string, Map<string, RawCell>>();
+    for (const id of citySet) cells.set(id, new Map());
 
     // Most recent window_end per street across ALL readings (not just the
     // selected window): a silent sensor must be detectable even when a short
@@ -257,40 +253,42 @@ export const mockStreetsRepo: StreetsRepo = {
       if (!requested.includes(r.class_name as RoadUserClass)) continue;
       if (new Date(r.window_start).getTime() < cutoff) continue;
       for (const streetId of streetsForSensor) {
-        const rb = rawBreakdown.get(streetId);
-        if (!rb) continue;
-        rb[r.class_name as RoadUserClass] += r.count;
-        if (r.avg_speed_kmh !== null) {
-          const nc = speedNumCls.get(streetId) ?? {};
-          const dc = speedDenCls.get(streetId) ?? {};
-          nc[r.class_name] = (nc[r.class_name] ?? 0) + r.avg_speed_kmh * r.count;
-          dc[r.class_name] = (dc[r.class_name] ?? 0) + r.count;
-          speedNumCls.set(streetId, nc);
-          speedDenCls.set(streetId, dc);
-        }
+        const byKey = cells.get(streetId);
+        if (!byKey) continue;
+        const key = cellKey(r);
+        const cell = byKey.get(key) ?? emptyRawCell();
+        byKey.set(key, cell);
+        addReading(cell, r as DirectionalMockReading);
       }
     }
 
     const out: MetricValue[] = [];
     for (const streetId of citySet) {
-      const counts = rawBreakdown.get(streetId) ?? emptyBreakdown();
-      const nc = speedNumCls.get(streetId) ?? {};
-      const dc = speedDenCls.get(streetId) ?? {};
-      const speedBreakdown: Partial<Record<RoadUserClass, number | null>> = {};
-      let eligibleNum = 0;
-      let eligibleDen = 0;
-      for (const cls of ROAD_USER_CLASSES) {
-        const d = dc[cls] ?? 0;
-        const eligible = counts[cls] >= K_MIN && d >= K_MIN;
-        speedBreakdown[cls] = eligible ? (nc[cls] ?? 0) / d : null;
-        if (eligible) {
-          eligibleNum += nc[cls] ?? 0;
-          eligibleDen += d;
-        }
+      // Published base cells, summed over the window (src/lib/privacy.ts rule 3).
+      const folds = new Map<RoadUserClass, CellFold>();
+      for (const [key, cell] of cells.get(streetId) ?? []) {
+        const cls = key.split("|")[1] as RoadUserClass;
+        const fold = folds.get(cls) ?? emptyFold();
+        folds.set(cls, fold);
+        foldCell(fold, cell);
       }
-      const avgSpeedKmh = eligibleDen >= K_MIN ? eligibleNum / eligibleDen : null;
-      // Totals are the sum of published cells (src/lib/privacy.ts rule 3).
-      const classBreakdown = suppressBreakdown(counts);
+      const classBreakdown = emptyBreakdown() as Record<RoadUserClass, number | null>;
+      const speedBreakdown: Partial<Record<RoadUserClass, number | null>> = {};
+      let speedSum = 0;
+      let speedCount = 0;
+      let hasHidden = false;
+      for (const cls of ROAD_USER_CLASSES) {
+        const fold = folds.get(cls);
+        const shown = fold ? publishFold(fold) : null;
+        classBreakdown[cls] = shown ? shown.count : 0;
+        speedBreakdown[cls] = shown ? shown.speed : null;
+        if (fold && shown?.speed !== null) {
+          speedSum += fold.speedSum;
+          speedCount += fold.speedCount;
+        }
+        hasHidden ||= fold?.hidden ?? false;
+      }
+      const avgSpeedKmh = speedCount >= K_MIN ? speedSum / speedCount : null;
       const published = publishedTotal(Object.values(classBreakdown));
       const seen = lastSeenMs.get(streetId);
       const lastSeen = seen !== undefined ? new Date(seen).toISOString() : null;
@@ -298,7 +296,7 @@ export const mockStreetsRepo: StreetsRepo = {
         streetId,
         value: metric === "counts" ? published.total : avgSpeedKmh,
         totalCount: published.total,
-        hasHidden: published.hasHidden,
+        hasHidden: hasHidden || published.hasHidden,
         classBreakdown,
         speedBreakdown,
         avgSpeedKmh,
@@ -338,24 +336,6 @@ export const mockStreetsRepo: StreetsRepo = {
     };
   },
 };
-
-function publishDirections(
-  row: PresentBucket,
-  cells: Record<"AB" | "BA", Record<RoadUserClass, number>>
-): Record<"AB" | "BA", Record<RoadUserClass, number | null>> {
-  const AB = nullBreakdown();
-  const BA = nullBreakdown();
-  for (const cls of ROAD_USER_CLASSES) {
-    const pair = publishDirectionPair(
-      cells.AB[cls],
-      cells.BA[cls],
-      row.directionalRows[cls] === row.rows[cls]
-    );
-    AB[cls] = pair.AB;
-    BA[cls] = pair.BA;
-  }
-  return { AB, BA };
-}
 
 function deriveNow(readings: MockReading[]): Date {
   // Mock dataset is historical; "now" = most recent window in data so the

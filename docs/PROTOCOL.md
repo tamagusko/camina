@@ -66,18 +66,29 @@ as `counts`. For every class, a missing direction cell counts as zero and
 
 The edge sends raw measured window counts, direction cells, daily totals, and
 average speeds to its authenticated server. It does not apply `k_min` on the
-wire. The dashboard applies `k_min = 5` at public API read time, after summing
-the relevant windows, so small per-window cells contribute to larger displayed
-aggregates. The edge sends an average speed for every class it measured; the
-server hides that speed when the class count in the displayed bucket is below 5.
+wire. The dashboard applies `k_min = 5` at public API read time, on the base
+cell: one street, one class, one 15-minute window, summed across the street's
+sensors. A count of 1–4 in a base cell is published as `null`.
 
 Hiding a cell is not enough when the values around it add up to it, so the
 public API also applies complementary suppression (rules and reasoning in
-`dashboard/src/lib/privacy.ts`): if either direction cell of a class is hidden,
-both are hidden, and so are both when some rows of the class in the bucket have
-no direction cells; a street total is the sum of the published class counts
-only, with `hasHidden: true` when any class was hidden. A published number is
-always the sum of the published numbers beneath it.
+`dashboard/src/lib/privacy.ts`). Within a base cell: if either direction cell
+of a class is hidden, both are hidden, and so are both when some rows of the
+class in the window have no direction cells. Across levels: every coarser
+number — 60- and 1440-minute buckets, the metrics windows `1h`/`24h`/`7d`/`30d`,
+street totals, class totals under any class filter, direction pairs and mean
+speeds — is computed from published base cells only. A coarser count is the sum
+of the published base cells under it, with `hasHidden: true` when any of them
+was hidden; a coarser mean speed averages only base cells whose speed was
+published. So subtracting one published number from another (an hour minus its
+four quarters, 24 h minus 1 h, all classes minus all but one) never yields a
+hidden cell.
+
+The cost is that hidden cells are left out rather than rounded in: a class that
+is often 1–4 per 15 minutes (e-scooters, a quiet street at night) reads low
+over an hour, a day or a month, and more so the longer the window. The API
+marks such numbers with `hasHidden`, and the UI says "Some values under 5 are
+hidden." wherever one is shown.
 
 **Response 200**:
 

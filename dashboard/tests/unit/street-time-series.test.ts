@@ -17,8 +17,8 @@ describe("StreetTimeSeries", () => {
   it("treats gap-filled and fully suppressed buckets as empty", () => {
     const counts = Object.fromEntries(ROAD_USER_CLASSES.map((cls) => [cls, null])) as StreetReading["counts"];
     const readings: StreetReading[] = [
-      { bucket: "2026-09-26T00:00:00Z", missing: true, counts, avgSpeedKmh: {} },
-      { bucket: "2026-09-26T00:15:00Z", missing: false, counts, avgSpeedKmh: {} },
+      { bucket: "2026-09-26T00:00:00Z", missing: true, hasHidden: false, counts, avgSpeedKmh: {} },
+      { bucket: "2026-09-26T00:15:00Z", missing: false, hasHidden: true, counts, avgSpeedKmh: {} },
     ];
     const html = renderToStaticMarkup(createElement(StreetTimeSeries, { readings }));
     expect(html).toContain("No published counts in the last 24 h");

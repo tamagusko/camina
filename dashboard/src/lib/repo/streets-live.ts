@@ -10,7 +10,7 @@ import {
   type StreetSummary,
   type TimeWindow,
 } from "@/lib/types";
-import { K_MIN, publishDirectionPair, publishedTotal, suppressCount as suppress } from "@/lib/privacy";
+import { K_MIN, publishedSum, publishedTotal } from "@/lib/privacy";
 import { isStale } from "./streets-mock";
 import type { StreetsRepo } from "./types";
 
@@ -59,32 +59,63 @@ function summary(row: StreetRow): StreetSummary {
   };
 }
 
-interface ReadingAggregate {
-  bucket: Date;
+// Base cells (street, class, 15-min window) with the within-cell rules of
+// src/lib/privacy.ts applied, then summed into the requested bucket or window
+// from published cells only (rule 3). `foldCell` is the TypeScript twin.
+// `filter` is the JOIN/WHERE tail over sensor_readings r and coverage c.
+function publishedCells(filter: SQL): SQL {
+  return sql`
+    cells AS (
+      SELECT c.street_id,
+             date_bin(INTERVAL '15 min', r.window_start, TIMESTAMPTZ '1970-01-01') AS cell,
+             r.class_name, SUM(r.count) AS n,
+             COALESCE(SUM(r.avg_speed_kmh * r.count) FILTER (WHERE r.avg_speed_kmh IS NOT NULL), 0) AS speed_sum,
+             COALESCE(SUM(r.count) FILTER (WHERE r.avg_speed_kmh IS NOT NULL), 0) AS speed_count,
+             COALESCE(SUM(r.direction_ab_count), 0) AS ab,
+             COALESCE(SUM(r.direction_ba_count), 0) AS ba,
+             COUNT(r.direction_ab_count) AS direction_rows,
+             COUNT(*) AS class_rows
+      FROM sensor_readings r
+      JOIN sensor_street_coverage c ON c.sensor_id = r.sensor_id
+      ${filter}
+      GROUP BY 1, 2, 3
+    ),
+    published AS (
+      SELECT *,
+             n = 0 OR n >= ${K_MIN} AS count_shown,
+             n >= ${K_MIN} AND speed_count >= ${K_MIN} AS speed_shown,
+             direction_rows = class_rows
+               AND (ab = 0 OR ab >= ${K_MIN}) AND (ba = 0 OR ba >= ${K_MIN}) AS pair_shown
+      FROM cells
+    )`;
+}
+
+// Sums over published cells; the outer query groups them.
+const FOLD = sql`
+  SUM(n) FILTER (WHERE count_shown) AS total_count,
+  BOOL_OR(NOT count_shown) AS hidden,
+  SUM(speed_sum) FILTER (WHERE speed_shown) AS speed_sum,
+  SUM(speed_count) FILTER (WHERE speed_shown) AS speed_count,
+  SUM(ab) FILTER (WHERE pair_shown) AS ab_count,
+  SUM(ba) FILTER (WHERE pair_shown) AS ba_count,
+  BOOL_AND(pair_shown) AS pair_shown,
+  BOOL_OR(direction_rows > 0) AS directional`;
+
+interface Fold {
   class_name: string;
-  total_count: string | number;
+  total_count: string | number | null;
+  hidden: boolean;
   speed_sum: string | number | null;
   speed_count: string | number | null;
   ab_count: string | number | null;
   ba_count: string | number | null;
-  direction_rows: string | number;
-  class_rows: string | number;
+  pair_shown: boolean;
+  directional: boolean;
 }
 
-interface DirectionAccumulator {
-  AB: Partial<Record<RoadUserClass, number>>;
-  BA: Partial<Record<RoadUserClass, number>>;
-  // Every row of the class in the bucket carried direction cells.
-  complete: Partial<Record<RoadUserClass, boolean>>;
-  any: boolean;
-}
-
-interface MetricAggregate {
-  street_id: string;
-  class_name: string;
-  total_count: string | number;
-  speed_sum: string | number | null;
-  speed_count: string | number | null;
+function speedOf(fold: Fold): number | null {
+  const den = number(fold.speed_count);
+  return den >= K_MIN ? number(fold.speed_sum) / den : null;
 }
 
 export const liveStreetsRepo: StreetsRepo = {
@@ -115,24 +146,16 @@ export const liveStreetsRepo: StreetsRepo = {
     if (classes?.length === 0) return [];
     const bucketMs = bucketMinutes * 60_000;
     const result = await db().execute(sql`
-      SELECT date_bin(make_interval(mins => ${bucketMinutes}), r.window_start,
-                      TIMESTAMPTZ '1970-01-01') AS bucket,
-             r.class_name, SUM(r.count) AS total_count,
-             SUM(r.avg_speed_kmh * r.count) FILTER (WHERE r.avg_speed_kmh IS NOT NULL) AS speed_sum,
-             SUM(r.count) FILTER (WHERE r.avg_speed_kmh IS NOT NULL) AS speed_count,
-             SUM(r.direction_ab_count) AS ab_count,
-             SUM(r.direction_ba_count) AS ba_count,
-             COUNT(r.direction_ab_count) AS direction_rows,
-             COUNT(*) AS class_rows
-      FROM sensor_readings r
-      JOIN sensor_street_coverage c ON c.sensor_id = r.sensor_id
-      WHERE c.street_id = ${streetId}
-        AND r.window_start >= ${from.toISOString()} AND r.window_start < ${to.toISOString()}
-        ${classFilter(classes)}
-      GROUP BY bucket, r.class_name ORDER BY bucket
+      WITH ${publishedCells(sql`
+        WHERE c.street_id = ${streetId}
+          AND r.window_start >= ${from.toISOString()} AND r.window_start < ${to.toISOString()}
+          ${classFilter(classes)}`)}
+      SELECT date_bin(make_interval(mins => ${bucketMinutes}), cell,
+                      TIMESTAMPTZ '1970-01-01') AS bucket, class_name, ${FOLD}
+      FROM published GROUP BY bucket, class_name ORDER BY bucket
     `);
-    const aggregates = rows<ReadingAggregate>(result);
-    if (aggregates.length === 0) {
+    const folds = rows<Fold & { bucket: Date }>(result);
+    if (folds.length === 0) {
       const coverage = rows<{ covered: boolean }>(await db().execute(sql`
         SELECT EXISTS (
           SELECT 1 FROM sensor_street_coverage WHERE street_id = ${streetId}
@@ -141,53 +164,38 @@ export const liveStreetsRepo: StreetsRepo = {
       if (!coverage[0]?.covered) return [];
     }
     const present = new Map<number, StreetReading>();
-    // Raw direction cells per bucket; published only once the bucket is
-    // complete, because the pair rule looks at both cells together.
-    const directions = new Map<number, DirectionAccumulator>();
-    for (const aggregate of aggregates) {
-      const t = new Date(aggregate.bucket).getTime();
-      let row = present.get(t);
-      if (!row) {
-        row = {
-          bucket: new Date(t).toISOString(),
-          missing: false,
-          counts: emptyCounts(0),
-          avgSpeedKmh: {},
-        };
-        present.set(t, row);
+    for (const fold of folds) {
+      const t = new Date(fold.bucket).getTime();
+      const row = present.get(t) ?? {
+        bucket: new Date(t).toISOString(),
+        missing: false,
+        hasHidden: false,
+        counts: emptyCounts(0),
+        avgSpeedKmh: {},
+      };
+      present.set(t, row);
+      if (!ROAD_USER_CLASSES.includes(fold.class_name as RoadUserClass)) continue;
+      const cls = fold.class_name as RoadUserClass;
+      row.counts[cls] = publishedSum(number(fold.total_count), fold.hidden);
+      row.hasHidden ||= fold.hidden;
+      row.avgSpeedKmh[cls] = speedOf(fold);
+      if (fold.directional) {
+        row.countsByDirection ??= { AB: emptyCounts(0), BA: emptyCounts(0) };
       }
-      if (!ROAD_USER_CLASSES.includes(aggregate.class_name as RoadUserClass)) continue;
-      const cls = aggregate.class_name as RoadUserClass;
-      const count = number(aggregate.total_count);
-      const speedCount = number(aggregate.speed_count);
-      row.counts[cls] = suppress(count);
-      row.avgSpeedKmh[cls] = count >= K_MIN && speedCount >= K_MIN
-        ? number(aggregate.speed_sum) / speedCount : null;
-      const acc = directions.get(t) ?? { AB: {}, BA: {}, complete: {}, any: false };
-      directions.set(t, acc);
-      const directionRows = number(aggregate.direction_rows);
-      acc.any ||= directionRows > 0;
-      acc.AB[cls] = number(aggregate.ab_count);
-      acc.BA[cls] = number(aggregate.ba_count);
-      acc.complete[cls] = directionRows === number(aggregate.class_rows);
     }
-    for (const [t, acc] of directions) {
-      const row = present.get(t);
-      if (!row || !acc.any) continue;
-      const AB = emptyCounts(null);
-      const BA = emptyCounts(null);
-      for (const cls of ROAD_USER_CLASSES) {
-        // A class with no rows in the bucket is a complete 0/0 pair.
-        const pair = publishDirectionPair(acc.AB[cls] ?? 0, acc.BA[cls] ?? 0, acc.complete[cls] ?? true);
-        AB[cls] = pair.AB;
-        BA[cls] = pair.BA;
-      }
-      row.countsByDirection = { AB, BA };
+    // Direction cells, once each bucket knows whether it has any.
+    for (const fold of folds) {
+      const row = present.get(new Date(fold.bucket).getTime());
+      if (!row?.countsByDirection) continue;
+      if (!ROAD_USER_CLASSES.includes(fold.class_name as RoadUserClass)) continue;
+      const cls = fold.class_name as RoadUserClass;
+      row.countsByDirection.AB[cls] = fold.pair_shown ? number(fold.ab_count) : null;
+      row.countsByDirection.BA[cls] = fold.pair_shown ? number(fold.ba_count) : null;
     }
     const out: StreetReading[] = [];
     for (let t = Math.floor(from.getTime() / bucketMs) * bucketMs; t < to.getTime(); t += bucketMs) {
       out.push(present.get(t) ?? {
-        bucket: new Date(t).toISOString(), missing: true,
+        bucket: new Date(t).toISOString(), missing: true, hasHidden: false,
         counts: emptyCounts(null), avgSpeedKmh: {},
       });
     }
@@ -200,16 +208,13 @@ export const liveStreetsRepo: StreetsRepo = {
     const streetRows = rows<{ id: string }>(await db().execute(sql`
       SELECT id FROM streets WHERE city = ${city} AND active = true ORDER BY id
     `));
-    const metricRows = classes?.length === 0 ? [] : rows<MetricAggregate>(await db().execute(sql`
-      SELECT c.street_id, r.class_name, SUM(r.count) AS total_count,
-             SUM(r.avg_speed_kmh * r.count) FILTER (WHERE r.avg_speed_kmh IS NOT NULL) AS speed_sum,
-             SUM(r.count) FILTER (WHERE r.avg_speed_kmh IS NOT NULL) AS speed_count
-      FROM sensor_readings r
-      JOIN sensor_street_coverage c ON c.sensor_id = r.sensor_id
-      JOIN streets s ON s.id = c.street_id
-      WHERE s.city = ${city} AND r.window_start >= ${cutoff.toISOString()}
-        ${classFilter(classes)}
-      GROUP BY c.street_id, r.class_name
+    const metricRows = classes?.length === 0 ? [] : rows<Fold & { street_id: string }>(await db().execute(sql`
+      WITH ${publishedCells(sql`
+        JOIN streets s ON s.id = c.street_id
+        WHERE s.city = ${city} AND r.window_start >= ${cutoff.toISOString()}
+          ${classFilter(classes)}`)}
+      SELECT street_id, class_name, ${FOLD}
+      FROM published GROUP BY street_id, class_name
     `));
     const lastRows = rows<{ street_id: string; last_seen: Date | null }>(await db().execute(sql`
       SELECT c.street_id, MAX(latest.window_end) AS last_seen
@@ -222,7 +227,7 @@ export const liveStreetsRepo: StreetsRepo = {
       WHERE s.city = ${city}
       GROUP BY c.street_id
     `));
-    const byStreet = new Map<string, MetricAggregate[]>();
+    const byStreet = new Map<string, Fold[]>();
     for (const row of metricRows) {
       const group = byStreet.get(row.street_id) ?? [];
       group.push(row);
@@ -234,22 +239,19 @@ export const liveStreetsRepo: StreetsRepo = {
       const speeds: Partial<Record<RoadUserClass, number | null>> = {};
       let speedSum = 0;
       let speedCount = 0;
-      for (const aggregate of byStreet.get(id) ?? []) {
-        if (!ROAD_USER_CLASSES.includes(aggregate.class_name as RoadUserClass)) continue;
-        const cls = aggregate.class_name as RoadUserClass;
-        const count = number(aggregate.total_count);
-        const speedDen = number(aggregate.speed_count);
-        counts[cls] = suppress(count);
-        if (count >= K_MIN && speedDen >= K_MIN) {
-          speeds[cls] = number(aggregate.speed_sum) / speedDen;
-          speedSum += number(aggregate.speed_sum);
-          speedCount += speedDen;
-        } else {
-          speeds[cls] = null;
+      let hasHidden = false;
+      for (const fold of byStreet.get(id) ?? []) {
+        if (!ROAD_USER_CLASSES.includes(fold.class_name as RoadUserClass)) continue;
+        const cls = fold.class_name as RoadUserClass;
+        counts[cls] = publishedSum(number(fold.total_count), fold.hidden);
+        hasHidden ||= fold.hidden;
+        speeds[cls] = speedOf(fold);
+        if (speeds[cls] !== null) {
+          speedSum += number(fold.speed_sum);
+          speedCount += number(fold.speed_count);
         }
       }
       const avgSpeedKmh = speedCount >= K_MIN ? speedSum / speedCount : null;
-      // Totals are the sum of published cells (src/lib/privacy.ts rule 3).
       const published = publishedTotal(Object.values(counts));
       const seen = lastSeenByStreet.get(id);
       const lastSeen = seen ? new Date(seen).toISOString() : null;
@@ -257,7 +259,7 @@ export const liveStreetsRepo: StreetsRepo = {
         streetId: id,
         value: metric === "counts" ? published.total : avgSpeedKmh,
         totalCount: published.total,
-        hasHidden: published.hasHidden,
+        hasHidden: hasHidden || published.hasHidden,
         classBreakdown: counts,
         speedBreakdown: speeds,
         avgSpeedKmh,
