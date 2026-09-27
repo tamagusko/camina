@@ -45,6 +45,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if args.dry_run:
         logger.info("Dry run OK: daemon composed for sensor_id=%s", cfg.sensor_id)
+        daemon.stop()
         return 0
     daemon.start()
     return 0

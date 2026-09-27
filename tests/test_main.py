@@ -69,6 +69,7 @@ def test_dry_run_composes_without_start(tmp_path: Path, monkeypatch: pytest.Monk
     rc = entry.main(["--config", str(yaml_path), "--dry-run"])
     assert rc == 0
     fake_daemon.start.assert_not_called()
+    fake_daemon.stop.assert_called_once()
     assert captured["cfg_sensor_id"] == "cam-test-01"
     assert captured["ncnn_model_path"] == Path(str(tmp_path / "fake_ncnn"))
 
