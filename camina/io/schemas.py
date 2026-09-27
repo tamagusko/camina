@@ -11,6 +11,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from camina.core.tracking_rules import (
+    MAX_CLASS_HITS,
+    MAX_OCCLUSION_S_LIMIT,
+    MIN_CLASS_HITS_MIN,
+)
 from camina.utils.taxonomy import load_canonical_classes
 
 SCHEMA_VERSION = "1.0"
@@ -167,8 +172,9 @@ class SensorConfig(BaseModel):
     frame_skip: int = Field(ge=1, le=120)
     min_track_hits: int = Field(ge=1, le=20)
     # Optional: absent keeps the value from the local sensor.yaml.
-    max_occlusion_s: float | None = Field(default=None, gt=0, le=60)
-    min_class_hits: int | None = Field(default=None, ge=1, le=20)
+    # Bounds shared with sensor.yaml (camina/core/tracking_rules.py).
+    max_occlusion_s: float | None = Field(default=None, gt=0, le=MAX_OCCLUSION_S_LIMIT)
+    min_class_hits: int | None = Field(default=None, ge=MIN_CLASS_HITS_MIN, le=MAX_CLASS_HITS)
 
     @field_validator("daily_publish_time_utc")
     @classmethod

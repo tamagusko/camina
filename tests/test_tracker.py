@@ -9,6 +9,7 @@ track's class is the confidence-weighted vote over its detections.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from camina.core.tracker import Sort
 
@@ -290,3 +291,18 @@ def test_min_class_hits_counts_total_not_consecutive_frames() -> None:
     frames = [[_det(10, 0.9, c)] for c in (CAR, SUV, CAR, SUV, CAR)]
 
     assert _unconfirmed_after(frames) == set()
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "key"),
+    [
+        ({"min_class_hits": 0}, "min_class_hits"),
+        ({"min_class_hits": 21}, "min_class_hits"),
+        ({"max_occlusion_s": 0.0}, "max_occlusion_s"),
+        ({"max_occlusion_s": 60.5}, "max_occlusion_s"),
+        ({"relink": "false"}, "relink"),
+    ],
+)
+def test_out_of_range_tracking_rules_are_rejected(kwargs: dict, key: str) -> None:
+    with pytest.raises(ValueError, match=key):
+        Sort(**kwargs)

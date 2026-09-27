@@ -265,6 +265,47 @@ def test_daemon_config_reads_the_tracking_rules(tmp_path: Path) -> None:
     assert cfg.relink is False
 
 
+@pytest.mark.parametrize(
+    ("line", "key"),
+    [
+        ("min_class_hits: 0", "min_class_hits"),
+        ("min_class_hits: -3", "min_class_hits"),
+        ("min_class_hits: 21", "min_class_hits"),
+        ("max_occlusion_s: 0", "max_occlusion_s"),
+        ("max_occlusion_s: 600", "max_occlusion_s"),
+        ('relink: "false"', "relink"),
+        ('relink: "no"', "relink"),
+    ],
+)
+def test_daemon_config_rejects_bad_tracking_rules(tmp_path: Path, line: str, key: str) -> None:
+    from camina.service.sensor_daemon import DaemonConfig
+
+    yaml_path = tmp_path / "sensor.yaml"
+    yaml_path.write_text(_MINIMAL_YAML + line + "\n")
+    with pytest.raises(ValueError, match=key):
+        DaemonConfig.from_yaml(yaml_path)
+
+
+def test_local_and_server_tracking_bounds_are_the_same() -> None:
+    from pydantic import ValidationError
+
+    from camina.core.tracking_rules import MAX_CLASS_HITS, MAX_OCCLUSION_S_LIMIT
+    from camina.io.schemas import SensorConfig
+
+    base = {
+        "config_version": "v",
+        "publish_interval_minutes": 15,
+        "heartbeat_interval_minutes": 5,
+        "frame_skip": 1,
+        "min_track_hits": 3,
+    }
+    SensorConfig(**base, max_occlusion_s=MAX_OCCLUSION_S_LIMIT, min_class_hits=MAX_CLASS_HITS)
+    with pytest.raises(ValidationError):
+        SensorConfig(**base, max_occlusion_s=MAX_OCCLUSION_S_LIMIT + 0.1)
+    with pytest.raises(ValidationError):
+        SensorConfig(**base, min_class_hits=MAX_CLASS_HITS + 1)
+
+
 def test_the_shipped_sensor_yaml_sets_the_tracking_rules() -> None:
     from camina.service.sensor_daemon import DaemonConfig
 

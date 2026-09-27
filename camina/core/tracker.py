@@ -38,6 +38,8 @@ import numpy as np
 from filterpy.kalman import KalmanFilter
 from scipy.optimize import linear_sum_assignment
 
+from camina.core.tracking_rules import check_tracking_rules
+
 MAX_OCCLUSION_S = 5.0  # seconds a track survives without a detection
 MIN_CLASS_HITS = 3  # detections of the winning class before it is confirmed
 IOU_THRESHOLD = 0.3  # minimum IoU to match a detection to a track
@@ -166,8 +168,7 @@ class Sort:
         min_class_hits: int = MIN_CLASS_HITS,
         relink: bool = False,
     ) -> None:
-        if max_occlusion_s <= 0:
-            raise ValueError(f"max_occlusion_s must be > 0, got {max_occlusion_s}")
+        check_tracking_rules(max_occlusion_s, min_class_hits, relink)
         self.min_hits = min_hits
         self.max_occlusion_s = max_occlusion_s
         self.iou_threshold = iou_threshold

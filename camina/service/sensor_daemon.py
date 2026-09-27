@@ -29,6 +29,7 @@ from camina.core.counter import (
     WindowedCounter,
     WindowSnapshot,
 )
+from camina.core.tracking_rules import check_tracking_rules
 from camina.io.config_poller import ConfigPoller
 from camina.io.config_state import config_state_path, load_config_state, save_config_state
 from camina.io.http_client import HttpClient, RetryPolicy
@@ -127,10 +128,21 @@ class DaemonConfig:
             conf_threshold=float(data.get("conf_threshold", 0.3)),
             screenline=_parse_screenline(data.get("screenline")),
             min_move=float(data.get("min_move", 1.0)),
-            max_occlusion_s=float(data.get("max_occlusion_s", 5.0)),
-            min_class_hits=int(data.get("min_class_hits", 3)),
-            relink=bool(data.get("relink", False)),
+            **_tracking_rules(data),
         )
+
+
+def _tracking_rules(data: dict) -> dict:
+    """The tracking rules from ``sensor.yaml``, checked against the server's bounds."""
+    max_occlusion_s = data.get("max_occlusion_s", 5.0)
+    min_class_hits = data.get("min_class_hits", 3)
+    relink = data.get("relink", False)
+    check_tracking_rules(max_occlusion_s, min_class_hits, relink)
+    return {
+        "max_occlusion_s": float(max_occlusion_s),
+        "min_class_hits": min_class_hits,
+        "relink": relink,
+    }
 
 
 def _parse_screenline(
