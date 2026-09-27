@@ -175,6 +175,8 @@ class SensorConfig(BaseModel):
     # Bounds shared with sensor.yaml (camina/core/tracking_rules.py).
     max_occlusion_s: float | None = Field(default=None, gt=0, le=MAX_OCCLUSION_S_LIMIT)
     min_class_hits: int | None = Field(default=None, ge=MIN_CLASS_HITS_MIN, le=MAX_CLASS_HITS)
+    # Strict, as in sensor.yaml: only a JSON true/false, never "false" or 0.
+    relink: bool | None = Field(default=None, strict=True)
 
     @field_validator("daily_publish_time_utc")
     @classmethod

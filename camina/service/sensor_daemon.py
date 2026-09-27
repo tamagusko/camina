@@ -517,6 +517,8 @@ class SensorDaemon:
         """Apply the server's optional tracking rules; absent ones keep sensor.yaml's."""
         if config.min_class_hits is not None:
             tracker.min_class_hits = config.min_class_hits  # type: ignore[attr-defined]
+        if config.relink is not None:
+            tracker.relink = config.relink  # type: ignore[attr-defined]
         if config.max_occlusion_s is None:
             return
         tracker.max_occlusion_s = config.max_occlusion_s  # type: ignore[attr-defined]
