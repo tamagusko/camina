@@ -34,17 +34,21 @@ export default async function StreetDetailPage({ params }: Props) {
 
   const to = await streetsRepo.now();
   const from = new Date(to.getTime() - 24 * 60 * 60_000);
-  const [readings, history] = await Promise.all([
+  const [readings, history, metrics] = await Promise.all([
     streetsRepo.readings({ streetId: slug, from, to, bucketMinutes: 15 }),
     streetsRepo.readings({ streetId: slug, from: new Date(to.getTime() - HISTORY_WEEKS * WEEK_MS), to, bucketMinutes: 60 }),
+    // v85 over the whole 24 h: a percentile is read from the summed speed
+    // histograms, never averaged from the 15-min buckets' own v85.
+    streetsRepo.latestMetrics({ city, metric: "counts", window: "24h", now: to }),
   ]);
+  const v85 = metrics.find((m) => m.streetId === slug)?.v85Breakdown ?? {};
   const updated = dataUpdatedAt(readings, 15);
 
   return (
     <main className="mx-auto w-full max-w-[960px] px-4 py-8 sm:px-6 sm:py-10">
       <div className="flex items-center gap-3">
         <Link
-          href={`/${city}`}
+          href={`/${city}?street=${encodeURIComponent(street.id)}` as never}
           className="inline-flex min-h-11 items-center text-sm print:hidden font-medium text-[var(--ink-1)] underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]"
         >
           ← Map
@@ -69,9 +73,9 @@ export default async function StreetDetailPage({ params }: Props) {
       {isMock && <div className="mt-3"><MockNotice /></div>}
 
       <section className="mt-6">
-        <StreetTimeSeries readings={readings} directions={streetDirections(street)} history={history} historyWeeks={HISTORY_WEEKS} />
+        <StreetTimeSeries readings={readings} directions={streetDirections(street)} history={history} historyWeeks={HISTORY_WEEKS} v85={v85} />
       </section>
-      <ReportSummary readings={readings} />
+      <ReportSummary readings={readings} v85={v85} />
       <PrintFooter />
       <CreditFooter />
     </main>

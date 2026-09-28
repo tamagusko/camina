@@ -50,6 +50,21 @@ export function CityMapShell({ city, streets, initialMetrics, mock }: Props) {
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [city, selected]);
+  // `?street=<id>` (the "← Map" links of the street and analysis pages) opens
+  // the map on that street, centred and selected; the parameter is then
+  // dropped so it does not outlive the selection. Read here, not on the
+  // server, so the map page stays statically cached.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const id = url.searchParams.get("street");
+    if (id === null) return;
+    url.searchParams.delete("street");
+    history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    if (streetById.has(id)) selectStreet(id);
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function selectStreet(id: string) {
     triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setPanelMetric(initialMetrics.find((row) => row.streetId === id) ?? null);
