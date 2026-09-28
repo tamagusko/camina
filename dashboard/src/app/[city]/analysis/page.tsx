@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { z } from "zod";
 import { AnalysisControls } from "@/components/analysis/AnalysisControls";
+import { AnalysisTabs } from "@/components/analysis/AnalysisTabs";
 import { ProfileChart } from "@/components/analysis/ProfileChart";
 import { ClassIcon } from "@/components/ClassIcon";
 import { CreditFooter } from "@/components/layout/CreditFooter";
@@ -114,7 +115,8 @@ export default async function AnalysisPage({ params, searchParams }: Props) {
         <ReportActions title={`${street.displayName} · Road analysis · CAMINA`} />
       </div>
       <h1 className="mt-4 text-[length:var(--t-xl)] font-bold leading-[34px] text-[var(--ink-1)]">Road analysis</h1>
-      <p className="mt-2 text-sm text-[var(--ink-2)] sm:text-base">
+      <AnalysisTabs city={city} street={street.id} window={q.window} active="compare" />
+      <p className="mt-4 text-sm text-[var(--ink-2)] sm:text-base">
         {street.displayName} compared with {other ? other.displayName : "the city average"} · {WINDOW_LABEL[q.window].toLowerCase()} · {subject}
       </p>
       {isMock && <div className="mt-3"><MockNotice /></div>}

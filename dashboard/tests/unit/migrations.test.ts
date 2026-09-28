@@ -15,6 +15,7 @@ describe("migration history", () => {
       "0002_direction",
       "0003_snapshot_postgis",
       "0004_speed_hist",
+      "0005_speed_limit",
     ]);
     for (const entry of journal.entries) {
       expect(readFileSync(path.join(migrations, `${entry.tag}.sql`), "utf8")).toBeTruthy();

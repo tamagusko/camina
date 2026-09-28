@@ -30,6 +30,7 @@ import {
   type RawCell,
 } from "@/lib/privacy";
 import { TYPICAL_WEEKS, typicalTotal, type WindowTotal } from "@/lib/typical";
+import { speedResult, type SpeedFold } from "@/lib/speed";
 import type { StreetsRepo } from "./types";
 
 function toSummary(s: MockStreet): StreetSummary {
@@ -39,6 +40,7 @@ function toSummary(s: MockStreet): StreetSummary {
     geom: s.geom,
     bbox: s.bbox,
     city: s.city,
+    speedLimitKmh: s.speed_limit_kmh ?? null,
   };
 }
 
@@ -396,6 +398,37 @@ export const mockStreetsRepo: StreetsRepo = {
     return out;
   },
 
+  async speeds({ streetId, window, focus, limitKmh, now: clock }) {
+    const [coverage, readings] = await Promise.all([loadCoverage(), loadReadings()]);
+    const sensorIds = new Set(coverage.filter((c) => c.street_id === streetId).map((c) => c.sensor_id));
+    const end = lastCompletedCellEnd(clock ?? deriveNow(readings)).getTime();
+    const cutoff = windowCutoff(window, new Date(end)).getTime();
+    // Base cells, then published folds: per class over the window, and per
+    // class and Dublin hour of the day (src/lib/privacy.ts rule 3).
+    const cells = new Map<string, RawCell>();
+    for (const r of readings) {
+      if (!sensorIds.has(r.sensor_id)) continue;
+      const start = new Date(r.window_start).getTime();
+      if (start < cutoff || start >= end) continue;
+      const key = cellKey(r);
+      const cell = cells.get(key) ?? emptyRawCell();
+      cells.set(key, cell);
+      addReading(cell, r as DirectionalMockReading);
+    }
+    const folds = new Map<string, CellFold>();
+    const fold = (key: string) => folds.get(key) ?? folds.set(key, emptyFold()).get(key)!;
+    for (const [key, cell] of cells) {
+      const [t, cls] = key.split("|") as [string, RoadUserClass];
+      foldCell(fold(`${cls}|`), cell);
+      foldCell(fold(`${cls}|${dublinHour(Number(t))}`), cell);
+    }
+    const speedFolds: SpeedFold[] = [...folds].map(([key, f]) => {
+      const [cls, hour] = key.split("|") as [RoadUserClass, string];
+      return { cls, hour: hour === "" ? null : Number(hour), hist: f.speedHist, speedSum: f.speedSum, speedCount: f.speedCount };
+    });
+    return speedResult(speedFolds, focus, limitKmh);
+  },
+
   async adminInfo(streetId: string): Promise<StreetAdminInfo | null> {
     const [streets, sensors, coverage] = await Promise.all([
       loadStreets(),
@@ -424,6 +457,12 @@ export const mockStreetsRepo: StreetsRepo = {
     };
   },
 };
+
+const dublinHourFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Dublin", hour: "2-digit", hourCycle: "h23" });
+
+function dublinHour(ms: number): number {
+  return Number(dublinHourFormat.format(new Date(ms)));
+}
 
 function deriveNow(readings: MockReading[]): Date {
   // Mock dataset is historical; "now" = most recent window in data so the

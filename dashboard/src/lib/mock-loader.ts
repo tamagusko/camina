@@ -16,6 +16,7 @@ export interface MockStreet {
   bbox: GeoJSON.Polygon;
   city: string;
   active: boolean;
+  speed_limit_kmh?: number | null; // absent in fixtures made before it
 }
 
 export interface MockSensor {

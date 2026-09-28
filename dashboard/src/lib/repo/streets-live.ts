@@ -13,6 +13,7 @@ import {
 import { K_MIN, SPEED_BINS, emptyHistogram, publishedSum, publishedTotal, v85FromHistogram } from "@/lib/privacy";
 import { isStaleFor, lastCompletedCellEnd } from "./streets-mock";
 import { TYPICAL_WEEKS, typicalTotal, type WindowTotal } from "@/lib/typical";
+import { speedResult, type SpeedFold } from "@/lib/speed";
 import type { StreetsRepo } from "./types";
 
 const WINDOW_MS: Record<TimeWindow, number> = {
@@ -48,6 +49,7 @@ interface StreetRow {
   geom: GeoJSON.MultiLineString;
   bbox: GeoJSON.Polygon;
   city: string;
+  speed_limit_kmh: number | null;
 }
 
 function summary(row: StreetRow): StreetSummary {
@@ -57,6 +59,7 @@ function summary(row: StreetRow): StreetSummary {
     geom: row.geom,
     bbox: row.bbox,
     city: row.city,
+    speedLimitKmh: row.speed_limit_kmh,
   };
 }
 
@@ -192,7 +195,7 @@ export const liveStreetsRepo: StreetsRepo = {
   async list(city) {
     const result = await db().execute(sql`
       SELECT id, display_name, ST_AsGeoJSON(geom)::jsonb AS geom,
-             ST_AsGeoJSON(bbox)::jsonb AS bbox, city
+             ST_AsGeoJSON(bbox)::jsonb AS bbox, city, speed_limit_kmh
       FROM streets WHERE city = ${city} AND active = true ORDER BY id
     `);
     return rows<StreetRow>(result).map(summary);
@@ -201,7 +204,7 @@ export const liveStreetsRepo: StreetsRepo = {
   async get(streetId) {
     const result = await db().execute(sql`
       SELECT id, display_name, ST_AsGeoJSON(geom)::jsonb AS geom,
-             ST_AsGeoJSON(bbox)::jsonb AS bbox, city
+             ST_AsGeoJSON(bbox)::jsonb AS bbox, city, speed_limit_kmh
       FROM streets WHERE id = ${streetId} LIMIT 1
     `);
     const row = rows<StreetRow>(result)[0];
@@ -353,6 +356,33 @@ export const liveStreetsRepo: StreetsRepo = {
           : null,
       };
     });
+  },
+
+  async speeds({ streetId, window, focus, limitKmh, now = new Date() }) {
+    const end = lastCompletedCellEnd(now);
+    const cutoff = new Date(end.getTime() - WINDOW_MS[window]);
+    // Published folds per class over the window, and per class and Dublin
+    // hour of the day, in one pass (GROUPING SETS).
+    const result = rows<Fold & { hour: number | null; whole: number }>(await db().execute(sql`
+      WITH ${publishedCells(sql`
+        WHERE c.street_id = ${streetId}
+          AND r.window_start >= ${cutoff.toISOString()} AND r.window_start < ${end.toISOString()}`)},
+      timed AS (
+        SELECT *, EXTRACT(HOUR FROM cell AT TIME ZONE 'Europe/Dublin')::int AS hour FROM published
+      )
+      SELECT class_name, hour, GROUPING(hour) AS whole, ${FOLD}
+      FROM timed GROUP BY GROUPING SETS ((class_name), (class_name, hour))
+    `));
+    const folds: SpeedFold[] = result
+      .filter((f) => ROAD_USER_CLASSES.includes(f.class_name as RoadUserClass))
+      .map((f) => ({
+        cls: f.class_name as RoadUserClass,
+        hour: Number(f.whole) === 1 ? null : Number(f.hour),
+        hist: histOf(f),
+        speedSum: number(f.speed_sum),
+        speedCount: number(f.speed_count),
+      }));
+    return speedResult(folds, focus, limitKmh);
   },
 
   async adminInfo(streetId) {

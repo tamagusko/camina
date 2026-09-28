@@ -1,3 +1,4 @@
+import type { SpeedFocus, SpeedResult } from "@/lib/speed";
 import type {
   Metric,
   RoadUserClass,
@@ -33,6 +34,16 @@ export interface StreetsRepo {
     /** Clock override (tests); defaults to now(). */
     now?: Date;
   }): Promise<MetricValue[]>;
+  /** Speeds on one road over a window, against a limit: per class, for the
+   *  focus (one class or all motor vehicles) and by hour of the day. */
+  speeds(opts: {
+    streetId: string;
+    window: TimeWindow;
+    focus: SpeedFocus;
+    limitKmh: number | null;
+    /** Clock override (tests); defaults to now(). */
+    now?: Date;
+  }): Promise<SpeedResult>;
   /** Admin-only: reveals sensor identifiers and GPS for a given street.
    *  Callers must gate this on an admin session. */
   adminInfo(streetId: string): Promise<StreetAdminInfo | null>;

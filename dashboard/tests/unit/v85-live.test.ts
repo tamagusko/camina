@@ -69,6 +69,24 @@ describe.runIf(Boolean(process.env.DATABASE_URL_TEST))("live v85", () => {
     ]);
   });
 
+  it("counts the timed road users above a limit, by hour too", async () => {
+    const { liveStreetsRepo } = await import("@/lib/repo/streets-live");
+    const r = await liveStreetsRepo.speeds({ streetId: id, window: "1h", focus: "car", limitKmh: 30, now });
+    expect(r.focus.timed).toBe(20); // the hidden cell's 3 are left out
+    expect(r.focus.overLimit).toBe(10);
+    expect(r.focus.v85Kmh).toBeCloseTo(41.4);
+    // 09:15 and 09:30 UTC are 09:15 and 09:30 in Dublin in March.
+    expect(r.byHour[9]?.timed).toBe(20);
+    expect(r.byHour[10]?.timed).toBeNull();
+  });
+
+  it("reads a road's speed limit", async () => {
+    await client`UPDATE streets SET speed_limit_kmh = 50 WHERE id = ${id}`;
+    const { liveStreetsRepo } = await import("@/lib/repo/streets-live");
+    expect((await liveStreetsRepo.get(id))?.speedLimitKmh).toBe(50);
+    await expect(client`UPDATE streets SET speed_limit_kmh = 500 WHERE id = ${id}`).rejects.toThrow();
+  });
+
   it("refuses a histogram of the wrong length", async () => {
     await expect(reading(new Date(first.getTime() + 45 * MIN), "bus", 5, 20, [5])).rejects.toThrow();
   });
