@@ -46,6 +46,7 @@ The base configuration is `configs/yolo26n.yaml` (each choice commented); an exp
 | `download_tra2026` | Download the TRA 2026 dataset from Roboflow (`ROBOFLOW_API_KEY`) |
 | `validate_labels` | Check every label: class in the taxonomy, box in bounds |
 | `autolabel` | Pre-label new images for Roboflow (below) |
+| `import_montreal` | Montreal traffic-camera images (CC BY 4.0), 704x480 only: keeps the human boxes, takes the classes it lacks from `autolabel`; same output layout |
 | `codex_check` | Check each pre-label's class with Codex; split images into flagged / ok (below) |
 | `apply_audit` | Apply the audit page's decisions: corrected labels locally, then (`--push`) to Roboflow with tags |
 | `sam2_clip_auto_labeling.py`, `dinov3_semi_auto_labeling.py` | Experimental pre-labelling; unverified |
