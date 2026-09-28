@@ -10,7 +10,7 @@ const empty = () =>
   Object.fromEntries(ROAD_USER_CLASSES.map((cls) => [cls, 0])) as Record<RoadUserClass, number | null>;
 
 function reading(bucket: string, car: number | null, extra: Partial<StreetReading> = {}): StreetReading {
-  return { bucket, missing: false, hasHidden: car === null, counts: { ...empty(), car }, avgSpeedKmh: {}, ...extra };
+  return { bucket, missing: false, hasHidden: car === null, counts: { ...empty(), car }, avgSpeedKmh: {}, v85Kmh: {}, ...extra };
 }
 
 describe("classSummary", () => {

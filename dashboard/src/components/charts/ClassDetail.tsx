@@ -11,6 +11,7 @@ interface Props {
   colour: string;
   readings: StreetReading[];
   directions: [string, string];
+  v85?: number | null;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -23,7 +24,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 /** One class on its own scale, with its totals for the window. */
-export function ClassDetail({ cls, colour, readings, directions }: Props) {
+export function ClassDetail({ cls, colour, readings, directions, v85 = null }: Props) {
   const s = classSummary(readings, cls);
   const label = classLabel(cls);
   const data = readings.map((r) => ({ x: Date.parse(r.bucket), [cls]: r.counts[cls] }));
@@ -52,6 +53,7 @@ export function ClassDetail({ cls, colour, readings, directions }: Props) {
           </>
         )}
         <Stat label="Avg speed" value={s.avgSpeedKmh === null ? "—" : `${Math.round(s.avgSpeedKmh)} km/h`} />
+        <Stat label="v85" value={v85 === null ? "—" : `${Math.round(v85)} km/h`} />
       </dl>
 
       <div className="mt-4">

@@ -16,6 +16,7 @@ interface CountsBody {
     BA?: Record<string, number>;
   };
   avg_speed_kmh: Record<string, number>;
+  speed_hist_kmh: Record<string, number[]>;
   config_version: string;
   fw_version: string;
   produced_at: string;
@@ -31,6 +32,7 @@ function countsBody(overrides: Partial<CountsBody> = {}): CountsBody {
     partial: false,
     counts: { car: 3, person: 1 },
     avg_speed_kmh: { car: 22.5 },
+    speed_hist_kmh: {},
     config_version: "cfg-1",
     fw_version: "fw-1",
     produced_at: new Date(now - 1_000).toISOString(),

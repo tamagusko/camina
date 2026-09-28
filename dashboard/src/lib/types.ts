@@ -40,6 +40,8 @@ export interface StreetReading {
   hasHidden: boolean;
   counts: Record<RoadUserClass, number | null>;  // null per class when missing
   avgSpeedKmh: Partial<Record<RoadUserClass, number | null>>;
+  // 85th-percentile speed per class (src/lib/privacy.ts v85FromHistogram).
+  v85Kmh: Partial<Record<RoadUserClass, number | null>>;
   countsByDirection?: Record<"AB" | "BA", Record<RoadUserClass, number | null>>;
 }
 
@@ -59,6 +61,9 @@ export interface MetricValue {
   classBreakdown: Record<RoadUserClass, number | null>;
   speedBreakdown: Partial<Record<RoadUserClass, number | null>>;
   avgSpeedKmh: number | null;
+  // v85 per class, and over the requested classes' published speeds pooled.
+  v85Breakdown: Partial<Record<RoadUserClass, number | null>>;
+  v85Kmh: number | null;
   // true when the covering sensor has gone silent (no reading for > 2 windows).
   stale: boolean;
   // ISO timestamp of the most recent reading, or null if never seen.

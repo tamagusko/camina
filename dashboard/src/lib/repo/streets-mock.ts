@@ -18,11 +18,14 @@ import {
 } from "@/lib/types";
 import {
   K_MIN,
+  addRowHistogram,
   emptyFold,
+  emptyHistogram,
   emptyRawCell,
   foldCell,
   publishFold,
   publishedTotal,
+  v85FromHistogram,
   type CellFold,
   type RawCell,
 } from "@/lib/privacy";
@@ -99,6 +102,7 @@ function addReading(cell: RawCell, r: DirectionalMockReading): void {
   if (r.avg_speed_kmh !== null) {
     cell.speedSum += r.avg_speed_kmh * r.count;
     cell.speedCount += r.count;
+    addRowHistogram(cell, r.speed_hist_kmh);
   }
 }
 
@@ -241,6 +245,7 @@ export const mockStreetsRepo: StreetsRepo = {
             ? { AB: nullBreakdown(), BA: nullBreakdown() }
             : undefined,
           avgSpeedKmh: {},
+          v85Kmh: {},
         });
         continue;
       }
@@ -265,6 +270,9 @@ export const mockStreetsRepo: StreetsRepo = {
         countsByDirection: directional ? { AB, BA } : undefined,
         avgSpeedKmh: Object.fromEntries(
           requested.map((cls) => [cls, folds.get(cls) ? publishFold(folds.get(cls)!).speed : null])
+        ),
+        v85Kmh: Object.fromEntries(
+          requested.map((cls) => [cls, folds.get(cls) ? publishFold(folds.get(cls)!).v85 : null])
         ),
       });
     }
@@ -342,6 +350,8 @@ export const mockStreetsRepo: StreetsRepo = {
       }
       const classBreakdown = emptyBreakdown() as Record<RoadUserClass, number | null>;
       const speedBreakdown: Partial<Record<RoadUserClass, number | null>> = {};
+      const v85Breakdown: Partial<Record<RoadUserClass, number | null>> = {};
+      const pooledHist = emptyHistogram();
       let speedSum = 0;
       let speedCount = 0;
       let hasHidden = false;
@@ -350,9 +360,11 @@ export const mockStreetsRepo: StreetsRepo = {
         const shown = fold ? publishFold(fold) : null;
         classBreakdown[cls] = shown ? shown.count : 0;
         speedBreakdown[cls] = shown ? shown.speed : null;
+        v85Breakdown[cls] = shown ? shown.v85 : null;
         if (fold && shown?.speed !== null) {
           speedSum += fold.speedSum;
           speedCount += fold.speedCount;
+          fold.speedHist.forEach((n, bin) => { pooledHist[bin] = (pooledHist[bin] ?? 0) + n; });
         }
         hasHidden ||= fold?.hidden ?? false;
       }
@@ -368,6 +380,8 @@ export const mockStreetsRepo: StreetsRepo = {
         classBreakdown,
         speedBreakdown,
         avgSpeedKmh,
+        v85Breakdown,
+        v85Kmh: v85FromHistogram(pooledHist),
         stale: isStaleFor(window, lastSeen, now),
         lastSeen,
         typical: weeks.length

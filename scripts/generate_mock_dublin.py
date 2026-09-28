@@ -14,6 +14,7 @@ Usage:
 
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 import math
@@ -269,18 +270,44 @@ PEAK_BASELINE: dict[str, int] = {
     "truck": 4,
 }
 
-# Per-class speed profile (km/h, rough averages).
-SPEED_BASELINE: dict[str, float] = {
-    "person": 4.2,
-    "cyclist": 17.5,
-    "car": 28.0,
-    "e-scooter": 14.0,
-    "SUV": 27.0,
-    "motorcyclist": 32.0,
-    "bus": 18.0,
-    "delivery_van": 24.0,
-    "truck": 20.0,
+# Per-class speeds on Dublin's urban roads (30-50 km/h limits): the mean and
+# the spread (sd) of individual road users, km/h. Walking is about 1.3 m/s;
+# e-scooters are limited to 20 km/h in Ireland. v85 lands about one sd above
+# the mean: a pedestrian at 5-6 km/h, a car at 36-38.
+SPEED_PROFILE: dict[str, tuple[float, float]] = {
+    "person": (4.8, 0.7),
+    "cyclist": (18.0, 3.5),
+    "car": (32.0, 5.0),
+    "e-scooter": (17.0, 2.0),
+    "SUV": (31.0, 5.0),
+    "motorcyclist": (35.0, 6.0),
+    "bus": (23.0, 4.0),
+    "delivery_van": (29.0, 5.0),
+    "truck": (25.0, 4.0),
 }
+# A window's mean differs from the class mean by up to this fraction.
+WINDOW_SPEED_JITTER = 0.05
+
+# Speed histograms, as the edge sends them: the lower edges of the bins in
+# camina/core/counter.py SPEED_BIN_EDGES (kept stdlib-only here; a test checks
+# they agree): 1 km/h to 20, 2 km/h to 60, 5 km/h to 120, the last open.
+SPEED_BIN_EDGES: tuple[float, ...] = (
+    tuple(range(0, 20)) + tuple(range(20, 60, 2)) + tuple(range(60, 121, 5))
+)
+# The edge sends a speed only over at least this many timed road users.
+SPEED_K_MIN = 5
+
+
+def _timed_speeds(mean_kmh: float, sd_kmh: float, n: int, rng: random.Random) -> list[float]:
+    return [max(0.5, rng.gauss(mean_kmh, sd_kmh)) for _ in range(n)]
+
+
+def _speed_histogram(speeds: list[float]) -> list[int]:
+    hist = [0] * len(SPEED_BIN_EDGES)
+    for kmh in speeds:
+        hist[bisect.bisect_right(SPEED_BIN_EDGES, kmh) - 1] += 1
+    return hist
+
 
 # Zone class weighting. UCD sensors skew pedestrian / cyclist / e-scooter
 # heavy (campus mobility); corridor sensors skew car / bus / freight heavy
@@ -377,6 +404,8 @@ def _direction_counts(
 def generate() -> dict:
     rng = random.Random(SEED)
     direction_rng = random.Random(SEED + 3000)
+    # Own stream, so adding histograms left every other fixture value as it was.
+    speed_rng = random.Random(SEED + 4000)
 
     # ------- streets (public) -------
     streets = []
@@ -481,7 +510,8 @@ def generate() -> dict:
                 count = full_counts[cls]
                 if count <= 0:
                     continue
-                speed = SPEED_BASELINE[cls] * rng.uniform(0.85, 1.15)
+                class_mean, class_sd = SPEED_PROFILE[cls]
+                speed = class_mean * rng.uniform(1 - WINDOW_SPEED_JITTER, 1 + WINDOW_SPEED_JITTER)
                 reading = {
                     "sensor_id": sensor["id"],
                     "window_start": window_start.isoformat(),
@@ -491,6 +521,11 @@ def generate() -> dict:
                     "avg_speed_kmh": round(speed, 1),
                     "partial": False,
                 }
+                if count >= SPEED_K_MIN:
+                    # Every road user timed: the mean and the histogram agree.
+                    timed = _timed_speeds(speed, class_sd, count, speed_rng)
+                    reading["avg_speed_kmh"] = round(sum(timed) / len(timed), 1)
+                    reading["speed_hist_kmh"] = _speed_histogram(timed)
                 # Six of eight mock streets represent bidirectional coverage.
                 # The remaining two exercise the API's optional direction data.
                 if sensor_idx < 6:

@@ -1,10 +1,10 @@
 import { classSummary, classesWithData } from "@/lib/class-summary";
 import { formatDublinTime } from "@/lib/format-time";
-import { classLabel, type StreetReading } from "@/lib/types";
+import { classLabel, type RoadUserClass, type StreetReading } from "@/lib/types";
 
 // The figures behind the charts, for the printed report only: on screen the
 // charts and the class view already show them.
-export function ReportSummary({ readings }: { readings: StreetReading[] }) {
+export function ReportSummary({ readings, v85 = {} }: { readings: StreetReading[]; v85?: Partial<Record<RoadUserClass, number | null>> }) {
   const classes = classesWithData(readings);
   if (!classes.length) return null;
   return (
@@ -16,6 +16,7 @@ export function ReportSummary({ readings }: { readings: StreetReading[] }) {
           <th className="py-1 text-right font-normal">Total</th>
           <th className="py-1 text-right font-normal">Busiest 15 min</th>
           <th className="py-1 text-right font-normal">Avg speed</th>
+          <th className="py-1 text-right font-normal">v85</th>
         </tr>
       </thead>
       <tbody>
@@ -27,6 +28,7 @@ export function ReportSummary({ readings }: { readings: StreetReading[] }) {
               <td className="py-1 text-right tabular-nums">{s.total.toLocaleString("en-IE")}</td>
               <td className="py-1 text-right tabular-nums">{s.peak ? `${s.peak.count} at ${formatDublinTime(s.peak.bucket)}` : "–"}</td>
               <td className="py-1 text-right tabular-nums">{s.avgSpeedKmh === null ? "–" : `${Math.round(s.avgSpeedKmh)} km/h`}</td>
+              <td className="py-1 text-right tabular-nums">{v85[cls] == null ? "–" : `${Math.round(v85[cls]!)} km/h`}</td>
             </tr>
           );
         })}

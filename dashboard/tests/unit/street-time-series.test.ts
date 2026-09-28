@@ -17,8 +17,8 @@ describe("StreetTimeSeries", () => {
   it("treats gap-filled and fully suppressed buckets as empty", () => {
     const counts = Object.fromEntries(ROAD_USER_CLASSES.map((cls) => [cls, null])) as StreetReading["counts"];
     const readings: StreetReading[] = [
-      { bucket: "2026-09-26T00:00:00Z", missing: true, hasHidden: false, counts, avgSpeedKmh: {} },
-      { bucket: "2026-09-26T00:15:00Z", missing: false, hasHidden: true, counts, avgSpeedKmh: {} },
+      { bucket: "2026-09-26T00:00:00Z", missing: true, hasHidden: false, counts, avgSpeedKmh: {}, v85Kmh: {} },
+      { bucket: "2026-09-26T00:15:00Z", missing: false, hasHidden: true, counts, avgSpeedKmh: {}, v85Kmh: {} },
     ];
     const html = renderToStaticMarkup(createElement(StreetTimeSeries, { readings }));
     expect(html).toContain("No published counts in the last 24 h");
@@ -27,7 +27,7 @@ describe("StreetTimeSeries", () => {
   it("starts on All, as the first class chip, already selected", () => {
     const counts = Object.fromEntries(ROAD_USER_CLASSES.map((cls) => [cls, 0])) as StreetReading["counts"];
     const readings: StreetReading[] = [
-      { bucket: "2026-09-26T00:00:00Z", missing: false, hasHidden: false, counts: { ...counts, car: 12 }, avgSpeedKmh: {} },
+      { bucket: "2026-09-26T00:00:00Z", missing: false, hasHidden: false, counts: { ...counts, car: 12 }, avgSpeedKmh: {}, v85Kmh: {} },
     ];
     const html = renderToStaticMarkup(createElement(StreetTimeSeries, { readings }));
     expect(html).toMatch(/aria-label="Classes"><li><button[^>]*aria-pressed="true"[^>]*>All<\/button>/);
