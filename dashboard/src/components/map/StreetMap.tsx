@@ -71,10 +71,14 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, selecte
     const savedView = mapViewRef.current;
     const map = new maplibregl.Map({ container: containerRef.current, style: BASEMAP, center: savedView?.center ?? viewport.center, zoom: savedView?.zoom ?? viewport.zoom,
       minZoom: 12, maxZoom: 18, pitch: 0, bearing: 0, dragRotate: false, pitchWithRotate: false, attributionControl: false });
-    // Phone: pinch and double-tap zoom; attribution is the sheet's last line.
+    // A compass everywhere: the direction counts are named by compass point
+    // (north stays up; rotation is off). Phone: pinch and double-tap zoom, so
+    // the compass alone, below the header; attribution is the sheet's last line.
     if (window.matchMedia("(min-width: 768px)").matches) {
-      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+      map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "bottom-right");
       map.addControl(new maplibregl.AttributionControl({ customAttribution: MAP_CREDIT_HTML }), "bottom-right");
+    } else {
+      map.addControl(new maplibregl.NavigationControl({ showZoom: false, visualizePitch: false }), "top-right");
     }
     map.on("load", () => {
       map.addSource("streets", { type: "geojson", data: featureCollection(streets, shown, mode) });
@@ -104,6 +108,19 @@ export function StreetMap({ city, streets, initialMetrics, mock = false, selecte
     (map.getSource("streets") as maplibregl.GeoJSONSource).setData(featureCollection(streets, shown, mode));
     map.setPaintProperty("streets-visible", "line-color", lineColour(paintMode(mode, shown)));
   }, [streets, shown, mode, mapReady]);
+
+  // Phones: keep the top-right compass just below the header, whose height
+  // changes with the selected street's name.
+  useEffect(() => {
+    const header = headerRef.current;
+    const container = containerRef.current;
+    if (!header || !container) return;
+    const place = () => container.style.setProperty("--header-bottom", `${header.getBoundingClientRect().bottom}px`);
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
 
   // A selected street keeps its colour, drawn a little thicker; the others
   // fade. The map centres on it inside the part the panel leaves visible,

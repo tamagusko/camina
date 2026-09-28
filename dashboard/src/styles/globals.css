@@ -25,3 +25,6 @@
   }
 }
 
+/* Phone compass (StreetMap): under the floating header, not behind it. Outside
+   any @layer, since MapLibre's own unlayered CSS would win over a layered rule. */
+.maplibregl-map .maplibregl-ctrl-top-right { top: var(--header-bottom, 0px); }
