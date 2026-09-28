@@ -41,7 +41,5 @@ runs/
 /*.pt
 /weights/
 
-# Local Vercel project link (vercel CLI)
-.vercel/
 # Ultralytics label caches, rebuilt on each training run
 *.cache
