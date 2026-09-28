@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from camina.core.counter import SPEED_BINS
 from camina.core.tracking_rules import (
     MAX_CLASS_HITS,
     MAX_OCCLUSION_S_LIMIT,
@@ -37,6 +38,8 @@ class CountsPayload(BaseModel):
     counts: dict[str, int] = Field(default_factory=dict)
     counts_by_direction: dict[str, dict[str, int]] | None = None
     avg_speed_kmh: dict[str, float] = Field(default_factory=dict)
+    # Per class: timed road users per SPEED_BIN_EDGES bin (v85).
+    speed_hist_kmh: dict[str, list[int]] = Field(default_factory=dict)
     config_version: str
     fw_version: str
     produced_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
@@ -63,6 +66,19 @@ class CountsPayload(BaseModel):
                 raise ValueError(f"unknown class: {name}")
             if isinstance(value, bool) or value < 0:
                 raise ValueError(f"{name} speeds must be nonnegative")
+        return values
+
+    @field_validator("speed_hist_kmh")
+    @classmethod
+    def _valid_speed_histograms(cls, values: dict[str, list[int]]) -> dict[str, list[int]]:
+        allowed = set(load_canonical_classes())
+        for name, hist in values.items():
+            if name not in allowed:
+                raise ValueError(f"unknown class: {name}")
+            if len(hist) != SPEED_BINS:
+                raise ValueError(f"{name} speed histogram must have {SPEED_BINS} bins")
+            if any(isinstance(n, bool) or not 0 <= n <= 65535 for n in hist):
+                raise ValueError(f"{name} speed histogram bins must be between 0 and 65535")
         return values
 
     @field_validator("counts_by_direction")
