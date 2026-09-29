@@ -14,7 +14,7 @@ the task in the PR that finishes it.
 - [ ] **Deploy** (S5). Neon + Vercel in live mode; migrations `0000`–`0005`; `speed_limit_kmh` on
   each street; `CRON_SECRET`; UCD Google OAuth on `/admin`.
 - [ ] **Pi bench** (S6). [`docs/raspberry_pi_5.md`](docs/raspberry_pi_5.md): 30 min, ≥ 5 FPS at 640,
-  no throttling. Then promote `dev` → `main`.
+  no throttling.
 - [ ] **Start now, long lead times** (S8). UCD DPO/ethics, a host site, the enclosure.
 
 ## 2. Next model
@@ -26,15 +26,18 @@ The code and the GPU are ready; the labels are not. Train only after steps 1–3
    332 disputed boxes in `data/autolabel/audit/index.html`, `apply_audit`, push to Roboflow,
    redraw `audit-box`, save as **v4** (v3 stays the paper's). Keep the split.
 3. [ ] **Review new images in Roboflow**
-   - `dev_expanded`, 235 images: pre-labelled and checked, ready to upload.
-   - Montreal, 5,672 images: `claude_check` first (its SUVs are labelled `car`), then
-     review, export to `data/montreal`.
+   - `dev_expanded`, 235 images: checked by Codex and Claude. Upload
+     `data/autolabel/dev_expanded_new/review/flagged` (64) first, then `review/ok` (171).
+   - Montreal: 662 images selected by Claude agreement ([`training/MONTREAL.md`](training/MONTREAL.md)).
+     Review the 60-image audit sample (pass: ≤ 2 fail), record the result, copy `tier_a` to
+     `data/montreal`. Steps: `data/autolabel/montreal/AUDIT.md`.
    - Own camera images: settle GDPR and the camera terms before any leave the machine.
 4. [ ] **Train and compare** YOLO26n, YOLO26s and YOLO11n (paper recipe) on the audited data,
    plus the Montreal ablation. `evaluate` on the test split and both clips; group the split by
    camera before trusting e-scooter AP.
 5. [ ] **Promote** only if it beats CAMINAv1 on both clips, then `--final`, FP16 NCNN at 640, the Pi
    bench, and `models/<name>_fp16_ncnn_model/` with a `PROVENANCE.md`.
+6. [ ] **Release** `dev` → `main` only after the retrain: merge #50 (left open) and tag `v0.x`.
 
 Thin classes are the real limit: 112 delivery vans and 132 trucks, against a target of 500.
 
