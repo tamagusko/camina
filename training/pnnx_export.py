@@ -3,7 +3,7 @@
 Why this exists alongside the Ultralytics export path in ``export_ncnn.py``:
 
 1. The 9-class CAMINAv1 weights survive only as the TorchScript intermediate
-   on ``origin/TRA2026`` (``model/yolo_comparison/YOLO11n/train/weights/
+   on ``TRA2026`` (``model/yolo_comparison/YOLO11n/train/weights/
    best.torchscript``) — there is no ``.pt``, and Ultralytics cannot export
    from TorchScript. pnnx can: Ultralytics' own NCNN export is "write
    TorchScript, run pnnx on it, write metadata.yaml", and this module is that

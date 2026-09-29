@@ -77,8 +77,8 @@ makes them) and `CAMINA_DATA_SOURCE` unset — a test checks the production fail
 
 - Conventional Commits; merge commits, no squash; merged branches auto-delete.
 - `main` stable (PRs from `dev` or `hotfix/*` only) · `dev` integration (branch from it, PR into
-  it) · `TRA2026` frozen paper snapshot. `dev_expanded_dataset` holds unaudited data: never merge
-  it until it is audited. Details in `CONTRIBUTING.md`.
+  it) · tag `TRA2026` is the frozen paper snapshot. `dev_expanded_dataset` holds unaudited
+  data: never merge it until it is audited. Details in `CONTRIBUTING.md`.
 
 ## Code
 
