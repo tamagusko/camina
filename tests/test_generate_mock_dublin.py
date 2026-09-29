@@ -36,10 +36,23 @@ def test_speed_histograms_hold_every_timed_road_user_in_the_edge_bins() -> None:
 
 
 def test_mock_speeds_are_plausible_per_class() -> None:
-    # Window means, km/h: walking stays at walking pace, cars at urban speeds.
-    readings = generate()["sensor_readings"]
-    bounds = {"person": (3.5, 6.5), "e-scooter": (12, 21), "car": (25, 40), "bus": (17, 30)}
-    for reading in readings:
-        low_high = bounds.get(reading["class_name"])
-        if low_high and reading["count"] >= 20:
-            assert low_high[0] <= reading["avg_speed_kmh"] <= low_high[1], reading
+    # Window means, km/h: walking stays at walking pace; cars follow the road's
+    # limit: slower in rush hour, a little over it at most on average.
+    data = generate()
+    limit = {s["id"]: s["speed_limit_kmh"] for s in data["streets"]}
+    sensor_street = {c["sensor_id"]: c["street_id"] for c in data["sensor_street_coverage"]}
+    for reading in data["sensor_readings"]:
+        if reading["count"] < 20:
+            continue
+        kmh = reading["avg_speed_kmh"]
+        road_limit = limit[sensor_street[reading["sensor_id"]]]
+        if reading["class_name"] == "person":
+            assert 3.5 <= kmh <= 6.5, reading
+        elif reading["class_name"] == "e-scooter":
+            assert 12 <= kmh <= 21, reading
+        elif reading["class_name"] == "car":
+            assert 0.5 * road_limit <= kmh <= 1.2 * road_limit, (road_limit, reading)
+
+
+def test_every_street_has_its_osm_speed_limit() -> None:
+    assert {s["speed_limit_kmh"] for s in generate()["streets"]} <= {30, 50, 60}

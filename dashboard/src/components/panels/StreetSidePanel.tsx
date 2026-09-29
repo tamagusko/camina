@@ -76,9 +76,10 @@ export function StreetSidePanel({ street, metric, reading, onClose }: Props) {
         {hasHidden && <p className="mt-2 text-xs text-ink-2">{HIDDEN_NOTE}</p>}
         {perClass.some((cls) => current?.v85Kmh[cls] != null) && <p className="mt-1 text-xs text-ink-2">{V85_NOTE}</p>}
       </div>
-      <div className="mt-5 flex flex-wrap gap-x-6">
+      <div className="mt-5 flex flex-wrap gap-x-4">
         <Link href={`/${street.city}/street/${street.id}` as never} className="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Detailed view →</Link>
         <Link href={`/${street.city}/analysis?street=${encodeURIComponent(street.id)}` as never} className="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Compare roads →</Link>
+        <Link href={`/${street.city}/analysis/speed?street=${encodeURIComponent(street.id)}` as never} className="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Speed →</Link>
       </div>
     </div>
   </div>;

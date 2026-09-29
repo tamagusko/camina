@@ -10,6 +10,7 @@ import {
   pgTable,
   primaryKey,
   real,
+  smallint,
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
@@ -57,6 +58,8 @@ export const streets = pgTable("streets", {
   city: text("city").notNull(),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // OpenStreetMap maxspeed by default; null when unknown (0005_speed_limit.sql).
+  speedLimitKmh: smallint("speed_limit_kmh"),
 });
 
 export const sensorStreetCoverage = pgTable(

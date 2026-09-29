@@ -36,6 +36,13 @@
       "when": 1790584980766,
       "tag": "0004_speed_hist",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790599896621,
+      "tag": "0005_speed_limit",
+      "breakpoints": true
     }
   ]
 }

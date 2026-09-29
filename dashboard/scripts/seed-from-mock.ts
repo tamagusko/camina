@@ -20,6 +20,7 @@ export interface SeedStreet {
   bbox: GeoJSON.Polygon;
   city: string;
   active: boolean;
+  speed_limit_kmh?: number | null;
 }
 
 /** Inserts the streets that do not exist yet; returns how many were inserted. */
@@ -28,11 +29,11 @@ export async function seedStreets(client: Client, streets: SeedStreet[]): Promis
   await client.begin(async (tx) => {
     for (const s of streets) {
       const rows = await tx`
-        INSERT INTO streets (id, display_name, osm_way_ids, geom, bbox, city, active)
+        INSERT INTO streets (id, display_name, osm_way_ids, geom, bbox, city, active, speed_limit_kmh)
         VALUES (${s.id}, ${s.display_name}, ${s.osm_way_ids.map(String)}::bigint[],
                 ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(s.geom)}), 4326),
                 ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(s.bbox)}), 4326),
-                ${s.city}, ${s.active})
+                ${s.city}, ${s.active}, ${s.speed_limit_kmh ?? null})
         ON CONFLICT (id) DO NOTHING RETURNING id
       `;
       inserted += rows.length;

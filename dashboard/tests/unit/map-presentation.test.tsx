@@ -133,7 +133,7 @@ describe("selected street", () => {
     expect(selectionOpacity(null, 0.9)).toBe(0.9);
   });
   it("centres on the middle of the street's extent", () => {
-    const street = { id: "s", displayName: "S", city: "dublin",
+    const street = { id: "s", displayName: "S", city: "dublin", speedLimitKmh: null,
       geom: { type: "MultiLineString" as const, coordinates: [[[-6.3, 53.3], [-6.1, 53.5]]] },
       bbox: { type: "Polygon" as const, coordinates: [[[-6.3, 53.3], [-6.1, 53.3], [-6.1, 53.5], [-6.3, 53.5], [-6.3, 53.3]]] } };
     const [lon, lat] = streetCentre(street);

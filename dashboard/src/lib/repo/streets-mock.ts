@@ -1,6 +1,7 @@
 import "server-only";
 import {
   loadCoverage,
+  loadHeartbeats,
   loadReadings,
   loadSensors,
   loadStreets,
@@ -30,6 +31,8 @@ import {
   type RawCell,
 } from "@/lib/privacy";
 import { TYPICAL_WEEKS, typicalTotal, type WindowTotal } from "@/lib/typical";
+import { heartbeatMinutes } from "@/lib/heartbeat";
+import { speedResult, type SpeedFold } from "@/lib/speed";
 import type { StreetsRepo } from "./types";
 
 function toSummary(s: MockStreet): StreetSummary {
@@ -39,6 +42,7 @@ function toSummary(s: MockStreet): StreetSummary {
     geom: s.geom,
     bbox: s.bbox,
     city: s.city,
+    speedLimitKmh: s.speed_limit_kmh ?? null,
   };
 }
 
@@ -67,6 +71,12 @@ export function isStale(lastSeen: string | null, now: Date): boolean {
 }
 
 const CELL_MS = 15 * 60_000;
+
+/** The 15-min cells one heartbeat vouches for: 1 up to a 15-min interval,
+ *  more for the longer ones CAMINA_HEARTBEAT_MINUTES allows. */
+export function heartbeatCells(minutes: number = heartbeatMinutes()): number {
+  return Math.max(1, Math.round(minutes / 15));
+}
 
 /** End of the last completed 15-min cell: the latest window_end <= now. A
  *  sensor publishes the cell [S, S+15) at S+15, so this is the newest cell a
@@ -396,6 +406,69 @@ export const mockStreetsRepo: StreetsRepo = {
     return out;
   },
 
+  async speeds({ streetId, window, focus, limitKmh, now: clock }) {
+    const [coverage, readings] = await Promise.all([loadCoverage(), loadReadings()]);
+    const sensorIds = new Set(coverage.filter((c) => c.street_id === streetId).map((c) => c.sensor_id));
+    const end = lastCompletedCellEnd(clock ?? deriveNow(readings)).getTime();
+    const cutoff = windowCutoff(window, new Date(end)).getTime();
+    // Base cells, then published folds: per class over the window, and per
+    // class and Dublin hour of the day (src/lib/privacy.ts rule 3).
+    const cells = new Map<string, RawCell>();
+    for (const r of readings) {
+      if (!sensorIds.has(r.sensor_id)) continue;
+      const start = new Date(r.window_start).getTime();
+      if (start < cutoff || start >= end) continue;
+      const key = cellKey(r);
+      const cell = cells.get(key) ?? emptyRawCell();
+      cells.set(key, cell);
+      addReading(cell, r as DirectionalMockReading);
+    }
+    const folds = new Map<string, CellFold>();
+    const fold = (key: string) => folds.get(key) ?? folds.set(key, emptyFold()).get(key)!;
+    for (const [key, cell] of cells) {
+      const [t, cls] = key.split("|") as [string, RoadUserClass];
+      const hour = dublinHour(Number(t));
+      foldCell(fold(`${cls}||`), cell);
+      foldCell(fold(`${cls}|${hour}|`), cell);
+      foldCell(fold(`${cls}|${hour}|${dublinWeekday(Number(t))}`), cell);
+    }
+    const speedFolds: SpeedFold[] = [...folds].map(([key, f]) => {
+      const [cls, hour, dow] = key.split("|") as [RoadUserClass, string, string];
+      return {
+        cls,
+        hour: hour === "" ? null : Number(hour),
+        dow: dow === "" ? null : Number(dow),
+        hist: f.speedHist,
+        speedSum: f.speedSum,
+        speedCount: f.speedCount,
+      };
+    });
+    return speedResult(speedFolds, focus, limitKmh);
+  },
+
+  async online({ streetId, window, now: clock }) {
+    const [coverage, heartbeats, readings] = await Promise.all([loadCoverage(), loadHeartbeats(), loadReadings()]);
+    const sensorIds = new Set(coverage.filter((c) => c.street_id === streetId).map((c) => c.sensor_id));
+    const end = lastCompletedCellEnd(clock ?? deriveNow(readings)).getTime();
+    const cutoff = windowCutoff(window, new Date(end)).getTime();
+    // A 15-min cell is online when a sensor on the street sent a heartbeat in
+    // it, or in the cells a heartbeat interval longer than 15 min spans.
+    const span = heartbeatCells();
+    const online = new Set<number>();
+    for (const h of heartbeats) {
+      if (!sensorIds.has(h.sensor_id)) continue;
+      const t = new Date(h.ts).getTime();
+      if (t < cutoff || t >= end) continue;
+      for (let k = 0; k < span; k++) {
+        const cell = Math.floor(t / CELL_MS) * CELL_MS - k * CELL_MS;
+        if (cell >= cutoff) online.add(cell);
+      }
+    }
+    const byHour = Array.from({ length: 24 }, () => 0);
+    for (const t of online) byHour[dublinHour(t)]! += 1;
+    return { cells: Math.round((end - cutoff) / CELL_MS), onlineCells: online.size, byHour };
+  },
+
   async adminInfo(streetId: string): Promise<StreetAdminInfo | null> {
     const [streets, sensors, coverage] = await Promise.all([
       loadStreets(),
@@ -424,6 +497,20 @@ export const mockStreetsRepo: StreetsRepo = {
     };
   },
 };
+
+const dublinHourFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Dublin", hour: "2-digit", hourCycle: "h23" });
+
+function dublinHour(ms: number): number {
+  return Number(dublinHourFormat.format(new Date(ms)));
+}
+
+const dublinWeekdayFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Dublin", weekday: "short" });
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** Dublin weekday, 0 = Monday .. 6 = Sunday. */
+function dublinWeekday(ms: number): number {
+  return WEEKDAYS.indexOf(dublinWeekdayFormat.format(new Date(ms)));
+}
 
 function deriveNow(readings: MockReading[]): Date {
   // Mock dataset is historical; "now" = most recent window in data so the

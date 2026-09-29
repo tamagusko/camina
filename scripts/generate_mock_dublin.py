@@ -29,7 +29,7 @@ SEED = 20260421
 CITY = "dublin"
 DAYS = 21
 WINDOW_MINUTES = 15
-HEARTBEAT_MINUTES = 5
+HEARTBEAT_MINUTES = 15  # the pilot's interval (dashboard/src/lib/heartbeat.ts)
 
 # Canonical 9-class taxonomy. Kept in sync with the dashboard's
 # ``ROAD_USER_CLASSES`` (dashboard/src/lib/types.ts).
@@ -53,6 +53,11 @@ MISSING_RATE: dict[str, float] = {
     "cellular": 0.015,  # cellular bearer, slightly less reliable
 }
 
+# One longer outage, so the dashboard's coverage line has a gap to report:
+# sensor index -> (hours before the end of the data, length in hours). The
+# sensor sends neither counts nor heartbeats while it is down.
+OUTAGES: dict[int, tuple[int, int]] = {4: (40, 6)}  # Leeson Street Lower
+
 # Max cellular ingest latency (seconds). Cellular is HTTPS over a cellular
 # bearer, so payloads are identical to WiFi; the only real-world difference is
 # a small ``produced_at`` latency jitter at ingest time. The DB-shaped readings
@@ -70,10 +75,13 @@ CELLULAR_LATENCY_MAX_S = 90
 # zone and transport drive traffic character and reporting behaviour;
 # transport is also surfaced in sensors.json metadata.
 # Coordinates are [lon, lat] (GeoJSON order); the sensor sits at the midpoint.
+# speed_limit_kmh is the ways' OSM maxspeed (fetched 2026-09-28); where they
+# differ (N11 at Montrose: 50 and 60), the limit over most of the length.
 STREETS: list[dict[str, Any]] = [
     # --- UCD Belfield campus: 1 WiFi, 3 cellular ---
     {
         "id": "ucd-stillorgan-rd-entrance",
+        "speed_limit_kmh": 60,
         "display_name": "UCD Stillorgan Road Entrance",
         "osm_way_ids": [25094842, 327046546],
         "coords": [
@@ -99,6 +107,7 @@ STREETS: list[dict[str, Any]] = [
     },
     {
         "id": "ucd-clonskeagh-wynnsward",
+        "speed_limit_kmh": 30,
         "display_name": "UCD Wynnsward Drive / Clonskeagh Entrance",
         "osm_way_ids": [32297486, 1316561310, 1444805901],
         "coords": [
@@ -127,6 +136,7 @@ STREETS: list[dict[str, Any]] = [
     },
     {
         "id": "ucd-n11-belfield-flyover",
+        "speed_limit_kmh": 60,
         "display_name": "N11 Belfield Flyover",
         "osm_way_ids": [25094836, 496165839],
         "coords": [
@@ -145,6 +155,7 @@ STREETS: list[dict[str, Any]] = [
     },
     {
         "id": "ucd-fosters-ave-entrance",
+        "speed_limit_kmh": 50,
         "display_name": "UCD Foster's Avenue Entrance",
         "osm_way_ids": [41517971],
         "coords": [
@@ -158,6 +169,7 @@ STREETS: list[dict[str, Any]] = [
     # --- City-centre -> UCD access corridor: 1 WiFi, 3 cellular ---
     {
         "id": "leeson-st-lower",
+        "speed_limit_kmh": 30,
         "display_name": "Leeson Street Lower",
         "osm_way_ids": [2110728, 906237416],
         "coords": [
@@ -179,6 +191,7 @@ STREETS: list[dict[str, Any]] = [
     },
     {
         "id": "morehampton-rd-donnybrook",
+        "speed_limit_kmh": 50,
         "display_name": "Morehampton Road, Donnybrook",
         "osm_way_ids": [33909888, 1273176962, 1314372295],
         "coords": [
@@ -202,6 +215,7 @@ STREETS: list[dict[str, Any]] = [
     },
     {
         "id": "n11-stillorgan-rd-montrose",
+        "speed_limit_kmh": 60,
         "display_name": "N11 Stillorgan Road at RTE / Montrose",
         "osm_way_ids": [33924202, 750297159, 750298029],
         "coords": [
@@ -217,6 +231,7 @@ STREETS: list[dict[str, Any]] = [
     },
     {
         "id": "ranelagh-rd",
+        "speed_limit_kmh": 50,
         "display_name": "Ranelagh Road",
         "osm_way_ids": [36819764],
         "coords": [
@@ -270,8 +285,8 @@ PEAK_BASELINE: dict[str, int] = {
     "truck": 4,
 }
 
-# Per-class speeds on Dublin's urban roads (30-50 km/h limits): the mean and
-# the spread (sd) of individual road users, km/h. Walking is about 1.3 m/s;
+# Per-class speeds on a 50 km/h Dublin road: the mean and the spread (sd) of
+# individual road users, km/h (motor traffic is rescaled per road below). Walking is about 1.3 m/s;
 # e-scooters are limited to 20 km/h in Ireland. v85 lands about one sd above
 # the mean: a pedestrian at 5-6 km/h, a car at 36-38.
 SPEED_PROFILE: dict[str, tuple[float, float]] = {
@@ -287,6 +302,19 @@ SPEED_PROFILE: dict[str, tuple[float, float]] = {
 }
 # A window's mean differs from the class mean by up to this fraction.
 WINDOW_SPEED_JITTER = 0.05
+# Motor traffic follows the road: SPEED_PROFILE is a 50 km/h road, scaled here
+# by the limit (Dublin's 30 km/h streets are widely exceeded; the 60 km/h N11
+# runs near 45-50), and by the time of day (rush hours slower, nights faster).
+MOTOR_CLASSES = {"car", "SUV", "motorcyclist", "bus", "delivery_van", "truck"}
+LIMIT_SPEED_FACTOR: dict[int, float] = {30: 0.9, 50: 1.2, 60: 1.45}
+
+
+def _time_of_day_speed_factor(hour: float, weekday: int) -> float:
+    if hour < 6 or hour >= 22:
+        return 1.12
+    rush = weekday < 5 and (7.5 <= hour < 9.5 or 16.5 <= hour < 18.5)
+    return 0.85 if rush else 1.0
+
 
 # Speed histograms, as the edge sends them: the lower edges of the bins in
 # camina/core/counter.py SPEED_BIN_EDGES (kept stdlib-only here; a test checks
@@ -369,7 +397,8 @@ def _sensor_character(idx: int) -> dict[str, float]:
 def _missing_window_set(idx: int, n_windows: int, transport: str) -> set[int]:
     """Deterministic set of dropped window indices for a sensor.
 
-    Each transport drops isolated windows at its ``MISSING_RATE``.
+    Each transport drops isolated windows at its ``MISSING_RATE``; a sensor in
+    ``OUTAGES`` also loses a block of windows.
     """
     rng = random.Random(SEED + 1000 + idx)
     rate = MISSING_RATE[transport]
@@ -379,6 +408,11 @@ def _missing_window_set(idx: int, n_windows: int, transport: str) -> set[int]:
         if rng.random() < rate:
             missing.add(w)
         w += 1
+    if idx in OUTAGES:
+        per_hour = 60 // WINDOW_MINUTES
+        hours_before_end, length = OUTAGES[idx]
+        first = n_windows - hours_before_end * per_hour
+        missing.update(range(first, first + length * per_hour))
     return missing
 
 
@@ -422,6 +456,7 @@ def generate() -> dict:
                 "bbox": _bbox(s["coords"]),
                 "city": CITY,
                 "active": True,
+                "speed_limit_kmh": s["speed_limit_kmh"],
             }
         )
 
@@ -481,6 +516,7 @@ def generate() -> dict:
         zone = sensor_zone[sensor_idx]
         character = _sensor_character(sensor_idx)
         missing = _missing_window_set(sensor_idx, windows, transport)
+        street_limit = STREETS[sensor_idx]["speed_limit_kmh"]
         gap_stats[transport]["sensors"] += 1
         gap_stats[transport]["windows_missing"] += len(missing)
 
@@ -511,6 +547,11 @@ def generate() -> dict:
                 if count <= 0:
                     continue
                 class_mean, class_sd = SPEED_PROFILE[cls]
+                if cls in MOTOR_CLASSES:
+                    factor = LIMIT_SPEED_FACTOR[street_limit] * _time_of_day_speed_factor(
+                        hour, weekday
+                    )
+                    class_mean, class_sd = class_mean * factor, class_sd * factor
                 speed = class_mean * rng.uniform(1 - WINDOW_SPEED_JITTER, 1 + WINDOW_SPEED_JITTER)
                 reading = {
                     "sensor_id": sensor["id"],
@@ -541,13 +582,17 @@ def generate() -> dict:
                     reading["direction_ba_count"] = ba_count
                 readings.append(reading)
 
-    # ------- heartbeats (last 24 h only) -------
+    # ------- heartbeats (every window the sensor was up) -------
+    # A dropped window is an outage: no heartbeat either, so the dashboard can
+    # tell a sensor that was down from a street that was empty.
     heartbeats = []
-    hb_start = end - timedelta(hours=24)
-    hb_windows = int(24 * 60 / HEARTBEAT_MINUTES)
-    for sensor in sensors:
-        for h in range(hb_windows):
-            ts = hb_start + timedelta(minutes=HEARTBEAT_MINUTES * h)
+    per_window = WINDOW_MINUTES // HEARTBEAT_MINUTES
+    for sensor_idx, sensor in enumerate(sensors):
+        missing = _missing_window_set(sensor_idx, windows, sensor["transport"])
+        for h in range(windows * per_window):
+            if h // per_window in missing:
+                continue
+            ts = start + timedelta(minutes=HEARTBEAT_MINUTES * h)
             heartbeats.append(
                 {
                     "sensor_id": sensor["id"],

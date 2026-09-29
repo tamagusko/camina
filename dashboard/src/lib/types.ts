@@ -30,7 +30,35 @@ export interface StreetSummary {
   geom: GeoJSON.MultiLineString;
   bbox: GeoJSON.Polygon;
   city: string;
+  // The road's limit, from OpenStreetMap `maxspeed` unless set by hand; null
+  // when unknown. A road attribute, public like the geometry.
+  speedLimitKmh: number | null;
 }
+
+/** Speeds of one class (or of all motor vehicles) on one road over a window,
+ *  against a limit. Built from published cells only (src/lib/privacy.ts);
+ *  null where a figure would rest on fewer than K_MIN road users. */
+export interface SpeedFigures {
+  timed: number | null;
+  meanKmh: number | null;
+  v85Kmh: number | null;
+  overLimit: number | null;     // timed road users above the limit
+  overLimitShare: number | null; // overLimit / timed, 0..1
+  overBy10: number | null;      // more than 10 km/h above the limit
+  overBy10Share: number | null;
+}
+
+/** The 15-min cells of a window in which a road's sensors were online (sent
+ *  a heartbeat), in all and per Dublin hour of the day. */
+export interface SensorOnline {
+  cells: number;
+  onlineCells: number;
+  byHour: number[]; // 24 hours of the day
+}
+
+/** The classes a speed limit applies to (no pedestrians, cyclists or
+ *  e-scooters, which have their own caps). */
+export const MOTOR_CLASSES = ["car", "SUV", "motorcyclist", "bus", "delivery_van", "truck"] as const satisfies readonly RoadUserClass[];
 
 export interface StreetReading {
   bucket: string;             // ISO timestamp of window start
