@@ -21,15 +21,14 @@ the task in the PR that finishes it.
 
 The code and the GPU are ready; the labels are not. Train only after steps 1–3.
 
-1. [ ] **Merge the training PRs** into `dev`: #41 (pipeline) → #42 (auto-labelling) → #44
-   (Montreal). They replace the old scripts in `training/`.
+1. [x] **Merge the training PRs** into `dev`: #41, #42, #44 (2026-09-29).
 2. [ ] **Finish the TRA 2026 label audit** ([`training/AUDIT.md`](training/AUDIT.md)): decide the
    332 disputed boxes in `data/autolabel/audit/index.html`, `apply_audit`, push to Roboflow,
    redraw `audit-box`, save as **v4** (v3 stays the paper's). Keep the split.
 3. [ ] **Review new images in Roboflow**
    - `dev_expanded`, 235 images: pre-labelled and checked, ready to upload.
-   - Montreal, 5,672 images: vehicle check first (its SUVs are labelled `car`), then review,
-     export to `data/montreal`.
+   - Montreal, 5,672 images: `claude_check` first (its SUVs are labelled `car`), then
+     review, export to `data/montreal`.
    - Own camera images: settle GDPR and the camera terms before any leave the machine.
 4. [ ] **Train and compare** YOLO26n, YOLO26s and YOLO11n (paper recipe) on the audited data,
    plus the Montreal ablation. `evaluate` on the test split and both clips; group the split by

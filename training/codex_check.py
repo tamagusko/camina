@@ -173,9 +173,18 @@ def labelled_crop(crop: Image.Image, n: int) -> Image.Image:
     return out
 
 
+VERDICT_COLUMNS = ("vlm_verdict", "claude_verdict")  # Codex, then training.claude_check
+
+
 def flagged_images(rows: list[dict]) -> list[str]:
-    """Images with at least one checked box that Codex did not agree with."""
-    return sorted({r["image"] for r in rows if r.get("vlm_verdict") in ("disagree", "unsure")})
+    """Images with at least one checked box that a checker did not agree with."""
+    return sorted(
+        {
+            r["image"]
+            for r in rows
+            if any(r.get(c) in ("disagree", "unsure") for c in VERDICT_COLUMNS)
+        }
+    )
 
 
 def _ask_codex(crops: list[Path], args: argparse.Namespace) -> dict[int, tuple[str, str]]:
@@ -211,9 +220,9 @@ def _ask_codex_once(crops: list[Path], args: argparse.Namespace) -> dict[int, tu
         return parse_reply(out.read_text(), len(crops))
 
 
-def _write_rows(path: Path, rows: list[dict]) -> None:
+def _write_rows(path: Path, rows: list[dict], prefix: str = "vlm") -> None:
     fields = list(rows[0])
-    for extra in ("vlm_label", "vlm_note", "vlm_verdict"):
+    for extra in (f"{prefix}_label", f"{prefix}_note", f"{prefix}_verdict"):
         if extra not in fields:
             fields.append(extra)
     with open(path, "w", newline="") as f:
