@@ -21,6 +21,10 @@ describe("countAtOrAbove", () => {
     // [20, 22) holds 10; 21 is half-way.
     expect(countAtOrAbove(hist({ 20: 10 }), 21)).toBe(5);
   });
+  it("does not guess inside the open top bin", () => {
+    expect(countAtOrAbove(hist({ 120: 10 }), 120)).toBe(10);
+    expect(countAtOrAbove(hist({ 120: 10 }), 130)).toBeNull();
+  });
 });
 
 describe("speedFigures", () => {
@@ -70,6 +74,63 @@ describe("speedResult", () => {
   });
 });
 
+describe("complementary suppression of the split", () => {
+  const car = (hour: number | null, bins: Record<number, number>, dow: number | null = null): SpeedFold =>
+    ({ cls: "car", hour, dow, hist: hist(bins), speedSum: 0, speedCount: 0 });
+
+  it("hides a second hour when one hour alone is hidden", () => {
+    // 08:00 has 3 above: hidden. Without a partner, the window's 13 above
+    // minus 07:00's 10 would give those 3 away.
+    const folds = [
+      car(null, { 28: 40, 34: 13 }),
+      car(7, { 28: 20, 34: 10 }),
+      car(8, { 28: 20, 34: 3 }),
+    ];
+    const r = speedResult(folds, "motor", 30);
+    expect(r.focus.overLimit).toBe(13);
+    expect(r.byHour[8]?.overLimit).toBeNull();
+    expect(r.byHour[7]?.overLimit).toBeNull();
+    expect(r.byHour[7]?.timed).toBe(30); // the total stays
+  });
+
+  it("leaves the other hours alone when the hidden ones pass together", () => {
+    const folds = [
+      car(null, { 28: 150, 34: 16 }),
+      car(6, { 28: 50, 34: 3 }),
+      car(7, { 28: 50, 34: 3 }),
+      car(8, { 28: 50, 34: 10 }),
+    ];
+    const r = speedResult(folds, "motor", 30);
+    // 06:00 and 07:00 together have 6 above: enough, so 08:00 is shown.
+    expect([r.byHour[6]?.overLimit, r.byHour[7]?.overLimit, r.byHour[8]?.overLimit]).toEqual([null, null, 10]);
+  });
+
+  it("protects a motor class against all motor vehicles, whatever the focus", () => {
+    const folds: SpeedFold[] = [
+      { cls: "car", hour: null, hist: hist({ 28: 20, 34: 10 }), speedSum: 0, speedCount: 0 },
+      { cls: "bus", hour: null, hist: hist({ 28: 20, 34: 2 }), speedSum: 0, speedCount: 0 },
+    ];
+    expect(speedResult(folds, "car", 30).byClass.car?.overLimit).toBeNull();
+    expect(speedResult(folds, "motor", 30).focus.overLimit).toBe(12);
+  });
+
+  it("splits an hour by weekday for the week, protected within the hour", () => {
+    const folds = [
+      car(null, { 28: 40, 34: 13 }),
+      car(8, { 28: 40, 34: 13 }),
+      car(8, { 28: 20, 34: 10 }, 0),
+      car(8, { 28: 20, 34: 3 }, 1),
+    ];
+    const r = speedResult(folds, "motor", 30);
+    expect(r.week).toHaveLength(7);
+    expect(r.week[0]).toHaveLength(24);
+    expect(r.byHour[8]?.overLimit).toBe(13);
+    expect(r.week[1]![8]!.overLimit).toBeNull();
+    expect(r.week[0]![8]!.overLimit).toBeNull(); // its partner
+    expect(r.week[2]![8]!.timed).toBeNull();
+  });
+});
+
 describe("mock repo speeds", () => {
   it("finds more cars above the limit on a 30 km/h road than on a 60 km/h one", async () => {
     const thirty = await mockStreetsRepo.speeds({ streetId: "leeson-st-lower", window: "7d", focus: "car", limitKmh: 30 });
@@ -79,9 +140,33 @@ describe("mock repo speeds", () => {
     expect(thirty.byHour.filter((h) => h.timed !== null).length).toBeGreaterThan(12);
   });
 
+  it("fills most of a typical week over 30 days on a busy road", async () => {
+    const r = await mockStreetsRepo.speeds({ streetId: "leeson-st-lower", window: "30d", focus: "motor", limitKmh: 30 });
+    const shown = r.week.flat().filter((f) => f.overLimitShare !== null).length;
+    expect(shown).toBeGreaterThan(7 * 24 * 0.6);
+  });
+
   it("gives every street its OpenStreetMap limit", async () => {
     const streets = await mockStreetsRepo.list("dublin");
     expect(streets.every((s) => s.speedLimitKmh !== null)).toBe(true);
     expect((await mockStreetsRepo.get("leeson-st-lower"))?.speedLimitKmh).toBe(30);
+  });
+});
+
+describe("mock repo online", () => {
+  it("reports the hours a sensor was up, and an outage as a gap", async () => {
+    const steady = await mockStreetsRepo.online({ streetId: "ranelagh-rd", window: "7d" });
+    const cut = await mockStreetsRepo.online({ streetId: "leeson-st-lower", window: "7d" });
+    expect(steady.cells).toBe(7 * 96);
+    expect(steady.onlineCells / steady.cells).toBeGreaterThan(0.95);
+    // Leeson Street Lower's sensor was down for six hours (the mock's outage).
+    expect(steady.onlineCells - cut.onlineCells).toBeGreaterThanOrEqual(6 * 4 - 8);
+    expect(cut.byHour.reduce((s, n) => s + n, 0)).toBe(cut.onlineCells);
+  });
+
+  it("counts no hours before the data began", async () => {
+    const month = await mockStreetsRepo.online({ streetId: "ranelagh-rd", window: "30d" });
+    expect(month.cells).toBe(30 * 96);
+    expect(month.onlineCells).toBeLessThanOrEqual(21 * 96); // 21 days of mock data
   });
 });

@@ -48,6 +48,14 @@ export interface SpeedFigures {
   overBy10Share: number | null;
 }
 
+/** The 15-min cells of a window in which a road's sensors were online (sent
+ *  a heartbeat), in all and per Dublin hour of the day. */
+export interface SensorOnline {
+  cells: number;
+  onlineCells: number;
+  byHour: number[]; // 24 hours of the day
+}
+
 /** The classes a speed limit applies to (no pedestrians, cyclists or
  *  e-scooters, which have their own caps). */
 export const MOTOR_CLASSES = ["car", "SUV", "motorcyclist", "bus", "delivery_van", "truck"] as const satisfies readonly RoadUserClass[];

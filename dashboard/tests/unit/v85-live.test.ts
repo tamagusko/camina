@@ -78,6 +78,19 @@ describe.runIf(Boolean(process.env.DATABASE_URL_TEST))("live v85", () => {
     // 09:15 and 09:30 UTC are 09:15 and 09:30 in Dublin in March.
     expect(r.byHour[9]?.timed).toBe(20);
     expect(r.byHour[10]?.timed).toBeNull();
+    // 2026-03-10 is a Tuesday.
+    expect(r.week[1]![9]!.timed).toBe(20);
+    expect(r.week[0]![9]!.timed).toBeNull();
+  });
+
+  it("reports the 15-min cells with a heartbeat as online", async () => {
+    for (const ts of ["2026-03-10T09:16:00Z", "2026-03-10T09:29:00Z", "2026-03-10T09:46:00Z"]) {
+      await client`INSERT INTO sensor_heartbeats (sensor_id, ts, uptime_s, config_version) VALUES (${id}, ${ts}, 60, 'v1')`;
+    }
+    const { liveStreetsRepo } = await import("@/lib/repo/streets-live");
+    const o = await liveStreetsRepo.online({ streetId: id, window: "1h", now });
+    expect(o).toMatchObject({ cells: 4, onlineCells: 2 }); // 09:15 twice, 09:45; not 09:00 or 09:30
+    expect(o.byHour[9]).toBe(2);
   });
 
   it("reads a road's speed limit", async () => {

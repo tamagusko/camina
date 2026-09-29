@@ -11,7 +11,7 @@ import {
   type TimeWindow,
 } from "@/lib/types";
 import { K_MIN, SPEED_BINS, emptyHistogram, publishedSum, publishedTotal, v85FromHistogram } from "@/lib/privacy";
-import { isStaleFor, lastCompletedCellEnd } from "./streets-mock";
+import { heartbeatCells, isStaleFor, lastCompletedCellEnd } from "./streets-mock";
 import { TYPICAL_WEEKS, typicalTotal, type WindowTotal } from "@/lib/typical";
 import { speedResult, type SpeedFold } from "@/lib/speed";
 import type { StreetsRepo } from "./types";
@@ -361,28 +361,59 @@ export const liveStreetsRepo: StreetsRepo = {
   async speeds({ streetId, window, focus, limitKmh, now = new Date() }) {
     const end = lastCompletedCellEnd(now);
     const cutoff = new Date(end.getTime() - WINDOW_MS[window]);
-    // Published folds per class over the window, and per class and Dublin
-    // hour of the day, in one pass (GROUPING SETS).
-    const result = rows<Fold & { hour: number | null; whole: number }>(await db().execute(sql`
+    // Published folds per class over the window, per class and Dublin hour
+    // of the day, and per class, weekday and hour, in one pass (GROUPING SETS).
+    const result = rows<Fold & { hour: number | null; dow: number | null; no_hour: number; no_dow: number }>(await db().execute(sql`
       WITH ${publishedCells(sql`
         WHERE c.street_id = ${streetId}
           AND r.window_start >= ${cutoff.toISOString()} AND r.window_start < ${end.toISOString()}`)},
       timed AS (
-        SELECT *, EXTRACT(HOUR FROM cell AT TIME ZONE 'Europe/Dublin')::int AS hour FROM published
+        SELECT *, EXTRACT(HOUR FROM cell AT TIME ZONE 'Europe/Dublin')::int AS hour,
+               EXTRACT(ISODOW FROM cell AT TIME ZONE 'Europe/Dublin')::int - 1 AS dow
+        FROM published
       )
-      SELECT class_name, hour, GROUPING(hour) AS whole, ${FOLD}
-      FROM timed GROUP BY GROUPING SETS ((class_name), (class_name, hour))
+      SELECT class_name, hour, dow, GROUPING(hour) AS no_hour, GROUPING(dow) AS no_dow, ${FOLD}
+      FROM timed GROUP BY GROUPING SETS ((class_name), (class_name, hour), (class_name, hour, dow))
     `));
     const folds: SpeedFold[] = result
       .filter((f) => ROAD_USER_CLASSES.includes(f.class_name as RoadUserClass))
       .map((f) => ({
         cls: f.class_name as RoadUserClass,
-        hour: Number(f.whole) === 1 ? null : Number(f.hour),
+        hour: Number(f.no_hour) === 1 ? null : Number(f.hour),
+        dow: Number(f.no_dow) === 1 ? null : Number(f.dow),
         hist: histOf(f),
         speedSum: number(f.speed_sum),
         speedCount: number(f.speed_count),
       }));
     return speedResult(folds, focus, limitKmh);
+  },
+
+  async online({ streetId, window, now = new Date() }) {
+    const end = lastCompletedCellEnd(now);
+    const cutoff = new Date(end.getTime() - WINDOW_MS[window]);
+    // A 15-min cell is online when a sensor on the street sent a heartbeat in
+    // it, or in the cells a heartbeat interval longer than 15 min spans.
+    const span = heartbeatCells();
+    const result = rows<{ hour: number; cells: string | number }>(await db().execute(sql`
+      SELECT EXTRACT(HOUR FROM cell AT TIME ZONE 'Europe/Dublin')::int AS hour, COUNT(*) AS cells
+      FROM (
+        SELECT DISTINCT date_bin(INTERVAL '15 min', h.ts, TIMESTAMPTZ '1970-01-01') - k * INTERVAL '15 min' AS cell
+        FROM sensor_heartbeats h
+        JOIN sensor_street_coverage c ON c.sensor_id = h.sensor_id
+        CROSS JOIN generate_series(0, ${span - 1}) AS k
+        WHERE c.street_id = ${streetId}
+          AND h.ts >= ${cutoff.toISOString()} AND h.ts < ${end.toISOString()}
+      ) online
+      WHERE cell >= ${cutoff.toISOString()}
+      GROUP BY 1
+    `));
+    const byHour = Array.from({ length: 24 }, () => 0);
+    for (const r of result) byHour[Number(r.hour)] = Number(r.cells);
+    return {
+      cells: Math.round(WINDOW_MS[window] / (15 * 60_000)),
+      onlineCells: byHour.reduce((s, n) => s + n, 0),
+      byHour,
+    };
   },
 
   async adminInfo(streetId) {

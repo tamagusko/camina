@@ -7,6 +7,7 @@ import type {
   StreetSummary,
   TimeWindow,
   MetricValue,
+  SensorOnline,
 } from "@/lib/types";
 
 // Repositories abstract "mock" and "live" data sources.
@@ -44,6 +45,13 @@ export interface StreetsRepo {
     /** Clock override (tests); defaults to now(). */
     now?: Date;
   }): Promise<SpeedResult>;
+  /** How much of a window the road's sensors were online, from heartbeats. */
+  online(opts: {
+    streetId: string;
+    window: TimeWindow;
+    /** Clock override (tests); defaults to now(). */
+    now?: Date;
+  }): Promise<SensorOnline>;
   /** Admin-only: reveals sensor identifiers and GPS for a given street.
    *  Callers must gate this on an admin session. */
   adminInfo(streetId: string): Promise<StreetAdminInfo | null>;

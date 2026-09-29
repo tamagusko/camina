@@ -5,6 +5,8 @@ import { z } from "zod";
 import { AnalysisTabs } from "@/components/analysis/AnalysisTabs";
 import { SpeedByHourChart } from "@/components/analysis/SpeedByHourChart";
 import { SpeedControls } from "@/components/analysis/SpeedControls";
+import { SpeedCountsByHourChart, type HourCounts } from "@/components/analysis/SpeedCountsByHourChart";
+import { SpeedWeekHeatmap } from "@/components/analysis/SpeedWeekHeatmap";
 import { ClassIcon } from "@/components/ClassIcon";
 import { CreditFooter } from "@/components/layout/CreditFooter";
 import { MockBadge, MockNotice } from "@/components/layout/MockBadge";
@@ -14,7 +16,7 @@ import { isMock } from "@/lib/data-source";
 import { CITY_VIEWS } from "@/lib/geo";
 import { streetsRepo } from "@/lib/repo";
 import { classSchema } from "@/lib/schemas";
-import { MOTOR_CLASSES, ROAD_USER_CLASSES, classLabel, type RoadUserClass, type SpeedFigures } from "@/lib/types";
+import { MOTOR_CLASSES, ROAD_USER_CLASSES, classLabel, type RoadUserClass, type SensorOnline, type SpeedFigures } from "@/lib/types";
 
 // Speed analysis: how fast road users go on one road, and how many exceed its
 // limit. The limit is the road's OpenStreetMap maxspeed unless the reader
@@ -64,6 +66,26 @@ function v85Note(v85: number | null, limit: number | null): string | undefined {
   return d === 0 ? "At the limit" : `${Math.abs(d)} km/h ${d > 0 ? "above" : "below"} the limit`;
 }
 
+/** Hours the sensor was online, of the hours in the period. */
+function onlineNote(o: SensorOnline): string {
+  if (o.onlineCells === 0) return "The sensor was not online in this period.";
+  const hours = (cells: number) => int.format(Math.round(cells / 4));
+  const share = o.onlineCells / o.cells;
+  const pctText = share > 0.99 && share < 1 ? ">99 %" : `${Math.round(share * 100)} %`;
+  return `Sensor online ${hours(o.onlineCells)} of ${hours(o.cells)} hours (${pctText}).`;
+}
+
+/** Average per day the sensor was online at that hour: a period with gaps is
+ *  not averaged over days without data. */
+function countsByHour(byHour: SpeedFigures[], online: SensorOnline): HourCounts[] {
+  return byHour.map((f, hour) => {
+    const days = online.byHour[hour]! / 4;
+    if (f.timed === null || days === 0) return { below: null, above: null, unsplit: null };
+    if (f.overLimit === null) return { below: null, above: null, unsplit: f.timed / days };
+    return { below: (f.timed - f.overLimit) / days, above: f.overLimit / days, unsplit: null };
+  });
+}
+
 export default async function SpeedPage({ params, searchParams }: Props) {
   const { city } = await params;
   if (!(city in CITY_VIEWS)) notFound();
@@ -78,7 +100,10 @@ export default async function SpeedPage({ params, searchParams }: Props) {
 
   // The limit reaches every motor class in the table; the headline hides it
   // when the focus is not bound by it.
-  const r = await streetsRepo.speeds({ streetId: street.id, window: q.window, focus, limitKmh: limit });
+  const [r, online] = await Promise.all([
+    streetsRepo.speeds({ streetId: street.id, window: q.window, focus, limitKmh: limit }),
+    streetsRepo.online({ streetId: street.id, window: q.window }),
+  ]);
   const f = r.focus;
   const subject = focus === "motor" ? "motor vehicles" : PLURAL[focus];
   const limitSource = limit === null ? undefined : limit === street.speedLimitKmh ? "OpenStreetMap" : "Chosen here";
@@ -134,13 +159,43 @@ export default async function SpeedPage({ params, searchParams }: Props) {
           </dl>
         )}
         {!bound && <p className="mt-3 text-micro text-[var(--ink-2)]">The road&apos;s limit applies to motor vehicles only.</p>}
+        <p className="mt-3 text-micro text-[var(--ink-2)]">{onlineNote(online)}</p>
       </section>
 
       <section className="card mt-6 border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-6">
         <h2 className="text-base font-semibold text-[var(--ink-1)]">Through the day</h2>
         <p className="mt-1 text-sm text-[var(--ink-2)]">Speeds of {subject} per hour of the day, km/h, {WINDOW_LABEL[q.window].toLowerCase()}</p>
         <div className="mt-4"><SpeedByHourChart byHour={r.byHour} limit={shownLimit} /></div>
+        {shownLimit !== null && (
+          <>
+            <h3 className="mt-6 text-sm font-semibold text-[var(--ink-1)]">Above and below the limit</h3>
+            <p className="mt-1 text-sm text-[var(--ink-2)]">Timed {subject} per hour of the day, average per day with data</p>
+            <div className="mt-4"><SpeedCountsByHourChart byHour={countsByHour(r.byHour, online)} limit={shownLimit} /></div>
+          </>
+        )}
       </section>
+
+      {shownLimit !== null && (
+        <section className="card mt-6 border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-6">
+          <h2 className="text-base font-semibold text-[var(--ink-1)]">Through the week</h2>
+          {q.window === "30d" ? (
+            <>
+              <p className="mt-1 text-sm text-[var(--ink-2)]">Share of {subject} above {shownLimit} km/h by weekday and hour, %, last 30 days</p>
+              <div className="mt-4"><SpeedWeekHeatmap week={r.week} limit={shownLimit} /></div>
+            </>
+          ) : (
+            <p className="mt-1 text-sm text-[var(--ink-2)]">
+              A typical week needs a month of data.{" "}
+              <Link
+                href={`/${city}/analysis/speed?${new URLSearchParams({ street: street.id, window: "30d", ...(q.class ? { class: q.class } : {}), ...(q.limit ? { limit: String(q.limit) } : {}) }).toString()}` as never}
+                className="font-medium text-[var(--ink-1)] underline underline-offset-4 print:no-underline"
+              >
+                Show the last 30 days
+              </Link>
+            </p>
+          )}
+        </section>
+      )}
 
       {classes.length > 0 && (
         <section className="card mt-6 border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-6">
@@ -181,7 +236,8 @@ export default async function SpeedPage({ params, searchParams }: Props) {
 
       <div className="mt-4 space-y-1 text-micro text-[var(--ink-2)]">
         <p>v85: the speed that 85 % of timed road users do not exceed. Speed limit: the road&apos;s OpenStreetMap maxspeed unless another is chosen.</p>
-        <p>Only road users timed between the sensor&apos;s two speed lines count. Figures over fewer than 5 are hidden, and so is a count above the limit when it, or the count below, is 1 to 4.</p>
+        <p>Only road users timed between the sensor&apos;s two speed lines count. Figures over fewer than 5 are hidden, and so is a count above the limit when it, or the count below, is 1 to 4; so are enough others that none can be worked out from the totals.</p>
+        <p>Sensor online: the hours in which the sensor reported that it was running.</p>
       </div>
 
       <Link href={`/${city}/street/${street.id}` as never} className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4 print:hidden">

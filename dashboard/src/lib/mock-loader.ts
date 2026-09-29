@@ -51,6 +51,11 @@ export interface MockReading {
   partial: boolean;
 }
 
+export interface MockHeartbeat {
+  sensor_id: string;
+  ts: string;
+}
+
 async function readJson<T>(file: string): Promise<T> {
   const raw = await fs.readFile(path.join(ROOT, file), "utf-8");
   return JSON.parse(raw) as T;
@@ -61,6 +66,7 @@ const cache: {
   sensors?: MockSensor[];
   coverage?: MockCoverage[];
   readings?: MockReading[];
+  heartbeats?: MockHeartbeat[];
 } = {};
 
 export async function loadStreets(): Promise<MockStreet[]> {
@@ -81,4 +87,9 @@ export async function loadCoverage(): Promise<MockCoverage[]> {
 export async function loadReadings(): Promise<MockReading[]> {
   cache.readings ??= await readJson<MockReading[]>("sensor_readings.json");
   return cache.readings;
+}
+
+export async function loadHeartbeats(): Promise<MockHeartbeat[]> {
+  cache.heartbeats ??= await readJson<MockHeartbeat[]>("sensor_heartbeats.json");
+  return cache.heartbeats;
 }

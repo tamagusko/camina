@@ -29,7 +29,7 @@ SEED = 20260421
 CITY = "dublin"
 DAYS = 21
 WINDOW_MINUTES = 15
-HEARTBEAT_MINUTES = 5
+HEARTBEAT_MINUTES = 15  # the pilot's interval (dashboard/src/lib/heartbeat.ts)
 
 # Canonical 9-class taxonomy. Kept in sync with the dashboard's
 # ``ROAD_USER_CLASSES`` (dashboard/src/lib/types.ts).
@@ -52,6 +52,11 @@ MISSING_RATE: dict[str, float] = {
     "wifi": 0.005,  # brief WiFi/HTTPS outages
     "cellular": 0.015,  # cellular bearer, slightly less reliable
 }
+
+# One longer outage, so the dashboard's coverage line has a gap to report:
+# sensor index -> (hours before the end of the data, length in hours). The
+# sensor sends neither counts nor heartbeats while it is down.
+OUTAGES: dict[int, tuple[int, int]] = {4: (40, 6)}  # Leeson Street Lower
 
 # Max cellular ingest latency (seconds). Cellular is HTTPS over a cellular
 # bearer, so payloads are identical to WiFi; the only real-world difference is
@@ -392,7 +397,8 @@ def _sensor_character(idx: int) -> dict[str, float]:
 def _missing_window_set(idx: int, n_windows: int, transport: str) -> set[int]:
     """Deterministic set of dropped window indices for a sensor.
 
-    Each transport drops isolated windows at its ``MISSING_RATE``.
+    Each transport drops isolated windows at its ``MISSING_RATE``; a sensor in
+    ``OUTAGES`` also loses a block of windows.
     """
     rng = random.Random(SEED + 1000 + idx)
     rate = MISSING_RATE[transport]
@@ -402,6 +408,11 @@ def _missing_window_set(idx: int, n_windows: int, transport: str) -> set[int]:
         if rng.random() < rate:
             missing.add(w)
         w += 1
+    if idx in OUTAGES:
+        per_hour = 60 // WINDOW_MINUTES
+        hours_before_end, length = OUTAGES[idx]
+        first = n_windows - hours_before_end * per_hour
+        missing.update(range(first, first + length * per_hour))
     return missing
 
 
@@ -571,13 +582,17 @@ def generate() -> dict:
                     reading["direction_ba_count"] = ba_count
                 readings.append(reading)
 
-    # ------- heartbeats (last 24 h only) -------
+    # ------- heartbeats (every window the sensor was up) -------
+    # A dropped window is an outage: no heartbeat either, so the dashboard can
+    # tell a sensor that was down from a street that was empty.
     heartbeats = []
-    hb_start = end - timedelta(hours=24)
-    hb_windows = int(24 * 60 / HEARTBEAT_MINUTES)
-    for sensor in sensors:
-        for h in range(hb_windows):
-            ts = hb_start + timedelta(minutes=HEARTBEAT_MINUTES * h)
+    per_window = WINDOW_MINUTES // HEARTBEAT_MINUTES
+    for sensor_idx, sensor in enumerate(sensors):
+        missing = _missing_window_set(sensor_idx, windows, sensor["transport"])
+        for h in range(windows * per_window):
+            if h // per_window in missing:
+                continue
+            ts = start + timedelta(minutes=HEARTBEAT_MINUTES * h)
             heartbeats.append(
                 {
                     "sensor_id": sensor["id"],
