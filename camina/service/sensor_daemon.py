@@ -17,7 +17,7 @@ import queue
 import signal
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from threading import Event, Thread
 
@@ -29,11 +29,16 @@ from camina.core.counter import (
     WindowedCounter,
     WindowSnapshot,
 )
+from camina.core.counting import Screenline
+from camina.core.speed import MAX_KMH, SpeedLines
+from camina.core.tracking_rules import check_tracking_rules
 from camina.io.config_poller import ConfigPoller
+from camina.io.config_state import config_state_path, load_config_state, save_config_state
 from camina.io.http_client import HttpClient, RetryPolicy
 from camina.io.https_publisher import HttpsPublisher
 from camina.io.offline_buffer import OfflineBuffer
 from camina.io.schemas import HeartbeatPayload, SensorConfig
+from camina.utils.hardware import read_cpu_temp, read_process_rss_mb, read_throttled
 from camina.utils.sqlite_integrity import check_and_recover
 from camina.utils.systemd_notify import SystemdNotifier
 
@@ -88,7 +93,9 @@ class DaemonConfig:
     classes: list[str]
     fw_version: str
     publish_interval_seconds: int = 900
-    heartbeat_interval_seconds: int = 600
+    # Boot default only: the server's CAMINA_HEARTBEAT_MINUTES wins after the
+    # first config handshake. 15 min in the pilot (free database), goal 5 min.
+    heartbeat_interval_seconds: int = 900
     outbox_max_rows: int = 10_000
     # NCNN inference.
     ncnn_model_path: Path = Path("models/camina_v1_yolo11n_ncnn_model")
@@ -99,6 +106,13 @@ class DaemonConfig:
     # with no screenline, when it has moved ``min_move`` box heights.
     screenline: tuple[tuple[float, float], tuple[float, float]] | None = None
     min_move: float = 1.0
+    # Tracking (camina/core/tracker.py): seconds a hidden track survives, and
+    # detections of its class a track needs before it counts under that class.
+    max_occlusion_s: float = 5.0
+    min_class_hits: int = 3
+    relink: bool = False  # re-link after occlusion; off until measured on a second clip
+    # Speed (camina/core/speed.py): two calibrated lines; None = no speeds.
+    speed: SpeedLines | None = None
 
     @classmethod
     def from_yaml(cls, path: Path) -> DaemonConfig:
@@ -112,7 +126,7 @@ class DaemonConfig:
             classes=list(data["classes"]),
             fw_version=data.get("fw_version", "0.0.0"),
             publish_interval_seconds=int(data.get("publish_interval_seconds", 900)),
-            heartbeat_interval_seconds=int(data.get("heartbeat_interval_seconds", 600)),
+            heartbeat_interval_seconds=int(data.get("heartbeat_interval_seconds", 900)),
             outbox_max_rows=int(data.get("outbox_max_rows", 10_000)),
             ncnn_model_path=Path(
                 data.get("ncnn_model_path", "models/camina_v1_yolo11n_ncnn_model")
@@ -121,7 +135,27 @@ class DaemonConfig:
             conf_threshold=float(data.get("conf_threshold", 0.3)),
             screenline=_parse_screenline(data.get("screenline")),
             min_move=float(data.get("min_move", 1.0)),
+            speed=_parse_speed(data.get("speed")),
+            **_tracking_rules(data),
         )
+
+
+def _tracking_rules(data: dict) -> dict:
+    """The tracking rules from ``sensor.yaml``, checked against the server's bounds."""
+    max_occlusion_s = data.get("max_occlusion_s", 5.0)
+    min_class_hits = data.get("min_class_hits", 3)
+    relink = data.get("relink", False)
+    check_tracking_rules(max_occlusion_s, min_class_hits, relink)
+    return {
+        "max_occlusion_s": float(max_occlusion_s),
+        "min_class_hits": min_class_hits,
+        "relink": relink,
+    }
+
+
+def seconds_to_next_boundary(now_s: float, interval_s: int) -> float:
+    """Seconds from ``now_s`` (Unix time) to the next multiple of ``interval_s``; never 0."""
+    return interval_s - (now_s % interval_s)
 
 
 def _parse_screenline(
@@ -132,6 +166,19 @@ def _parse_screenline(
         return None
     (x1, y1), (x2, y2) = raw
     return ((float(x1), float(y1)), (float(x2), float(y2)))
+
+
+def _parse_speed(raw: dict | None) -> SpeedLines | None:
+    """The ``speed`` block of ``sensor.yaml`` -> ``SpeedLines``; absent -> ``None``."""
+    if raw is None:
+        return None
+    (a1, a2), (b1, b2) = raw["line_a"], raw["line_b"]
+    return SpeedLines(
+        line_a=Screenline((float(a1[0]), float(a1[1])), (float(a2[0]), float(a2[1]))),
+        line_b=Screenline((float(b1[0]), float(b1[1])), (float(b2[0]), float(b2[1]))),
+        distance_m=float(raw["distance_m"]),
+        max_kmh=float(raw.get("max_kmh", MAX_KMH)),
+    )
 
 
 class SensorDaemon:
@@ -180,12 +227,18 @@ class SensorDaemon:
             http_client=self._http,
             outbox=self._outbox,
         )
+        # Restore the last applied server config before the first connection.
+        self._config_state_path = config_state_path(config.state_db_path)
+        self._applied_config: SensorConfig | None = None
+        saved = load_config_state(self._config_state_path)
+        if saved is not None:
+            self._apply_config(saved)
         self._poller = ConfigPoller(
             sensor_id=config.sensor_id,
             http_client=self._http,
-            current_version="",
+            current_version=saved.config_version if saved is not None else "",
             apply=self._apply_config,
-            persist=lambda v: logger.info("Persisted config version %s", v),
+            persist=self._persist_config,
         )
 
         self._shutdown = Event()
@@ -198,9 +251,13 @@ class SensorDaemon:
         self._publish_queue: queue.Queue[object] = queue.Queue()
         self._worker_thread: Thread | None = None
         self._publish_jitter_s = _publish_jitter_seconds(config.sensor_id)
+        self._pending_daily_days: set[date] = set()
 
         # sd_notify is a no-op unless launched under a Type=notify systemd unit.
         self._notifier = SystemdNotifier()
+        # Tracker/gate counters at the last window rollover (logged as deltas).
+        self._tracking_seen = (0, 0)
+        self._speed_rejected_seen = 0
 
     # ---------- Public API ----------
 
@@ -230,6 +287,9 @@ class SensorDaemon:
             return
         self._stopped = True
         self._shutdown.set()
+        close_frame_source = getattr(self._frame_source, "close", None)
+        if close_frame_source is not None:
+            close_frame_source()
         if self._heartbeat_thread is not None:
             self._heartbeat_thread.join(timeout=5.0)
         # Drain any in-flight publish jobs before closing state: the sentinel
@@ -260,32 +320,61 @@ class SensorDaemon:
 
     def _main_loop(self) -> None:
         last_watchdog = time.monotonic()
-        for frame in self._frame_source:
+        take_speeds = getattr(self._detect_and_track, "take_speeds", None)
+        for item in self._frame_source:
             if self._shutdown.is_set():
                 break
+            # A frame source may yield (frame, capture time in s); speeds need it.
+            frame, t = item if isinstance(item, tuple) else (item, None)
             now = datetime.now(tz=timezone.utc)
-            for track_id, class_name in self._detect_and_track(frame):
-                self._counter.add(track_id=track_id, class_name=class_name, now=now)
-
             snapshot = self._counter.maybe_rollover(now)
             if snapshot is not None:
+                self._log_tracking(self._detect_and_track)
                 # Record locally on this thread (fast local SQLite), then hand
                 # the network POST to the worker so the loop never blocks.
                 self._daily.add_window(snapshot)
                 self._enqueue(("counts", snapshot))
 
             daily_snapshot = self._daily.maybe_rollover(now)
-            if daily_snapshot is not None:
-                # Mark published up-front so ``maybe_rollover`` doesn't re-emit
-                # this row every frame while the async POST is in flight — the
-                # outbox owns durable delivery, so a daily is always
-                # delivered-or-buffered (F2).
-                self._daily.mark_published(daily_snapshot.day)
+            if daily_snapshot is not None and daily_snapshot.day not in self._pending_daily_days:
+                self._pending_daily_days.add(daily_snapshot.day)
                 self._enqueue(("daily", daily_snapshot))
+
+            results = (
+                self._detect_and_track(frame) if t is None else self._detect_and_track(frame, t)
+            )
+            for counted in results:
+                track_id, class_name = counted
+                direction = getattr(counted, "direction", None)
+                self._counter.add(
+                    track_id=track_id, class_name=class_name, now=now, direction=direction
+                )
+            if take_speeds is not None:
+                for class_name, kmh in take_speeds():
+                    self._counter.add_speed(class_name, kmh)
 
             if time.monotonic() - last_watchdog >= _WATCHDOG_INTERVAL_S:
                 self._notifier.watchdog()
                 last_watchdog = time.monotonic()
+
+    def _log_tracking(self, detect_and_track: object) -> None:
+        """Log, at INFO, this window's tracks dropped unconfirmed, re-links and,
+        when speed is on, rejected speed measurements."""
+        gate = getattr(detect_and_track, "gate", None)
+        tracker = getattr(detect_and_track, "tracker", None)
+        dropped = getattr(gate, "unconfirmed_dropped", 0)
+        relinks = getattr(tracker, "relinks", 0)
+        seen_dropped, seen_relinks = self._tracking_seen
+        self._tracking_seen = (dropped, relinks)
+        logger.info(
+            "Window tracking: unconfirmed_dropped=%d relinks=%d",
+            dropped - seen_dropped,
+            relinks - seen_relinks,
+        )
+        speed = getattr(detect_and_track, "speed", None)
+        if speed is not None:
+            logger.info("Window speed: rejected=%d", speed.rejected - self._speed_rejected_seen)
+            self._speed_rejected_seen = speed.rejected
 
     # ---------- Publish worker ----------
 
@@ -343,6 +432,8 @@ class SensorDaemon:
             snapshot=snapshot,
             config_version=self._poller.current_version,
             fw_version=self._config.fw_version,
+            avg_speed_kmh=snapshot.avg_speed_kmh,
+            speed_hist_kmh=snapshot.speed_hist_kmh,
         )
         if result.latest_config_version:
             self._poller.check(result.latest_config_version)
@@ -366,15 +457,18 @@ class SensorDaemon:
             self._poller.check(result.latest_config_version)
 
     def _publish_daily_row(self, snapshot: DailySnapshot) -> None:
-        # Network-only daily publish for the worker; the main loop already
-        # marked this row published, so this must not touch ``_daily``.
-        result = self._publisher.post_daily(
-            snapshot=snapshot,
-            config_version=self._poller.current_version,
-            fw_version=self._config.fw_version,
-        )
-        if result.latest_config_version:
-            self._poller.check(result.latest_config_version)
+        try:
+            result = self._publisher.post_daily(
+                snapshot=snapshot,
+                config_version=self._poller.current_version,
+                fw_version=self._config.fw_version,
+            )
+            if result.delivered or result.buffered:
+                self._daily.mark_published(snapshot.day)
+            if result.latest_config_version:
+                self._poller.check(result.latest_config_version)
+        finally:
+            self._pending_daily_days.discard(snapshot.day)
 
     def _flush_open_window(self) -> None:
         """Force-close the open window on shutdown so its counts aren't lost.
@@ -396,8 +490,12 @@ class SensorDaemon:
             self._publish_daily(snap)
 
     def _heartbeat_loop(self) -> None:
-        interval = self._config.heartbeat_interval_seconds
-        while not self._shutdown.wait(timeout=interval):
+        # Fire on wall-clock boundaries (:00, :15, ...), in step with the count
+        # windows, so heartbeats and counts wake the database together. The
+        # interval is re-read each time, so a config change applies at once.
+        while not self._shutdown.wait(
+            timeout=seconds_to_next_boundary(time.time(), self._config.heartbeat_interval_seconds)
+        ):
             # Route through the worker so the heartbeat POST shares the single
             # publish thread (no separate network path off the detection loop).
             self._enqueue(("heartbeat",))
@@ -405,15 +503,20 @@ class SensorDaemon:
     def _send_heartbeat(self) -> None:
         now = datetime.now(tz=timezone.utc)
         uptime_s = int((now - self._started_at).total_seconds())
+        outbox_stats = self._outbox.stats()
         hb = HeartbeatPayload(
             sensor_id=self._config.sensor_id,
             ts=now,
             uptime_s=uptime_s,
-            cpu_temp_c=_read_cpu_temp(),
+            cpu_temp_c=read_cpu_temp(),
+            throttled=read_throttled(),
+            rss_mb=read_process_rss_mb(),
             last_window_end=self._counter.window_start,
             config_version=self._poller.current_version,
             fw_version=self._config.fw_version,
             config_error=self._poller.has_error,
+            outbox_depth=outbox_stats.pending,
+            outbox_dropped_total=outbox_stats.dropped + outbox_stats.poisoned,
         )
         result = self._publisher.post_heartbeat(hb)
         if result.latest_config_version:
@@ -427,6 +530,10 @@ class SensorDaemon:
                 self._counter.window_seconds,
                 new_window,
             )
+            snapshot = self._counter.force_snapshot(datetime.now(tz=timezone.utc), partial=True)
+            if snapshot.total():
+                self._daily.add_window(snapshot)
+                self._enqueue(("counts", snapshot))
             self._counter = WindowedCounter(
                 classes=self._config.classes,
                 window_seconds=new_window,
@@ -434,19 +541,60 @@ class SensorDaemon:
         self._config.publish_interval_seconds = new_window
         self._config.heartbeat_interval_seconds = config.heartbeat_interval_minutes * 60
 
+        tracker = getattr(self._detect_and_track, "tracker", None)
+        if tracker is not None:
+            tracker.min_hits = config.min_track_hits
+            self._apply_tracking_rules(tracker, config)
+        else:
+            logger.warning(
+                "min_track_hits=%d not applied: the detector exposes no tracker",
+                config.min_track_hits,
+            )
+        # Not supported by this firmware; say so rather than ignore them.
+        if config.frame_skip != 1:
+            logger.warning(
+                "frame_skip=%d rejected: detection runs on every frame, the rate the "
+                "tracker and count gate were validated at; set frame_skip to 1",
+                config.frame_skip,
+            )
+        if config.daily_publish_time_utc != "00:00":
+            logger.warning(
+                "daily_publish_time_utc=%s rejected: daily totals roll over at 00:00 UTC",
+                config.daily_publish_time_utc,
+            )
+        if config.detection_zone is not None:
+            logger.warning(
+                "detection_zone rejected: counting uses the screenline in the local "
+                "sensor config; set detection_zone to null"
+            )
+        self._applied_config = config
+
+    def _apply_tracking_rules(self, tracker: object, config: SensorConfig) -> None:
+        """Apply the server's optional tracking rules; absent ones keep sensor.yaml's."""
+        if config.min_class_hits is not None:
+            tracker.min_class_hits = config.min_class_hits  # type: ignore[attr-defined]
+        if config.relink is not None:
+            tracker.relink = config.relink  # type: ignore[attr-defined]
+        if config.max_occlusion_s is None:
+            return
+        tracker.max_occlusion_s = config.max_occlusion_s  # type: ignore[attr-defined]
+        gate = getattr(self._detect_and_track, "gate", None)
+        if gate is not None and gate.forget_after_s < config.max_occlusion_s:
+            # A gate forgetting a track the tracker can still revive counts it twice.
+            gate.forget_after_s = 2 * config.max_occlusion_s
+            logger.info("Count gate now forgets after %.1f s", gate.forget_after_s)
+
+    def _persist_config(self, version: str) -> None:
+        """ConfigPoller persist callback: save the config ``_apply_config`` took."""
+        config = self._applied_config
+        if config is None or config.config_version != version:
+            logger.error("No applied config for version %s; nothing persisted", version)
+            return
+        save_config_state(self._config_state_path, config)
+
     def _on_signal(self, signum: int, _frame) -> None:
         logger.info("Received signal %d, shutting down", signum)
         self._shutdown.set()
-
-
-def _read_cpu_temp() -> float | None:
-    """Best-effort CPU temperature read on Linux; returns None elsewhere."""
-    path = Path("/sys/class/thermal/thermal_zone0/temp")
-    try:
-        raw = path.read_text().strip()
-        return round(float(raw) / 1000.0, 1)
-    except OSError:
-        return None
 
 
 __all__ = ["DaemonConfig", "SensorDaemon"]

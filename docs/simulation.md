@@ -10,7 +10,7 @@ python scripts/generate_mock_dublin.py
 
 ## The network
 
-Eight sensors on real Dublin streets, 14 days of 15-minute windows, seeded (`SEED = 20260421`)
+Eight sensors on real Dublin streets, 21 days of 15-minute windows (three weeks, so the map's "vs usual" mode has past weeks to compare with), seeded (`SEED = 20260421`)
 so every run gives identical files.
 
 | ID | Location | Zone | Transport |

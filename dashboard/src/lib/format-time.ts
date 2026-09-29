@@ -24,3 +24,12 @@ export function formatDublinTime(value: string | number | Date): string {
 export function formatDublinDateTime(value: string | number | Date): string {
   return dateTime.format(new Date(value));
 }
+
+const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" });
+const dayMonth = new Intl.DateTimeFormat("en-IE", { timeZone: TIME_ZONE, day: "numeric", month: "short" });
+
+/** "HH:mm" when `value` is on the same Dublin day as `now`, else "d MMM HH:mm". */
+export function formatDublinUpdated(value: string | number | Date, now: Date = new Date()): string {
+  const time = formatDublinTime(value);
+  return dayKey.format(new Date(value)) === dayKey.format(now) ? time : `${dayMonth.format(new Date(value))} ${time}`;
+}

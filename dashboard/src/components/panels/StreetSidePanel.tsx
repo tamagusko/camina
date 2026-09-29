@@ -1,237 +1,86 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
+import { ClassIcon } from "@/components/ClassIcon";
 import { cn } from "@/lib/cn";
-import { formatDublinDateTime, formatDublinTime } from "@/lib/format-time";
-import type { MetricValue, RoadUserClass, StreetAdminInfo, StreetSummary } from "@/lib/types";
+import { formatDublinUpdated } from "@/lib/format-time";
+import { USUAL_RAMP, streetDirections } from "@/lib/geo";
+import { USUAL_LEVELS, usualLevel, type UsualLevel } from "@/lib/typical";
+import { ROAD_USER_CLASSES, classLabel, type MetricValue, type RoadUserClass, type StreetReading, type StreetSummary } from "@/lib/types";
 
-interface Props {
-  street: StreetSummary | null;
-  metric: MetricValue | null;
-  onClose: () => void;
+interface Props { street: StreetSummary | null; metric: MetricValue | null; reading?: StreetReading | null; onClose: () => void; }
+export const PANEL_CLASS = cn("pointer-events-auto fixed z-30 overflow-y-auto border border-line bg-surface text-ink-1 shadow-[var(--card-shadow)]", "inset-x-0 bottom-0 max-h-[75dvh] rounded-t-md", "md:left-auto md:bottom-auto md:right-0 md:top-0 md:h-full md:w-[400px] md:rounded-none md:max-h-none");
+const fmt = (n: number | null | undefined) => n === null || n === undefined ? "—" : new Intl.NumberFormat("en-IE", { maximumFractionDigits: 1 }).format(n);
+// Hidden values (under 5, or a direction split that would reveal one) show as
+// a dash; one footnote explains them (src/lib/privacy.ts).
+const HIDDEN_NOTE = "Some values under 5 are hidden.";
+const V85_NOTE = "v85: the speed 85 % of road users do not exceed.";
+const USUAL_SENTENCE: Record<UsualLevel, string> = {
+  "much-lower": "Much quieter than usual",
+  lower: "Quieter than usual",
+  usual: "About usual for this time",
+  higher: "Busier than usual",
+  "much-higher": "Much busier than usual",
+};
+// A published total is the sum of the published cells beneath it.
+function publishedSum(breakdown: Record<RoadUserClass, number | null>): number {
+  return Object.values(breakdown).reduce<number>((sum, value) => sum + (value ?? 0), 0);
 }
 
-const isDevAdmin =
-  typeof process !== "undefined" &&
-  process.env.NEXT_PUBLIC_CAMINA_DEV_ADMIN === "true";
-
-function fmtNumber(n: number | null | undefined, opts?: Intl.NumberFormatOptions): string {
-  if (n === null || n === undefined || !Number.isFinite(n)) return "—";
-  return new Intl.NumberFormat("en-IE", opts).format(n);
-}
-
-function totalCountLabel(m: MetricValue | null): string {
-  if (!m) return "—";
-  // True all-class total from the repo (k-floored there): null means the
-  // whole total fell in 1..4 and is suppressed to the k-floor label.
-  return m.totalCount === null ? "<5" : fmtNumber(m.totalCount);
-}
-
-// Bottom sheet on mobile; right-hand column on desktop. Exported so a test can
-// check the merged result — `cn()` runs tailwind-merge, which drops a class it
-// considers overridden by a later one.
-export const PANEL_CLASS = cn(
-  "pointer-events-auto fixed z-30 bg-white shadow-medium overflow-y-auto",
-  "inset-x-0 bottom-0 rounded-t-feature max-h-[75dvh]",
-  // Longhands only: an `md:inset-auto` here would make tailwind-merge drop
-  // `md:right-0 md:top-0`, and the panel would render below the viewport.
-  "md:left-auto md:bottom-auto md:right-0 md:top-0 md:h-full md:w-[400px] md:rounded-none md:max-h-none"
-);
-
-export function StreetSidePanel({ street, metric, onClose }: Props) {
-  const [admin, setAdmin] = useState<StreetAdminInfo | null>(null);
-  const [adminError, setAdminError] = useState<string | null>(null);
-
+export function StreetSidePanel({ street, metric, reading, onClose }: Props) {
+  const [fetched, setFetched] = useState<StreetReading | null>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    // No state reset here: the parent keys this component by street id, so a
-    // new selection gets a fresh instance with empty admin state.
-    if (!street || !isDevAdmin) return;
+    if (!street) return;
+    headingRef.current?.focus();
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); onClose(); } };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [street, onClose]);
+  useEffect(() => {
+    if (!street || reading !== undefined || !metric?.lastSeen) return;
     let cancelled = false;
-    fetch(`/api/admin/streets/${street.id}/info`, { cache: "no-store" })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`${r.status}`);
-        return (await r.json()) as StreetAdminInfo;
-      })
-      .then((data) => !cancelled && setAdmin(data))
-      .catch((err) => !cancelled && setAdminError(err.message ?? "error"));
-    return () => {
-      cancelled = true;
-    };
-  }, [street]);
-
+    const to = new Date(metric.lastSeen);
+    const from = new Date(to.getTime() - 15 * 60_000);
+    const url = `/api/streets/${encodeURIComponent(street.id)}/readings?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}&bucket=15`;
+    fetch(url).then((response) => response.ok ? response.json() as Promise<StreetReading[]> : []).then((rows) => { if (!cancelled) setFetched(rows.findLast((row) => !row.missing) ?? null); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [street, metric?.lastSeen, reading]);
   if (!street) return null;
-
-  const total = totalCountLabel(metric);
-  // null = suppressed (had 1..4, shown as "<5"); 0 = genuinely no traffic
-  // (hidden). Sort suppressed rows just below the smallest published count.
-  const perClass = metric
-    ? (Object.entries(metric.classBreakdown) as [RoadUserClass, number | null][])
-        .filter(([, n]) => n === null || n > 0)
-        .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
-    : [];
-
-  return (
-    <div
-      className={PANEL_CLASS}
-      role="dialog"
-      aria-label={street.displayName}
-    >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 p-6">
-        <div>
-          <p className="text-micro uppercase tracking-wide text-muted-gray">Street</p>
-          <h2 className="text-sub leading-tight text-black">{street.displayName}</h2>
-        </div>
-        <button
-          onClick={onClose}
-          aria-label="Close"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-pill hover:bg-hover-light"
-        >
-          <X className="h-5 w-5" />
-        </button>
+  const current = reading === undefined ? fetched : reading;
+  const [ab, ba] = streetDirections(street);
+  // Direction columns only when the sensor sends direction cells (schema 1.1).
+  const split = current?.countsByDirection;
+  const perClass = current ? ROAD_USER_CLASSES.filter((cls) => (current.counts[cls] ?? 0) > 0).sort((a, b) => (current.counts[b] ?? 0) - (current.counts[a] ?? 0)) : [];
+  const readingHidden = current ? [current.counts, current.countsByDirection?.AB ?? {}, current.countsByDirection?.BA ?? {}].some((cells) => Object.values(cells).some((value) => value === null)) : false;
+  const hasHidden = Boolean(metric?.hasHidden) || readingHidden;
+  // Everything hidden: a 0 here would be a claim of no traffic, so dash it.
+  const total = !metric || (hasHidden && metric.totalCount === 0) ? "—" : fmt(metric.totalCount);
+  const sums = split ? [publishedSum(split.AB), publishedSum(split.BA)] : null;
+  const pairHidden = split ? [split.AB, split.BA].some((cells) => Object.values(cells).some((value) => value === null)) : false;
+  const showSplit = sums !== null && !(pairHidden && sums[0] === 0 && sums[1] === 0);
+  const level = metric && !metric.stale ? usualLevel(metric.totalCount, metric.typical) : null;
+  const status = !metric?.lastSeen ? "No data yet" : metric.stale ? `No recent data · last seen ${formatDublinUpdated(metric.lastSeen)}` : `Updated ${formatDublinUpdated(metric.lastSeen)}`;
+  return <div className={PANEL_CLASS} role="dialog" aria-label={street.displayName}>
+    <div className="sticky top-0 z-10 flex min-h-11 items-center justify-end border-b border-line bg-surface px-4 md:hidden"><span className="mx-auto h-1 w-9 rounded-full bg-ink-3" aria-hidden="true" /><button onClick={onClose} aria-label="Close street panel" className="flex h-11 w-11 items-center justify-center rounded-sm"><X size={20} /></button></div>
+    <div className="p-4 md:p-6">
+      <div className="flex items-start justify-between gap-3"><h2 ref={headingRef} tabIndex={-1} className="text-[length:var(--t-lg)] font-semibold leading-7">{street.displayName}</h2><button onClick={onClose} aria-label="Close street panel" className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-sm md:flex"><X size={20} /></button></div>
+      <p className="mt-2 text-sm text-ink-2">{status}</p>
+      <div className="mt-5 rounded-md border border-line p-4"><p className="text-xs text-ink-2">Road users · last 15 min</p><p className="mt-1 text-[length:var(--t-xl)] font-bold tabular-nums">{total}</p>
+        {showSplit && <p className="mt-2 text-sm text-ink-2">{`${ab} ${fmt(sums[0])} · ${ba} ${fmt(sums[1])}`}</p>}
+        {level && <p className="mt-2 flex items-center gap-2 text-sm"><span aria-hidden="true" className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: USUAL_RAMP[USUAL_LEVELS.indexOf(level)] }} />{USUAL_SENTENCE[level]}</p>}
       </div>
-
-      {/* Silent-sensor notice — a stale sensor must not read as a quiet street. */}
-      {metric?.stale && (
-        <div className="mx-6 mb-3 rounded-card border border-chip-gray bg-chip-gray px-4 py-3">
-          <p className="text-micro uppercase tracking-wide text-body-gray">Sensor status</p>
-          <p className="mt-1 text-caption text-black">
-            No recent data
-            {metric.lastSeen ? ` · last seen ${formatDublinTime(metric.lastSeen)}` : ""}
-          </p>
-        </div>
-      )}
-
-      {/* Headline stats */}
-      <div className="grid grid-cols-2 gap-3 px-6 pb-4">
-        <div className="rounded-card bg-chip-gray p-4">
-          <p className="text-micro uppercase tracking-wide text-body-gray">Total count</p>
-          <p className="mt-1 text-card tabular-nums leading-none">{total}</p>
-        </div>
-        <div className="rounded-card bg-chip-gray p-4">
-          <p className="text-micro uppercase tracking-wide text-body-gray">Avg speed</p>
-          <p className="mt-1 text-card tabular-nums leading-none">
-            {metric?.avgSpeedKmh !== null && metric?.avgSpeedKmh !== undefined
-              ? `${fmtNumber(metric.avgSpeedKmh, { maximumFractionDigits: 1 })} km/h`
-              : "—"}
-          </p>
-        </div>
+      <div className="mt-5"><h3 className="mb-2 text-sm font-semibold">By class</h3>
+        {perClass.length ? <div className="overflow-x-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b border-line text-xs text-ink-2"><th className="w-[34%] py-2 text-left font-normal">Class</th><th className="text-right font-normal">Count</th>{split && <><th className="text-right font-normal">→ {ab}</th><th className="text-right font-normal">→ {ba}</th></>}<th className="text-right font-normal" title="Mean speed, km/h">km/h</th><th className="text-right font-normal" title="85th-percentile speed, km/h">v85</th></tr></thead><tbody>{perClass.map((cls) => <tr key={cls} className="border-b border-line"><th scope="row" className="py-2 text-left font-normal"><span className="mr-2 inline-block align-[-3px] text-ink-2"><ClassIcon cls={cls} /></span>{classLabel(cls)}</th><td className="text-right tabular-nums">{fmt(current?.counts[cls])}</td>{split && <><td className="text-right tabular-nums">{fmt(split.AB[cls])}</td><td className="text-right tabular-nums">{fmt(split.BA[cls])}</td></>}<td className="text-right tabular-nums text-ink-2">{fmt(current?.avgSpeedKmh[cls])}</td><td className="text-right tabular-nums text-ink-2">{fmt(current?.v85Kmh[cls])}</td></tr>)}</tbody></table></div> : <p className="text-sm text-ink-2">No published counts in this window.</p>}
+        {hasHidden && <p className="mt-2 text-xs text-ink-2">{HIDDEN_NOTE}</p>}
+        {perClass.some((cls) => current?.v85Kmh[cls] != null) && <p className="mt-1 text-xs text-ink-2">{V85_NOTE}</p>}
       </div>
-
-      {/* Per-class breakdown */}
-      <div className="px-6 pb-4">
-        <p className="text-micro uppercase tracking-wide text-body-gray mb-2">By class</p>
-        {perClass.length === 0 ? (
-          <p className="text-caption text-muted-gray">No data in the selected window.</p>
-        ) : (
-          <dl className="divide-y divide-chip-gray">
-            <div className="grid grid-cols-3 py-2 text-micro uppercase tracking-wide text-muted-gray">
-              <span>Class</span>
-              <span className="text-right">Count</span>
-              <span className="text-right">Speed (km/h)</span>
-            </div>
-            {perClass.map(([cls, n]) => {
-              const speed = metric?.speedBreakdown[cls];
-              return (
-                <div key={cls} className="grid grid-cols-3 py-2 text-caption">
-                  <dt className="capitalize text-black">{cls.replace("_", " ")}</dt>
-                  <dd className="text-right tabular-nums font-medium">
-                    {n === null ? (
-                      <span className="text-muted-gray" title="Suppressed below the k-anonymity floor (fewer than 5)">
-                        &lt;5
-                      </span>
-                    ) : (
-                      fmtNumber(n)
-                    )}
-                  </dd>
-                  <dd className="text-right tabular-nums text-body-gray">
-                    {speed !== null && speed !== undefined
-                      ? fmtNumber(speed, { maximumFractionDigits: 1 })
-                      : "—"}
-                  </dd>
-                </div>
-              );
-            })}
-          </dl>
-        )}
-      </div>
-
-      {/* Admin (dev) section */}
-      {isDevAdmin && (
-        <AdminSection info={admin} error={adminError} />
-      )}
-
-      <div className="border-t border-chip-gray px-6 py-4">
-        <Link
-          href={`/${street.city}/street/${street.id}` as never}
-          className="btn-primary w-full"
-        >
-          Open detailed view
-        </Link>
+      <div className="mt-5 flex flex-wrap gap-x-4">
+        <Link href={`/${street.city}/street/${street.id}` as never} className="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Detailed view →</Link>
+        <Link href={`/${street.city}/analysis?street=${encodeURIComponent(street.id)}` as never} className="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Compare roads →</Link>
+        <Link href={`/${street.city}/analysis/speed?street=${encodeURIComponent(street.id)}` as never} className="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Speed →</Link>
       </div>
     </div>
-  );
-}
-
-function AdminSection({
-  info,
-  error,
-}: {
-  info: StreetAdminInfo | null;
-  error: string | null;
-}) {
-  return (
-    <div className="border-t border-chip-gray bg-black text-white px-6 py-5">
-      <p className="text-micro uppercase tracking-wide text-muted-gray">
-        Admin · Sensors on this street
-      </p>
-      {error && (
-        <p className="mt-2 text-caption text-muted-gray">
-          Unable to load admin info ({error}).
-        </p>
-      )}
-      {!error && !info && (
-        <p className="mt-2 text-caption text-muted-gray">Loading…</p>
-      )}
-      {info && info.sensors.length === 0 && (
-        <p className="mt-2 text-caption text-muted-gray">
-          No sensors mapped to this street yet.
-        </p>
-      )}
-      {info?.sensors.map((s) => (
-        <div key={s.id} className="mt-3 rounded-card bg-white/5 p-3 text-caption">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-white">{s.id}</span>
-            <span
-              className={cn(
-                "rounded-pill px-2 py-0.5 text-micro",
-                s.active ? "bg-white text-black" : "bg-muted-gray text-black"
-              )}
-            >
-              {s.active ? "active" : "inactive"}
-            </span>
-          </div>
-          <dl className="mt-2 grid grid-cols-2 gap-y-1 text-muted-gray">
-            <dt>Display name</dt>
-            <dd className="text-white text-right truncate">{s.displayName}</dd>
-            <dt>Installed</dt>
-            <dd className="text-white text-right">{s.installDate}</dd>
-            <dt>GPS</dt>
-            <dd className="text-white text-right tabular-nums">
-              {s.latitude.toFixed(4)}, {s.longitude.toFixed(4)}
-            </dd>
-            <dt>Firmware</dt>
-            <dd className="text-white text-right font-mono">{s.fwVersion}</dd>
-            <dt>Config</dt>
-            <dd className="text-white text-right font-mono">{s.configVersion}</dd>
-            <dt>Last heartbeat</dt>
-            <dd className="text-white text-right tabular-nums">
-              {s.lastHeartbeat ? formatDublinDateTime(s.lastHeartbeat) : "—"}
-            </dd>
-          </dl>
-        </div>
-      ))}
-    </div>
-  );
+  </div>;
 }

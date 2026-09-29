@@ -63,6 +63,7 @@ Bar: TRA 2026 paper + slides (audit-2026-09-15/AUDIT.md Appendix, claims §4). R
 | **D12** | M1 date | 2026-12-31 | TRL-6 2026-05-31 recorded as missed in STATE.md |
 | **D13** | Paper errata | Fix in the next paper, no erratum | Report corrected Table 1 mean/percentages and the v10n run there; not a code stage |
 | **D14** | Base model for the S13 retrain | YOLO26n as the default candidate, trained alongside YOLO11n on the same data (2026-09-24) | COCO test on `videos/test.mov`: 44 vs 169 static-prone person tracks, cars equal, ~9 % faster in NCNN; exports to NCNN with the default toolchain and runs in `NcnnDetector` unchanged. Pick the winner on held-out per-class AP, count error (`training/count_eval.py`) and Pi FPS |
+| **D15** | Heartbeat interval in the pilot | **15 min** for cost; the goal is 5 min (2026-09-27) | Neon free (100 CU-hours/month, sleeps after 5 min idle) would never sleep at 5-min heartbeats. One setting, `CAMINA_HEARTBEAT_MINUTES` (dashboard env), reaches every sensor through the config handshake; set it to 5 when the database is paid. Heartbeats are aligned to the 15-min windows so the database wakes once per quarter-hour |
 
 ## 4. Closed on 2026-09-15 (PI decision)
 

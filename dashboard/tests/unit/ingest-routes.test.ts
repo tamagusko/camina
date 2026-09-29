@@ -11,7 +11,12 @@ interface CountsBody {
   window_end: string;
   partial: boolean;
   counts: Record<string, number>;
+  counts_by_direction?: {
+    AB?: Record<string, number>;
+    BA?: Record<string, number>;
+  };
   avg_speed_kmh: Record<string, number>;
+  speed_hist_kmh: Record<string, number[]>;
   config_version: string;
   fw_version: string;
   produced_at: string;
@@ -20,13 +25,14 @@ interface CountsBody {
 function countsBody(overrides: Partial<CountsBody> = {}): CountsBody {
   const now = Date.now();
   return {
-    schema_version: "1",
+    schema_version: "1.0",
     sensor_id: "D01",
     window_start: new Date(now - 901_000).toISOString(),
     window_end: new Date(now - 1_000).toISOString(),
     partial: false,
     counts: { car: 3, person: 1 },
     avg_speed_kmh: { car: 22.5 },
+    speed_hist_kmh: {},
     config_version: "cfg-1",
     fw_version: "fw-1",
     produced_at: new Date(now - 1_000).toISOString(),
@@ -61,7 +67,7 @@ describe("POST /api/ingest/sensors/[id]/counts — mock mode", () => {
     );
     const res = await POST(postRequest(countsBody(), DEV_TOKEN), ctx);
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true });
+    expect(await res.json()).toMatchObject({ ok: true, latest_config_version: "mock-v1+hb15" });
   });
 
   it("rejects a missing/bad token (401)", async () => {
@@ -100,6 +106,27 @@ describe("POST /api/ingest/sensors/[id]/counts — mock mode", () => {
     expect(await res.json()).toMatchObject({ error: "timestamp_in_future" });
   });
 
+  it("accepts a counts window ending 10 days ago", async () => {
+    vi.stubEnv("CAMINA_DEV_INGEST_TOKEN", DEV_TOKEN);
+    vi.resetModules();
+    const { POST } = await import(
+      "@/app/api/ingest/sensors/[id]/counts/route"
+    );
+    const now = Date.now();
+    const body = countsBody({
+      window_start: new Date(now - 10 * 24 * 3600_000 - 900_000).toISOString(),
+      window_end: new Date(now - 10 * 24 * 3600_000).toISOString(),
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    try {
+      const res = await POST(postRequest(body, DEV_TOKEN), ctx);
+      expect(res.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects a payload whose sensor_id disagrees with the path (400)", async () => {
     vi.stubEnv("CAMINA_DEV_INGEST_TOKEN", DEV_TOKEN);
     vi.resetModules();
@@ -111,6 +138,57 @@ describe("POST /api/ingest/sensors/[id]/counts — mock mode", () => {
       ctx
     );
     expect(res.status).toBe(400);
+  });
+
+  it("rejects direction totals that violate the counts invariant (400)", async () => {
+    vi.stubEnv("CAMINA_DEV_INGEST_TOKEN", DEV_TOKEN);
+    vi.resetModules();
+    const { POST } = await import(
+      "@/app/api/ingest/sensors/[id]/counts/route"
+    );
+    const res = await POST(
+      postRequest(
+        countsBody({
+          schema_version: "1.1",
+          counts_by_direction: { AB: { car: 2 }, BA: { car: 2 } },
+        }),
+        DEV_TOKEN
+      ),
+      ctx
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "bad_payload" });
+  });
+});
+
+describe("POST /api/ingest/sensors/[id]/heartbeat — mock mode", () => {
+  it("accepts enriched heartbeat telemetry", async () => {
+    vi.stubEnv("CAMINA_DEV_INGEST_TOKEN", DEV_TOKEN);
+    vi.resetModules();
+    const { POST } = await import(
+      "@/app/api/ingest/sensors/[id]/heartbeat/route"
+    );
+    const now = new Date().toISOString();
+    const req = new Request("http://localhost/api/ingest/sensors/D01/heartbeat", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${DEV_TOKEN}`,
+      },
+      body: JSON.stringify({
+        sensor_id: "D01",
+        ts: now,
+        uptime_s: 120,
+        cpu_temp_c: 52.1,
+        throttled: 0,
+        rss_mb: 123.5,
+        config_version: "cfg-1",
+        fw_version: "fw-1",
+      }),
+    });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true });
   });
 });
 
@@ -175,6 +253,31 @@ describe("ingest-store — pure upsert/skew logic (H2/H5)", () => {
     expect(person?.avgSpeedKmh).toBeNull();
   });
 
+  it("fans direction cells into nullable AB/BA columns", async () => {
+    const { buildCountsRows } = await import("@/lib/ingest-store");
+    const directional = countsBody({
+      schema_version: "1.1",
+      counts_by_direction: {
+        AB: { car: 2, person: 1 },
+        BA: { car: 1 },
+      },
+    });
+    const rows = buildCountsRows(directional, "D01");
+    expect(rows.find((r) => r.className === "car")).toMatchObject({
+      directionAbCount: 2,
+      directionBaCount: 1,
+    });
+    expect(rows.find((r) => r.className === "person")).toMatchObject({
+      directionAbCount: 1,
+      directionBaCount: 0,
+    });
+    const legacy = buildCountsRows(countsBody(), "D01");
+    expect(legacy[0]).toMatchObject({
+      directionAbCount: null,
+      directionBaCount: null,
+    });
+  });
+
   it("enforces the partial-promotion rule", async () => {
     const { shouldOverwrite } = await import("@/lib/ingest-store");
     // Only the final←partial demotion is blocked.
@@ -184,7 +287,7 @@ describe("ingest-store — pure upsert/skew logic (H2/H5)", () => {
     expect(shouldOverwrite(true, false)).toBe(true);
   });
 
-  it("checks timestamp skew: 60 s future / 7 day past bounds", async () => {
+  it("checks timestamp skew: 60 s future / 10 day past bounds", async () => {
     const { checkTimestampSkew } = await import("@/lib/ingest-store");
     const now = Date.now();
     expect(checkTimestampSkew(new Date(now).toISOString(), now)).toBeNull();
@@ -193,7 +296,13 @@ describe("ingest-store — pure upsert/skew logic (H2/H5)", () => {
     ).toBe("timestamp_in_future");
     expect(
       checkTimestampSkew(
-        new Date(now - 8 * 24 * 3600_000).toISOString(),
+        new Date(now - 10 * 24 * 3600_000).toISOString(),
+        now
+      )
+    ).toBeNull();
+    expect(
+      checkTimestampSkew(
+        new Date(now - 10 * 24 * 3600_000 - 1).toISOString(),
         now
       )?.error
     ).toBe("timestamp_too_old");
@@ -206,14 +315,22 @@ describe("ingest-store — pure upsert/skew logic (H2/H5)", () => {
     const { persistCounts } = await import("@/lib/ingest-store");
     const captured: {
       rows?: unknown[];
-      conflict?: { target?: unknown[]; setWhere?: unknown };
+      conflict?: {
+        target?: unknown[];
+        set?: Record<string, unknown>;
+        setWhere?: unknown;
+      };
     } = {};
     const chain = {
       values(rows: unknown[]) {
         captured.rows = rows;
         return chain;
       },
-      onConflictDoUpdate(cfg: { target?: unknown[]; setWhere?: unknown }) {
+      onConflictDoUpdate(cfg: {
+        target?: unknown[];
+        set?: Record<string, unknown>;
+        setWhere?: unknown;
+      }) {
         captured.conflict = cfg;
         return Promise.resolve();
       },
@@ -226,7 +343,55 @@ describe("ingest-store — pure upsert/skew logic (H2/H5)", () => {
     );
     expect(captured.rows).toHaveLength(2);
     expect(captured.conflict?.target).toHaveLength(3);
+    expect(captured.conflict?.set).toMatchObject({
+      directionAbCount: expect.anything(),
+      directionBaCount: expect.anything(),
+    });
     // Promotion rule enforced in SQL via setWhere.
     expect(captured.conflict?.setWhere).toBeTruthy();
+  });
+
+  it("accepts new heartbeat fields while inserting only existing DB columns", async () => {
+    const { persistHeartbeat } = await import("@/lib/ingest-store");
+    const { heartbeatPayloadSchema } = await import("@/lib/schemas");
+    const captured: { values?: Record<string, unknown> } = {};
+    const insertChain = {
+      values(values: Record<string, unknown>) {
+        captured.values = values;
+        return insertChain;
+      },
+      onConflictDoUpdate() {
+        return Promise.resolve();
+      },
+    };
+    const updateChain = {
+      set() {
+        return updateChain;
+      },
+      where() {
+        return Promise.resolve();
+      },
+    };
+    const fakeDb = {
+      insert: () => insertChain,
+      update: () => updateChain,
+    };
+    const payload = heartbeatPayloadSchema.parse({
+      sensor_id: "D01",
+      ts: new Date().toISOString(),
+      uptime_s: 5,
+      config_version: "cfg-1",
+      fw_version: "fw-1",
+      throttled: 0,
+      rss_mb: 88.25,
+    });
+    await persistHeartbeat(
+      payload,
+      "D01",
+      fakeDb as unknown as Parameters<typeof persistHeartbeat>[2]
+    );
+    expect(captured.values).toMatchObject({ sensorId: "D01", uptimeS: 5 });
+    expect(captured.values).not.toHaveProperty("throttled");
+    expect(captured.values).not.toHaveProperty("rssMb");
   });
 });

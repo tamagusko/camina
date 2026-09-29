@@ -16,6 +16,7 @@ export interface MockStreet {
   bbox: GeoJSON.Polygon;
   city: string;
   active: boolean;
+  speed_limit_kmh?: number | null; // absent in fixtures made before it
 }
 
 export interface MockSensor {
@@ -45,7 +46,14 @@ export interface MockReading {
   class_name: string;
   count: number;
   avg_speed_kmh: number | null;
+  // Absent in fixtures made before v85; the dashboard then shows no v85.
+  speed_hist_kmh?: number[] | null;
   partial: boolean;
+}
+
+export interface MockHeartbeat {
+  sensor_id: string;
+  ts: string;
 }
 
 async function readJson<T>(file: string): Promise<T> {
@@ -58,6 +66,7 @@ const cache: {
   sensors?: MockSensor[];
   coverage?: MockCoverage[];
   readings?: MockReading[];
+  heartbeats?: MockHeartbeat[];
 } = {};
 
 export async function loadStreets(): Promise<MockStreet[]> {
@@ -78,4 +87,9 @@ export async function loadCoverage(): Promise<MockCoverage[]> {
 export async function loadReadings(): Promise<MockReading[]> {
   cache.readings ??= await readJson<MockReading[]>("sensor_readings.json");
   return cache.readings;
+}
+
+export async function loadHeartbeats(): Promise<MockHeartbeat[]> {
+  cache.heartbeats ??= await readJson<MockHeartbeat[]>("sensor_heartbeats.json");
+  return cache.heartbeats;
 }

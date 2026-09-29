@@ -17,9 +17,10 @@ granularity only**. Sub-daily jobs are therefore split across three drivers:
 | Silent-sensor detection | `GET /api/cron/detect-silent` | ~every 15 min | GitHub Actions (`.github/workflows/cron.yml`) |
 
 All routes are protected by `verifyCron` (`dashboard/src/lib/cron-auth.ts`): a
-request must carry `Authorization: Bearer <VERCEL_CRON_SECRET>`. Vercel Cron
-signs its own calls with that secret; the GitHub Actions workflow sends the same
-secret.
+request must carry `Authorization: Bearer <secret>` matching `CRON_SECRET` or
+`VERCEL_CRON_SECRET`. Vercel Cron signs its own calls with `CRON_SECRET` (the
+only name it reads), so set it on the Vercel project or the daily jobs get 403;
+the GitHub Actions workflow sends `VERCEL_CRON_SECRET`. One value in both is fine.
 
 ### Primary vs fallback MV refresh
 
@@ -113,7 +114,13 @@ The sensor sends two streams: 15-minute windows and a per-day running total, whi
 window reset cannot affect. `GET /api/cron/reconcile-daily` (01:00 UTC) compares, for each
 sensor and day, the sum of the windows with the daily total. Any per-class difference sets
 `sensor_daily_totals.reconciled = FALSE` with the diff in `mismatch_json`, and the day
-appears in `/admin/events`. Late daily payloads (`late = true`) are re-checked on arrival.
+appears in `/admin/events`.
+Each run re-checks the last 10 UTC days (the ingest past-skew bound), so a missed run, a
+late daily and a late window are all picked up; partial windows that the edge adds to its
+daily total are included. A later
+successful run sets `reconciled = TRUE` and clears `mismatch_json`, so resolved events leave
+the admin event list. Each mismatch records the daily value, summed-window value, and signed
+`windows - daily` difference per class, plus the reported and observed distinct window count.
 
 | Pattern | Likely cause |
 |---|---|

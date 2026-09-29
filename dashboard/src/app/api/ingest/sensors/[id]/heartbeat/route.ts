@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { heartbeatPayloadSchema } from "@/lib/schemas";
 import { verifyIngestToken } from "@/lib/ingest-auth";
 import { checkIngestRateLimit } from "@/lib/ingest-ratelimit";
-import { checkTimestampSkew, persistHeartbeat } from "@/lib/ingest-store";
+import { checkTimestampSkew, persistHeartbeat, readSensorConfigVersion } from "@/lib/ingest-store";
 import { isMock } from "@/lib/data-source";
+import { MOCK_CONFIG } from "@/lib/mock-sensor-config";
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -30,9 +31,13 @@ export async function POST(request: Request, { params }: Ctx) {
   if (skew) return NextResponse.json({ error: skew.error }, { status: skew.status });
 
   if (isMock) {
-    return NextResponse.json({ ok: true, latest_config_version: parsed.data.config_version });
+    return NextResponse.json({ ok: true, latest_config_version: MOCK_CONFIG.config_version });
   }
   // Live mode: idempotent heartbeat upsert + latest-wins sensor pointer (H2).
   await persistHeartbeat(parsed.data, id);
-  return NextResponse.json({ ok: true, latest_config_version: parsed.data.config_version });
+  const latestConfigVersion = await readSensorConfigVersion(id);
+  if (latestConfigVersion === null) {
+    return NextResponse.json({ error: "unknown_sensor" }, { status: 404 });
+  }
+  return NextResponse.json({ ok: true, latest_config_version: latestConfigVersion });
 }

@@ -1,6 +1,7 @@
 import "server-only";
 import {
   loadCoverage,
+  loadHeartbeats,
   loadReadings,
   loadSensors,
   loadStreets,
@@ -16,6 +17,22 @@ import {
   type StreetSummary,
   type TimeWindow,
 } from "@/lib/types";
+import {
+  K_MIN,
+  addRowHistogram,
+  emptyFold,
+  emptyHistogram,
+  emptyRawCell,
+  foldCell,
+  publishFold,
+  publishedTotal,
+  v85FromHistogram,
+  type CellFold,
+  type RawCell,
+} from "@/lib/privacy";
+import { TYPICAL_WEEKS, typicalTotal, type WindowTotal } from "@/lib/typical";
+import { heartbeatMinutes } from "@/lib/heartbeat";
+import { speedResult, type SpeedFold } from "@/lib/speed";
 import type { StreetsRepo } from "./types";
 
 function toSummary(s: MockStreet): StreetSummary {
@@ -25,6 +42,7 @@ function toSummary(s: MockStreet): StreetSummary {
     geom: s.geom,
     bbox: s.bbox,
     city: s.city,
+    speedLimitKmh: s.speed_limit_kmh ?? null,
   };
 }
 
@@ -42,24 +60,6 @@ function nullBreakdown(): Record<RoadUserClass, number | null> {
   >;
 }
 
-// k-anonymity floor: a published count identifies K_MIN or more individuals.
-// Counts of 1..(K_MIN-1) are re-identifiable, so they are suppressed to null.
-// 0 is safe to publish — there is no counted individual to re-identify.
-const K_MIN = 5;
-
-function suppressCount(n: number | null): number | null {
-  if (n === null) return null;
-  return n > 0 && n < K_MIN ? null : n;
-}
-
-function suppressBreakdown(
-  b: Record<RoadUserClass, number>
-): Record<RoadUserClass, number | null> {
-  return Object.fromEntries(
-    ROAD_USER_CLASSES.map((c) => [c, suppressCount(b[c])])
-  ) as Record<RoadUserClass, number | null>;
-}
-
 // Staleness: a silent sensor (no reading for more than two 15-min windows,
 // i.e. > 30 min) must not paint as a quiet street. Exported so the rule is
 // unit-testable independently of the fixtures.
@@ -70,14 +70,58 @@ export function isStale(lastSeen: string | null, now: Date): boolean {
   return now.getTime() - new Date(lastSeen).getTime() > STALE_AFTER_MS;
 }
 
-// Internal accumulator for windows that have data; counts are non-null while
-// aggregating and only widened to `number | null` on the emitted StreetReading.
-interface PresentBucket {
-  counts: Record<RoadUserClass, number>;
-  avgSpeedKmh: Partial<Record<RoadUserClass, number | null>>;
+const CELL_MS = 15 * 60_000;
+
+/** The 15-min cells one heartbeat vouches for: 1 up to a 15-min interval,
+ *  more for the longer ones CAMINA_HEARTBEAT_MINUTES allows. */
+export function heartbeatCells(minutes: number = heartbeatMinutes()): number {
+  return Math.max(1, Math.round(minutes / 15));
 }
 
-function windowCutoff(window: TimeWindow, now: Date): Date {
+/** End of the last completed 15-min cell: the latest window_end <= now. A
+ *  sensor publishes the cell [S, S+15) at S+15, so this is the newest cell a
+ *  street can have; every window ends here. */
+export function lastCompletedCellEnd(now: Date): Date {
+  return new Date(Math.floor(now.getTime() / CELL_MS) * CELL_MS);
+}
+
+/** Stale for this window: silent for > 2 cells, or — for "now", which is that
+ *  one cell — the last completed cell has not arrived (late, not 0). */
+export function isStaleFor(window: TimeWindow, lastSeen: string | null, now: Date): boolean {
+  if (isStale(lastSeen, now)) return true;
+  return window === "now" && new Date(lastSeen!).getTime() < lastCompletedCellEnd(now).getTime();
+}
+
+type DirectionalMockReading = MockReading & {
+  direction_ab_count?: number | null;
+  direction_ba_count?: number | null;
+};
+
+// Adds one sensor row to its base cell (street, class, 15-min window); the
+// privacy rules run on base cells only (src/lib/privacy.ts).
+function addReading(cell: RawCell, r: DirectionalMockReading): void {
+  cell.count += r.count;
+  cell.rows += 1;
+  const ab = r.direction_ab_count;
+  const ba = r.direction_ba_count;
+  if (ab !== undefined && ab !== null && ba !== undefined && ba !== null) {
+    cell.ab += ab;
+    cell.ba += ba;
+    cell.directionalRows += 1;
+  }
+  if (r.avg_speed_kmh !== null) {
+    cell.speedSum += r.avg_speed_kmh * r.count;
+    cell.speedCount += r.count;
+    addRowHistogram(cell, r.speed_hist_kmh);
+  }
+}
+
+function cellKey(r: MockReading): string {
+  const t = Math.floor(new Date(r.window_start).getTime() / CELL_MS) * CELL_MS;
+  return `${t}|${r.class_name}`;
+}
+
+function windowCutoff(window: TimeWindow, end: Date): Date {
   const map: Record<TimeWindow, number> = {
     now: 15 * 60_000,
     "1h": 60 * 60_000,
@@ -85,10 +129,59 @@ function windowCutoff(window: TimeWindow, now: Date): Date {
     "7d": 7 * 24 * 60 * 60_000,
     "30d": 30 * 24 * 60 * 60_000,
   };
-  return new Date(now.getTime() - map[window]);
+  return new Date(end.getTime() - map[window]);
+}
+
+const WEEK_MS = 7 * 24 * 60 * 60_000;
+
+// Published total and the number of 15-min cells with any reading, per street,
+// over [from, to): the inputs of src/lib/typical.ts. Same rules as the counts.
+function windowTotals(
+  readings: MockReading[],
+  sensorToStreets: Map<string, string[]>,
+  streetIds: Set<string>,
+  requested: RoadUserClass[],
+  from: number,
+  to: number,
+): Map<string, WindowTotal> {
+  const cells = new Map<string, Map<string, RawCell>>();
+  const present = new Map<string, Set<number>>();
+  for (const r of readings) {
+    const start = new Date(r.window_start).getTime();
+    if (start < from || start >= to) continue;
+    for (const streetId of sensorToStreets.get(r.sensor_id) ?? []) {
+      if (!streetIds.has(streetId)) continue;
+      const seen = present.get(streetId) ?? new Set<number>();
+      present.set(streetId, seen.add(Math.floor(start / CELL_MS) * CELL_MS));
+      if (!requested.includes(r.class_name as RoadUserClass)) continue;
+      const byKey = cells.get(streetId) ?? new Map<string, RawCell>();
+      cells.set(streetId, byKey);
+      const key = cellKey(r);
+      const cell = byKey.get(key) ?? emptyRawCell();
+      byKey.set(key, cell);
+      addReading(cell, r as DirectionalMockReading);
+    }
+  }
+  const out = new Map<string, WindowTotal>();
+  for (const streetId of streetIds) {
+    const folds = new Map<string, CellFold>();
+    for (const [key, cell] of cells.get(streetId) ?? []) {
+      const cls = key.split("|")[1]!;
+      const fold = folds.get(cls) ?? emptyFold();
+      folds.set(cls, fold);
+      foldCell(fold, cell);
+    }
+    const counts = [...folds.values()].map((fold) => publishFold(fold).count);
+    out.set(streetId, { total: publishedTotal(counts).total, cells: present.get(streetId)?.size ?? 0 });
+  }
+  return out;
 }
 
 export const mockStreetsRepo: StreetsRepo = {
+  async now(): Promise<Date> {
+    return deriveNow(await loadReadings());
+  },
+
   async list(city: string): Promise<StreetSummary[]> {
     const streets = await loadStreets();
     return streets.filter((s) => s.city === city && s.active).map(toSummary);
@@ -108,38 +201,40 @@ export const mockStreetsRepo: StreetsRepo = {
     const sensorIds = coverage.filter((c) => c.street_id === streetId).map((c) => c.sensor_id);
     if (sensorIds.length === 0) return [];
 
+    const hasDirectionalData = readings.some((reading) => {
+      const directional = reading as DirectionalMockReading;
+      return sensorIds.includes(reading.sensor_id) &&
+        directional.direction_ab_count !== undefined &&
+        directional.direction_ba_count !== undefined;
+    });
+
     const requested = classes ?? [...ROAD_USER_CLASSES];
     const fromMs = from.getTime();
     const toMs = to.getTime();
     const bucketMs = bucketMinutes * 60_000;
 
-    // Accumulate only the windows that actually have data. Counts stay
-    // non-null here so the running aggregation type-checks; nullability is
-    // applied when the gap-filled grid is emitted below.
-    const present = new Map<number, PresentBucket>();
+    // Base cells, summed across the street's sensors.
+    const cells = new Map<string, RawCell>();
     for (const r of readings) {
       if (!sensorIds.includes(r.sensor_id)) continue;
       if (!requested.includes(r.class_name as RoadUserClass)) continue;
       const t = new Date(r.window_start).getTime();
       if (t < fromMs || t >= toMs) continue;
-      const bucketStart = Math.floor(t / bucketMs) * bucketMs;
-      let row = present.get(bucketStart);
-      if (!row) {
-        row = { counts: emptyBreakdown(), avgSpeedKmh: {} };
-        present.set(bucketStart, row);
-      }
-      const cls = r.class_name as RoadUserClass;
-      row.counts[cls] += r.count;
-      if (r.avg_speed_kmh !== null) {
-        // Count-weighted running mean.
-        const prev = row.avgSpeedKmh[cls] ?? null;
-        const prevCount = prev === null ? 0 : row.counts[cls] - r.count;
-        const total = prevCount + r.count;
-        row.avgSpeedKmh[cls] =
-          total > 0
-            ? ((prev ?? 0) * prevCount + r.avg_speed_kmh * r.count) / total
-            : r.avg_speed_kmh;
-      }
+      const key = cellKey(r);
+      const cell = cells.get(key) ?? emptyRawCell();
+      cells.set(key, cell);
+      addReading(cell, r as DirectionalMockReading);
+    }
+    // Published base cells, summed into the requested buckets (rule 3).
+    const present = new Map<number, Map<RoadUserClass, CellFold>>();
+    for (const [key, cell] of cells) {
+      const [t, cls] = key.split("|") as [string, RoadUserClass];
+      const bucketStart = Math.floor(Number(t) / bucketMs) * bucketMs;
+      const folds = present.get(bucketStart) ?? new Map<RoadUserClass, CellFold>();
+      present.set(bucketStart, folds);
+      const fold = folds.get(cls) ?? emptyFold();
+      folds.set(cls, fold);
+      foldCell(fold, cell);
     }
 
     // Gap-fill the full [from, to) grid at the bucket interval. Absent windows
@@ -148,38 +243,67 @@ export const mockStreetsRepo: StreetsRepo = {
     const gridStart = Math.floor(fromMs / bucketMs) * bucketMs;
     const out: StreetReading[] = [];
     for (let t = gridStart; t < toMs; t += bucketMs) {
-      const row = present.get(t);
-      out.push(
-        row
-          ? {
-              bucket: new Date(t).toISOString(),
-              missing: false,
-              // k-anonymity: null-out per-class counts below the k-floor.
-              counts: suppressBreakdown(row.counts),
-              avgSpeedKmh: row.avgSpeedKmh,
-            }
-          : {
-              bucket: new Date(t).toISOString(),
-              missing: true,
-              counts: nullBreakdown(),
-              avgSpeedKmh: {},
-            }
-      );
+      const folds = present.get(t);
+      const bucket = new Date(t).toISOString();
+      if (!folds) {
+        out.push({
+          bucket,
+          missing: true,
+          hasHidden: false,
+          counts: nullBreakdown(),
+          countsByDirection: hasDirectionalData
+            ? { AB: nullBreakdown(), BA: nullBreakdown() }
+            : undefined,
+          avgSpeedKmh: {},
+          v85Kmh: {},
+        });
+        continue;
+      }
+      const counts = emptyBreakdown() as Record<RoadUserClass, number | null>;
+      const AB = emptyBreakdown() as Record<RoadUserClass, number | null>;
+      const BA = emptyBreakdown() as Record<RoadUserClass, number | null>;
+      let directional = false;
+      let hasHidden = false;
+      for (const [cls, fold] of folds) {
+        const shown = publishFold(fold);
+        counts[cls] = shown.count;
+        AB[cls] = shown.AB;
+        BA[cls] = shown.BA;
+        directional ||= fold.directional;
+        hasHidden ||= fold.hidden;
+      }
+      out.push({
+        bucket,
+        missing: false,
+        hasHidden,
+        counts,
+        countsByDirection: directional ? { AB, BA } : undefined,
+        avgSpeedKmh: Object.fromEntries(
+          requested.map((cls) => [cls, folds.get(cls) ? publishFold(folds.get(cls)!).speed : null])
+        ),
+        v85Kmh: Object.fromEntries(
+          requested.map((cls) => [cls, folds.get(cls) ? publishFold(folds.get(cls)!).v85 : null])
+        ),
+      });
     }
     return out;
   },
 
-  async latestMetrics({ city, metric, classes, window }): Promise<MetricValue[]> {
+  async latestMetrics({ city, metric, classes, window, now: clock }): Promise<MetricValue[]> {
     const [streets, coverage, readings] = await Promise.all([
       loadStreets(),
       loadCoverage(),
       loadReadings(),
     ]);
 
-    const citySet = new Set(streets.filter((s) => s.city === city).map((s) => s.id));
+    // Active streets only, matching list().
+    const citySet = new Set(
+      streets.filter((s) => s.city === city && s.active).map((s) => s.id)
+    );
     const requested = classes ?? [...ROAD_USER_CLASSES];
-    const now = deriveNow(readings);
-    const cutoff = windowCutoff(window, now).getTime();
+    const now = clock ?? deriveNow(readings);
+    const end = lastCompletedCellEnd(now).getTime();
+    const cutoff = windowCutoff(window, new Date(end)).getTime();
 
     // sensor_id → street_id (multi-coverage supported: one sensor can cover many streets).
     const sensorToStreets = new Map<string, string[]>();
@@ -189,15 +313,9 @@ export const mockStreetsRepo: StreetsRepo = {
       sensorToStreets.set(c.sensor_id, list);
     }
 
-    // Numeric accumulators kept non-null while aggregating; k-anonymity
-    // suppression is applied only on emit so partial sums stay correct.
-    const rawBreakdown = new Map<string, Record<RoadUserClass, number>>();
-    const rawTotal = new Map<string, number>();
-    const speedNumTotal = new Map<string, number>();
-    const speedDenTotal = new Map<string, number>();
-    const speedNumCls = new Map<string, Record<string, number>>();
-    const speedDenCls = new Map<string, Record<string, number>>();
-    for (const id of citySet) rawBreakdown.set(id, emptyBreakdown());
+    // Base cells per street, summed across the street's sensors.
+    const cells = new Map<string, Map<string, RawCell>>();
+    for (const id of citySet) cells.set(id, new Map());
 
     // Most recent window_end per street across ALL readings (not just the
     // selected window): a silent sensor must be detectable even when a short
@@ -206,61 +324,149 @@ export const mockStreetsRepo: StreetsRepo = {
 
     for (const r of readings) {
       const streetsForSensor = sensorToStreets.get(r.sensor_id) ?? [];
-      const end = new Date(r.window_end).getTime();
+      const windowEnd = new Date(r.window_end).getTime();
       for (const streetId of streetsForSensor) {
         if (!citySet.has(streetId)) continue;
-        if (end > (lastSeenMs.get(streetId) ?? 0)) lastSeenMs.set(streetId, end);
+        if (windowEnd > (lastSeenMs.get(streetId) ?? 0)) lastSeenMs.set(streetId, windowEnd);
       }
       if (!requested.includes(r.class_name as RoadUserClass)) continue;
-      if (new Date(r.window_start).getTime() < cutoff) continue;
+      const start = new Date(r.window_start).getTime();
+      if (start < cutoff || start >= end) continue;
       for (const streetId of streetsForSensor) {
-        const rb = rawBreakdown.get(streetId);
-        if (!rb) continue;
-        rb[r.class_name as RoadUserClass] += r.count;
-        rawTotal.set(streetId, (rawTotal.get(streetId) ?? 0) + r.count);
-        if (r.avg_speed_kmh !== null) {
-          speedNumTotal.set(streetId, (speedNumTotal.get(streetId) ?? 0) + r.avg_speed_kmh * r.count);
-          speedDenTotal.set(streetId, (speedDenTotal.get(streetId) ?? 0) + r.count);
-          const nc = speedNumCls.get(streetId) ?? {};
-          const dc = speedDenCls.get(streetId) ?? {};
-          nc[r.class_name] = (nc[r.class_name] ?? 0) + r.avg_speed_kmh * r.count;
-          dc[r.class_name] = (dc[r.class_name] ?? 0) + r.count;
-          speedNumCls.set(streetId, nc);
-          speedDenCls.set(streetId, dc);
-        }
+        const byKey = cells.get(streetId);
+        if (!byKey) continue;
+        const key = cellKey(r);
+        const cell = byKey.get(key) ?? emptyRawCell();
+        byKey.set(key, cell);
+        addReading(cell, r as DirectionalMockReading);
       }
     }
 
+    // Usual total (counts only): the same window in each of the past weeks.
+    const weeks = metric === "counts" && end - cutoff <= WEEK_MS
+      ? Array.from({ length: TYPICAL_WEEKS + 1 }, (_, k) =>
+          windowTotals(readings, sensorToStreets, citySet, requested, cutoff - k * WEEK_MS, end - k * WEEK_MS))
+      : [];
+
     const out: MetricValue[] = [];
     for (const streetId of citySet) {
-      const denT = speedDenTotal.get(streetId) ?? 0;
-      const avgSpeedKmh = denT > 0 ? (speedNumTotal.get(streetId) ?? 0) / denT : null;
-      const nc = speedNumCls.get(streetId) ?? {};
-      const dc = speedDenCls.get(streetId) ?? {};
-      const speedBreakdown: Partial<Record<RoadUserClass, number | null>> = {};
-      for (const cls of ROAD_USER_CLASSES) {
-        const d = dc[cls] ?? 0;
-        speedBreakdown[cls] = d > 0 ? (nc[cls] ?? 0) / d : null;
+      // Published base cells, summed over the window (src/lib/privacy.ts rule 3).
+      const folds = new Map<RoadUserClass, CellFold>();
+      for (const [key, cell] of cells.get(streetId) ?? []) {
+        const cls = key.split("|")[1] as RoadUserClass;
+        const fold = folds.get(cls) ?? emptyFold();
+        folds.set(cls, fold);
+        foldCell(fold, cell);
       }
+      const classBreakdown = emptyBreakdown() as Record<RoadUserClass, number | null>;
+      const speedBreakdown: Partial<Record<RoadUserClass, number | null>> = {};
+      const v85Breakdown: Partial<Record<RoadUserClass, number | null>> = {};
+      const pooledHist = emptyHistogram();
+      let speedSum = 0;
+      let speedCount = 0;
+      let hasHidden = false;
+      for (const cls of ROAD_USER_CLASSES) {
+        const fold = folds.get(cls);
+        const shown = fold ? publishFold(fold) : null;
+        classBreakdown[cls] = shown ? shown.count : 0;
+        speedBreakdown[cls] = shown ? shown.speed : null;
+        v85Breakdown[cls] = shown ? shown.v85 : null;
+        if (fold && shown?.speed !== null) {
+          speedSum += fold.speedSum;
+          speedCount += fold.speedCount;
+          fold.speedHist.forEach((n, bin) => { pooledHist[bin] = (pooledHist[bin] ?? 0) + n; });
+        }
+        hasHidden ||= fold?.hidden ?? false;
+      }
+      const avgSpeedKmh = speedCount >= K_MIN ? speedSum / speedCount : null;
+      const published = publishedTotal(Object.values(classBreakdown));
       const seen = lastSeenMs.get(streetId);
       const lastSeen = seen !== undefined ? new Date(seen).toISOString() : null;
       out.push({
         streetId,
-        // k-anonymity: suppress the street total only when metric === counts.
-        value:
-          metric === "counts"
-            ? suppressCount(rawTotal.get(streetId) ?? 0)
-            : avgSpeedKmh,
-        totalCount: suppressCount(rawTotal.get(streetId) ?? 0),
-        classBreakdown: suppressBreakdown(rawBreakdown.get(streetId) ?? emptyBreakdown()),
+        value: metric === "counts" ? published.total : avgSpeedKmh,
+        totalCount: published.total,
+        hasHidden: hasHidden || published.hasHidden,
+        classBreakdown,
         speedBreakdown,
         avgSpeedKmh,
-        stale: isStale(lastSeen, now),
+        v85Breakdown,
+        v85Kmh: v85FromHistogram(pooledHist),
+        stale: isStaleFor(window, lastSeen, now),
         lastSeen,
+        typical: weeks.length
+          ? typicalTotal(
+              { total: published.total, cells: weeks[0]!.get(streetId)?.cells ?? 0 },
+              weeks.slice(1).map((week) => week.get(streetId) ?? { total: 0, cells: 0 }),
+            )
+          : null,
       });
     }
 
     return out;
+  },
+
+  async speeds({ streetId, window, focus, limitKmh, now: clock }) {
+    const [coverage, readings] = await Promise.all([loadCoverage(), loadReadings()]);
+    const sensorIds = new Set(coverage.filter((c) => c.street_id === streetId).map((c) => c.sensor_id));
+    const end = lastCompletedCellEnd(clock ?? deriveNow(readings)).getTime();
+    const cutoff = windowCutoff(window, new Date(end)).getTime();
+    // Base cells, then published folds: per class over the window, and per
+    // class and Dublin hour of the day (src/lib/privacy.ts rule 3).
+    const cells = new Map<string, RawCell>();
+    for (const r of readings) {
+      if (!sensorIds.has(r.sensor_id)) continue;
+      const start = new Date(r.window_start).getTime();
+      if (start < cutoff || start >= end) continue;
+      const key = cellKey(r);
+      const cell = cells.get(key) ?? emptyRawCell();
+      cells.set(key, cell);
+      addReading(cell, r as DirectionalMockReading);
+    }
+    const folds = new Map<string, CellFold>();
+    const fold = (key: string) => folds.get(key) ?? folds.set(key, emptyFold()).get(key)!;
+    for (const [key, cell] of cells) {
+      const [t, cls] = key.split("|") as [string, RoadUserClass];
+      const hour = dublinHour(Number(t));
+      foldCell(fold(`${cls}||`), cell);
+      foldCell(fold(`${cls}|${hour}|`), cell);
+      foldCell(fold(`${cls}|${hour}|${dublinWeekday(Number(t))}`), cell);
+    }
+    const speedFolds: SpeedFold[] = [...folds].map(([key, f]) => {
+      const [cls, hour, dow] = key.split("|") as [RoadUserClass, string, string];
+      return {
+        cls,
+        hour: hour === "" ? null : Number(hour),
+        dow: dow === "" ? null : Number(dow),
+        hist: f.speedHist,
+        speedSum: f.speedSum,
+        speedCount: f.speedCount,
+      };
+    });
+    return speedResult(speedFolds, focus, limitKmh);
+  },
+
+  async online({ streetId, window, now: clock }) {
+    const [coverage, heartbeats, readings] = await Promise.all([loadCoverage(), loadHeartbeats(), loadReadings()]);
+    const sensorIds = new Set(coverage.filter((c) => c.street_id === streetId).map((c) => c.sensor_id));
+    const end = lastCompletedCellEnd(clock ?? deriveNow(readings)).getTime();
+    const cutoff = windowCutoff(window, new Date(end)).getTime();
+    // A 15-min cell is online when a sensor on the street sent a heartbeat in
+    // it, or in the cells a heartbeat interval longer than 15 min spans.
+    const span = heartbeatCells();
+    const online = new Set<number>();
+    for (const h of heartbeats) {
+      if (!sensorIds.has(h.sensor_id)) continue;
+      const t = new Date(h.ts).getTime();
+      if (t < cutoff || t >= end) continue;
+      for (let k = 0; k < span; k++) {
+        const cell = Math.floor(t / CELL_MS) * CELL_MS - k * CELL_MS;
+        if (cell >= cutoff) online.add(cell);
+      }
+    }
+    const byHour = Array.from({ length: 24 }, () => 0);
+    for (const t of online) byHour[dublinHour(t)]! += 1;
+    return { cells: Math.round((end - cutoff) / CELL_MS), onlineCells: online.size, byHour };
   },
 
   async adminInfo(streetId: string): Promise<StreetAdminInfo | null> {
@@ -291,6 +497,20 @@ export const mockStreetsRepo: StreetsRepo = {
     };
   },
 };
+
+const dublinHourFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Dublin", hour: "2-digit", hourCycle: "h23" });
+
+function dublinHour(ms: number): number {
+  return Number(dublinHourFormat.format(new Date(ms)));
+}
+
+const dublinWeekdayFormat = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Dublin", weekday: "short" });
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** Dublin weekday, 0 = Monday .. 6 = Sunday. */
+function dublinWeekday(ms: number): number {
+  return WEEKDAYS.indexOf(dublinWeekdayFormat.format(new Date(ms)));
+}
 
 function deriveNow(readings: MockReading[]): Date {
   // Mock dataset is historical; "now" = most recent window in data so the

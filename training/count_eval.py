@@ -16,6 +16,15 @@ when the error is within 20 % of the truth (at least 20 true crossings) or withi
 5 counts (rarer).
 
     python -m training.count_eval --video videos/test.mov --truth videos/test.counts.csv
+
+Several clips can be scored in one run, either as repeated ``--video``/``--truth``
+pairs (paired in the order given) or listed in a YAML manifest (``--manifest``,
+see ``training/EVALUATION.md``). With more than one clip, each clip's table is
+printed under a ``--- <video> ---`` header, followed by one pooled table that
+sums truth and counted per class and direction across every clip, and the S7
+verdict is reported on that pooled table. A single ``--video``/``--truth`` pair
+prints exactly as it always has, with no per-clip headers and the verdict
+labelled "S7 on this clip".
 """
 
 from __future__ import annotations
@@ -24,8 +33,11 @@ import argparse
 import csv
 import logging
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+
+import yaml
 
 from camina.core.counting import CountGate, Screenline
 
@@ -114,60 +126,165 @@ def compare(
     return [Row(cls, d, truth[cls, d], counted[cls, d]) for cls, d in keys]
 
 
+def pool_rows(clip_rows: Iterable[list[Row]]) -> list[Row]:
+    """Sum truth and counted per (class, direction) across several clips' rows.
+
+    Each clip's rows already carry only that clip's complete classes (from
+    ``compare``); a class complete in one clip but not another is pooled only
+    from the clips where it is complete.
+    """
+    truth: Counter[tuple[str, str]] = Counter()
+    counted: Counter[tuple[str, str]] = Counter()
+    for rows in clip_rows:
+        for r in rows:
+            truth[r.cls, r.direction] += r.truth
+            counted[r.cls, r.direction] += r.counted
+    return [Row(cls, d, truth[cls, d], counted[cls, d]) for cls, d in sorted(truth)]
+
+
+def load_manifest(path: Path) -> list[tuple[Path, Path]]:
+    """Load clip ``(video, truth)`` pairs from a YAML manifest.
+
+    Format, paths resolved relative to the manifest file's own directory::
+
+        clips:
+          - video: videos/test.mov
+            truth: videos/test.counts.csv
+          - video: videos/test2.mov
+            truth: videos/test2.counts.csv
+    """
+    data = yaml.safe_load(path.read_text()) or {}
+    base = path.parent
+    return [(base / c["video"], base / c["truth"]) for c in data.get("clips", [])]
+
+
 def count_clip(
-    video: Path, model: Path, line: Screenline, min_move: float = 1.0
-) -> Counter[tuple[str, str]]:
-    """Run the sensor pipeline over ``video``; crossings per (class, direction)."""
+    video: Path, model: Path, line: Screenline, min_move: float = 1.0, relink: bool = False
+) -> tuple[Counter[tuple[str, str]], dict[str, int]]:
+    """Run the sensor pipeline over ``video``.
+
+    Returns:
+        Crossings per (class, direction), and the tracking counters:
+        ``relinks``, ``unconfirmed_dropped`` and ``pending_at_end`` (tracks
+        that crossed but whose class was still unconfirmed when the clip ended).
+
+    The pipeline is the daemon's own ``make_detect_and_track`` closure. Each
+    frame is stamped with its time in the clip (index / fps), so time-based
+    rules see the clip's real time however slowly it is processed.
+    """
     import cv2
 
-    from camina.core.tracker import Sort
-    from camina.service.detect_track import _map_model_classes, _to_canonical
-    from camina.service.ncnn_detector import NcnnDetector
+    from camina.service.detect_track import make_detect_and_track
     from camina.utils.taxonomy import load_canonical_classes
 
-    classes = load_canonical_classes()
-    detector = NcnnDetector(model)
-    model_names = [detector.names[i] for i in sorted(detector.names)]
-    to_class = _map_model_classes(model_names, classes)
-    tracker, gate = Sort(), CountGate(screenline=line, min_move=min_move)
+    gate = CountGate(screenline=line, min_move=min_move)
+    detect_and_track = make_detect_and_track(
+        model, load_canonical_classes(), gate=gate, relink=relink
+    )
     counts: Counter[tuple[str, str]] = Counter()
-
     cap = cv2.VideoCapture(str(video))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    i = 0
     while True:
         ok, frame = cap.read()
         if not ok:
             break
-        dets = _to_canonical(detector(frame), to_class, len(model_names), detector.conf)
-        tracks = tracker.update(dets)
-        class_of = {str(int(t)): classes[int(c)] for *_, t, c in tracks}
-        boxes = [(str(int(t)), (x1, y1, x2, y2)) for x1, y1, x2, y2, t, _ in tracks]
-        for event in gate.step(boxes, (frame.shape[1], frame.shape[0])):
-            counts[class_of[event.key], event.direction] += 1
-    return counts
+        for counted in detect_and_track(frame, t=i / fps):
+            counts[counted.class_name, counted.direction] += 1
+        i += 1
+    stats = {
+        "relinks": detect_and_track.tracker.relinks,  # type: ignore[attr-defined]
+        "unconfirmed_dropped": gate.unconfirmed_dropped,
+        "pending_at_end": gate.n_pending,
+    }
+    return counts, stats
 
 
-def main() -> None:
-    """Print the count error table for one clip."""
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    ap = argparse.ArgumentParser(description="Count error against a hand count (S7).")
-    ap.add_argument("--video", type=Path, required=True)
-    ap.add_argument("--truth", type=Path, required=True, help="hand-count CSV")
-    ap.add_argument("--model", type=Path, default=DEFAULT_MODEL)
-    ap.add_argument("--min-move", type=float, default=1.0)
-    args = ap.parse_args()
+@dataclass(frozen=True)
+class ClipResult:
+    """One clip's hand-counted classes, per-class/direction rows and tracking stats."""
 
-    line, truth, complete = read_truth(args.truth)
+    complete: set[str]
+    rows: list[Row]
+    stats: dict[str, int]
+
+
+def _run_clip(
+    video: Path, truth_path: Path, model: Path, min_move: float, relink: bool
+) -> ClipResult:
+    """Score one clip against its hand count."""
+    line, truth, complete = read_truth(truth_path)
     if not complete:
-        raise SystemExit(f"No class in {args.truth} has a complete hand count yet")
-    rows = compare(truth, count_clip(args.video, args.model, line, args.min_move), complete)
-    logger.info("Hand-counted classes: %s", ", ".join(sorted(complete)))
+        raise SystemExit(f"No class in {truth_path} has a complete hand count yet")
+    counted, stats = count_clip(video, model, line, min_move, relink)
+    return ClipResult(complete, compare(truth, counted, complete), stats)
+
+
+def _print_table(rows: list[Row]) -> None:
+    """Print the class/direction/truth/counted/error/S7 table for ``rows``."""
     logger.info("%-14s %-3s %6s %8s %6s  %s", "class", "dir", "truth", "counted", "error", "S7")
     for r in rows:
         verdict = "pass" if r.passes else "FAIL"
         logger.info(
             "%-14s %-3s %6d %8d %+6d  %s", r.cls, r.direction, r.truth, r.counted, r.error, verdict
         )
-    logger.info("S7 on this clip: %s", "PASS" if all(r.passes for r in rows) else "FAIL")
+
+
+def main() -> None:
+    """Print the count error table for one clip, or per-clip and pooled tables for several."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    ap = argparse.ArgumentParser(description="Count error against a hand count (S7).")
+    ap.add_argument(
+        "--video",
+        type=Path,
+        action="append",
+        default=[],
+        help="clip video; repeat with --truth for more clips, paired in the order given",
+    )
+    ap.add_argument(
+        "--truth",
+        type=Path,
+        action="append",
+        default=[],
+        help="hand-count CSV, paired with --video in the order given",
+    )
+    ap.add_argument(
+        "--manifest", type=Path, help="YAML file listing clip video/truth pairs (see EVALUATION.md)"
+    )
+    ap.add_argument("--model", type=Path, default=DEFAULT_MODEL)
+    ap.add_argument("--min-move", type=float, default=1.0)
+    ap.add_argument("--relink", action="store_true", help="re-link tracks after occlusion")
+    args = ap.parse_args()
+
+    if len(args.video) != len(args.truth):
+        ap.error("--video and --truth must be given the same number of times")
+    clips = (load_manifest(args.manifest) if args.manifest else []) + list(
+        zip(args.video, args.truth, strict=True)
+    )
+    if not clips:
+        ap.error("give at least one --video/--truth pair, or --manifest")
+
+    results: list[ClipResult] = []
+    for video, truth_path in clips:
+        result = _run_clip(video, truth_path, args.model, args.min_move, args.relink)
+        if len(clips) > 1:
+            logger.info("--- %s ---", video)
+        logger.info("Hand-counted classes: %s", ", ".join(sorted(result.complete)))
+        _print_table(result.rows)
+        logger.info("Tracking: %s", " ".join(f"{k}={v}" for k, v in result.stats.items()))
+        if len(clips) > 1:
+            verdict = "PASS" if all(r.passes for r in result.rows) else "FAIL"
+            logger.info("S7 on this clip: %s", verdict)
+        results.append(result)
+
+    if len(clips) == 1:
+        verdict = "PASS" if all(r.passes for r in results[0].rows) else "FAIL"
+        logger.info("S7 on this clip: %s", verdict)
+        return
+    pooled = pool_rows(r.rows for r in results)
+    logger.info("--- pooled (%d clips) ---", len(clips))
+    _print_table(pooled)
+    logger.info("S7 on pooled counts: %s", "PASS" if all(r.passes for r in pooled) else "FAIL")
 
 
 if __name__ == "__main__":

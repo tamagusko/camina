@@ -33,7 +33,8 @@ from PIL import Image, ImageDraw, ImageFont
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from camina.core.counting import CountGate, Screenline
-from camina.core.tracker import Sort
+from camina.core.riders import drop_riders
+from camina.core.tracker import Sort, class_groups
 from camina.service.detect_track import (
     _map_model_classes,
     _to_canonical,
@@ -128,7 +129,7 @@ def main() -> int:
     detector = NcnnDetector(args.model, imgsz=640, conf=args.conf)
     model_names = [detector.names[i] for i in sorted(detector.names)]
     to_class = _map_model_classes(model_names, classes)
-    tracker = Sort()  # one tracker, class by majority vote, as in the daemon
+    tracker = Sort(compatible_classes=class_groups(classes))  # as in the daemon
     line = (
         Screenline(tuple(args.screenline[:2]), tuple(args.screenline[2:]))
         if args.screenline
@@ -159,12 +160,15 @@ def main() -> int:
         dets = detector(frame)
         tracks = []
         for x1, y1, x2, y2, tid, c in tracker.update(
-            _to_canonical(dets, to_class, len(model_names), args.conf)
+            drop_riders(_to_canonical(dets, to_class, len(model_names), args.conf), classes),
+            t=n / fps,
         ):
             seen[int(tid)] = int(c)
             tracks.append((int(c), int(tid), (x1, y1, x2, y2)))
         class_of = {str(tid): c for c, tid, _ in tracks}
-        for ev in gate.step(((str(tid), box) for _, tid, box in tracks), (w, h)):
+        pending = {str(tid) for tid in tracker.unconfirmed_ids}
+        boxes = ((str(tid), box) for _, tid, box in tracks)
+        for ev in gate.step(boxes, (w, h), t=n / fps, unconfirmed=pending):
             c = class_of[ev.key]
             direction = ev.direction or "moved"
             counted[c][direction] = counted[c].get(direction, 0) + 1

@@ -14,7 +14,7 @@ from camina.core.counter import DailySnapshot, WindowSnapshot
 from camina.io.http_client import HttpClient, RetryPolicy
 from camina.io.https_publisher import HttpsPublisher
 from camina.io.offline_buffer import OfflineBuffer
-from camina.io.schemas import HeartbeatPayload
+from camina.io.schemas import CountsPayload, HeartbeatPayload
 
 UTC = timezone.utc
 CLASSES = ["person", "cyclist", "car"]
@@ -173,14 +173,76 @@ def test_publisher_posts_counts_successfully(outbox: OfflineBuffer) -> None:
         snapshot=_window({"person": 5, "cyclist": 2, "car": 10}),
         config_version="v1",
         fw_version="0.2.0",
+        avg_speed_kmh={"person": 4.0, "cyclist": 12.0, "car": 28.0},
     )
 
     assert result.delivered is True
     assert result.enqueued is False
     assert result.latest_config_version == "v2"
     assert received[-1]["sensor_id"] == "cam-01"
+    assert received[-1]["schema_version"] == "1.0"
+    assert "counts_by_direction" not in received[-1]
     assert received[-1]["counts"] == {"person": 5, "cyclist": 2, "car": 10}
+    assert received[-1]["avg_speed_kmh"] == {
+        "person": 4.0,
+        "cyclist": 12.0,
+        "car": 28.0,
+    }
     client.close()
+
+
+def test_publisher_emits_directional_schema_version(outbox: OfflineBuffer) -> None:
+    received: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        received.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True, "latest_config_version": "v1"})
+
+    client = HttpClient(
+        "https://api.test", token="t", retry=_fast_retry(), transport=httpx.MockTransport(handler)
+    )
+    publisher = HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
+    publisher.post_counts(
+        snapshot=WindowSnapshot(
+            window_start=datetime(2026, 4, 21, 10, tzinfo=UTC),
+            window_end=datetime(2026, 4, 21, 10, 15, tzinfo=UTC),
+            counts={"car": 7, "person": 7},
+            partial=False,
+            counts_by_direction={"AB": {"car": 3, "person": 2}, "BA": {"car": 4, "person": 5}},
+        ),
+        config_version="v1",
+        fw_version="0.2.0",
+    )
+    assert received[0]["schema_version"] == "1.1"
+    assert received[0]["counts"] == {"car": 7, "person": 7}
+    assert received[0]["counts_by_direction"] == {
+        "AB": {"car": 3, "person": 2},
+        "BA": {"car": 4, "person": 5},
+    }
+    client.close()
+
+
+def test_counts_payload_direction_contract_and_legacy_version() -> None:
+    shared = {
+        "sensor_id": "cam-01",
+        "window_start": datetime(2026, 4, 21, 10, tzinfo=UTC),
+        "window_end": datetime(2026, 4, 21, 10, 15, tzinfo=UTC),
+        "partial": False,
+        "counts": {"car": 3},
+        "config_version": "v1",
+        "fw_version": "0.2.0",
+    }
+    legacy = CountsPayload(**shared)
+    assert legacy.schema_version == "1.0"
+    assert "counts_by_direction" not in legacy.model_dump(exclude_none=True)
+
+    directional = CountsPayload(**shared, counts_by_direction={"AB": {"car": 1}, "BA": {"car": 2}})
+    assert directional.schema_version == "1.1"
+
+    with pytest.raises(ValueError, match="sum"):
+        CountsPayload(**shared, counts_by_direction={"AB": {"car": 1}})
+    with pytest.raises(ValueError):
+        CountsPayload(**shared, counts_by_direction={"CA": {"car": 3}})
 
 
 def test_publisher_enqueues_when_backend_down(outbox: OfflineBuffer) -> None:
@@ -201,6 +263,31 @@ def test_publisher_enqueues_when_backend_down(outbox: OfflineBuffer) -> None:
     assert result.enqueued is True
     assert outbox.stats().pending == 1
     client.close()
+
+
+def test_publisher_buffers_200_response_with_ok_false(outbox: OfflineBuffer) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": False, "latest_config_version": "v1"})
+
+    client = HttpClient(
+        "https://api.test",
+        token="t",
+        retry=_fast_retry(),
+        transport=httpx.MockTransport(handler),
+    )
+    publisher = HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
+    try:
+        result = publisher.post_counts(
+            snapshot=_window({"person": 1, "cyclist": 0, "car": 0}),
+            config_version="v1",
+            fw_version="0.2.0",
+        )
+
+        assert result.delivered is False
+        assert result.enqueued is True
+        assert outbox.stats().pending == 1
+    finally:
+        client.close()
 
 
 def test_publisher_drains_outbox_on_next_success(outbox: OfflineBuffer) -> None:
@@ -235,7 +322,7 @@ def test_publisher_drains_outbox_on_next_success(outbox: OfflineBuffer) -> None:
     assert result.delivered is True
     assert outbox.stats().pending == 0
     # Server saw: the two buffered payloads (person=1, then person=2), then the fresh (person=99).
-    person_values = [r["counts"]["person"] for r in state["received"]]
+    person_values = [r["counts"].get("person", 0) for r in state["received"]]
     assert person_values == [1, 2, 99]
     client.close()
 
@@ -253,7 +340,7 @@ def test_publisher_posts_daily(outbox: OfflineBuffer) -> None:
 
     snap = DailySnapshot(
         day=date(2026, 4, 21),
-        totals={"person": 100, "cyclist": 50, "car": 200},
+        totals={"person": 100, "cyclist": 50, "car": 200, "e-scooter": 4},
         window_count=96,
         late=True,
     )
@@ -263,6 +350,7 @@ def test_publisher_posts_daily(outbox: OfflineBuffer) -> None:
     assert payloads[-1]["day"] == "2026-04-21"
     assert payloads[-1]["late"] is True
     assert payloads[-1]["totals"]["person"] == 100
+    assert payloads[-1]["totals"]["e-scooter"] == 4
     client.close()
 
 
@@ -309,6 +397,45 @@ def test_failed_heartbeat_is_not_enqueued(outbox: OfflineBuffer) -> None:
     client.close()
 
 
+def test_heartbeat_outbox_fields_must_be_nonnegative() -> None:
+    shared = {
+        "sensor_id": "cam-01",
+        "uptime_s": 10,
+        "config_version": "v1",
+        "fw_version": "0.2.0",
+    }
+    hb = HeartbeatPayload(**shared, outbox_depth=12, outbox_dropped_total=3)
+    assert hb.outbox_depth == 12
+    assert hb.outbox_dropped_total == 3
+
+    with pytest.raises(ValueError):
+        HeartbeatPayload(**shared, outbox_depth=-1)
+    with pytest.raises(ValueError):
+        HeartbeatPayload(**shared, outbox_dropped_total=-1)
+    with pytest.raises(ValueError):
+        HeartbeatPayload(**shared, outbox_depth=1.5)
+
+
+def test_heartbeat_accepts_optional_hardware_telemetry() -> None:
+    shared = {
+        "sensor_id": "cam-01",
+        "uptime_s": 10,
+        "config_version": "v1",
+        "fw_version": "0.2.0",
+    }
+    hb = HeartbeatPayload(**shared, throttled=0x50000, rss_mb=128.25)
+    assert hb.throttled == 0x50000
+    assert hb.rss_mb == 128.25
+    assert HeartbeatPayload(**shared).throttled is None
+    assert HeartbeatPayload(**shared).rss_mb is None
+    with pytest.raises(ValueError):
+        HeartbeatPayload(**shared, throttled=-1)
+    with pytest.raises(ValueError):
+        HeartbeatPayload(**shared, throttled=1.5)
+    with pytest.raises(ValueError):
+        HeartbeatPayload(**shared, rss_mb=-0.1)
+
+
 def test_outbox_item_4xx_is_dropped_as_poison(outbox: OfflineBuffer) -> None:
     """F3: a permanently-rejected (4xx) buffered item is dropped, not retried."""
     outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
@@ -345,6 +472,44 @@ def test_outbox_item_5xx_is_retried_not_dropped(outbox: OfflineBuffer) -> None:
     client.close()
 
 
+def test_outbox_item_is_retained_when_response_ok_is_false(outbox: OfflineBuffer) -> None:
+    outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": False, "latest_config_version": "v1"})
+
+    client = HttpClient(
+        "https://api.test",
+        token="t",
+        retry=_fast_retry(),
+        transport=httpx.MockTransport(handler),
+    )
+    publisher = HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
+    try:
+        assert publisher.drain_outbox() == 0
+        assert outbox.stats().pending == 1
+        assert outbox.peek(1)[0].attempts == 1
+    finally:
+        client.close()
+
+
+def test_outbox_transport_error_does_not_charge_attempt(outbox: OfflineBuffer) -> None:
+    outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline", request=request)
+
+    client = HttpClient(
+        "https://api.test", token="t", retry=_fast_retry(), transport=httpx.MockTransport(handler)
+    )
+    publisher = HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
+
+    assert publisher.drain_outbox() == 0
+    assert outbox.stats().pending == 1
+    assert outbox.peek(1)[0].attempts == 0
+    client.close()
+
+
 def test_publisher_drain_outbox_explicit_call(outbox: OfflineBuffer) -> None:
     outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
     outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
@@ -360,3 +525,103 @@ def test_publisher_drain_outbox_explicit_call(outbox: OfflineBuffer) -> None:
     assert drained == 2
     assert outbox.stats().pending == 0
     client.close()
+
+
+def _skew_publisher(outbox: OfflineBuffer, responses: list[httpx.Response]) -> HttpsPublisher:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return responses.pop(0)
+
+    client = HttpClient(
+        "https://api.test", token="t", retry=_fast_retry(), transport=httpx.MockTransport(handler)
+    )
+    return HttpsPublisher(sensor_id="cam-01", http_client=client, outbox=outbox)
+
+
+def test_outbox_item_rejected_for_clock_skew_is_kept_and_flagged(outbox: OfflineBuffer) -> None:
+    """A 422 timestamp_in_future means the device clock runs fast, not a bad row."""
+    outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
+    publisher = _skew_publisher(
+        outbox,
+        [
+            httpx.Response(422, json={"error": "timestamp_in_future"}),
+            httpx.Response(200, json={"ok": True, "latest_config_version": "v1"}),
+        ],
+    )
+
+    assert publisher.drain_outbox() == 0
+    assert outbox.stats().pending == 1
+    assert outbox.stats().poisoned == 0
+    assert outbox.peek(1)[0].attempts == 0
+    assert publisher.clock_skew is True
+
+    assert publisher.drain_outbox() == 1
+    assert outbox.stats().pending == 0
+    assert publisher.clock_skew is False
+
+
+def test_outbox_item_too_old_is_dropped(outbox: OfflineBuffer) -> None:
+    """A 422 timestamp_too_old can never be accepted; it is dropped as before."""
+    outbox.enqueue("counts", b'{"sensor_id":"cam-01"}')
+    publisher = _skew_publisher(outbox, [httpx.Response(422, json={"error": "timestamp_too_old"})])
+
+    assert publisher.drain_outbox() == 0
+    assert outbox.stats().pending == 0
+    assert outbox.stats().poisoned == 1
+    assert publisher.clock_skew is False
+
+
+def test_fresh_counts_rejected_for_clock_skew_stay_buffered(outbox: OfflineBuffer) -> None:
+    skew = httpx.Response(422, json={"error": "timestamp_in_future"})
+    publisher = _skew_publisher(outbox, [skew, skew])
+
+    result = publisher.post_counts(_window({"car": 3}), config_version="v1", fw_version="0.1.0")
+    assert result.buffered is True
+    assert publisher.drain_outbox() == 0
+    assert outbox.stats().pending == 1
+    assert publisher.clock_skew is True
+
+
+def test_window_speeds_pass_the_counts_payload_validation() -> None:
+    from camina.core.counter import WindowedCounter
+
+    counter = WindowedCounter(classes=["car", "cyclist"], window_seconds=900)
+    counter.add(1, "car", counter.window_start)
+    for _ in range(5):
+        counter.add_speed("car", 42.3)
+    snap = counter.force_snapshot(counter.window_end)
+    payload = CountsPayload(
+        sensor_id="cam-01",
+        window_start=snap.window_start,
+        window_end=snap.window_end,
+        partial=snap.partial,
+        counts=snap.counts,
+        avg_speed_kmh=snap.avg_speed_kmh,
+        speed_hist_kmh=snap.speed_hist_kmh,
+        config_version="v1",
+        fw_version="0.2.0",
+    )
+    body = payload.model_dump(mode="json")
+    assert body["avg_speed_kmh"] == {"car": 42.3}
+    assert sum(body["speed_hist_kmh"]["car"]) == 5
+
+
+def test_a_speed_histogram_needs_every_bin_in_range() -> None:
+    import pydantic
+
+    from camina.core.counter import SPEED_BINS
+
+    base = {
+        "sensor_id": "cam-01",
+        "window_start": "2026-04-21T10:00:00Z",
+        "window_end": "2026-04-21T10:15:00Z",
+        "partial": False,
+        "config_version": "v1",
+        "fw_version": "0.2.0",
+    }
+    for bad in (
+        {"car": [1] * (SPEED_BINS - 1)},
+        {"car": [-1] + [0] * (SPEED_BINS - 1)},
+        {"tram": [0] * SPEED_BINS},
+    ):
+        with pytest.raises(pydantic.ValidationError):
+            CountsPayload(**base, speed_hist_kmh=bad)

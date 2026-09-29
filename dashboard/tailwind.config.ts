@@ -6,6 +6,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        bg: "var(--bg)", surface: "var(--surface)", ink: { 1: "var(--ink-1)", 2: "var(--ink-2)", 3: "var(--ink-3)" }, line: "var(--line)", accent: "var(--accent)", focus: "var(--focus)",
         // Brand
         black: "#000000",
         white: "#ffffff",
@@ -19,25 +20,7 @@ const config: Config = {
         // Link states
         "link-blue": "#0000ee",
       },
-      fontFamily: {
-        display: [
-          "UberMove",
-          "UberMoveText",
-          "system-ui",
-          "Helvetica Neue",
-          "Helvetica",
-          "Arial",
-          "sans-serif",
-        ],
-        body: [
-          "UberMoveText",
-          "system-ui",
-          "Helvetica Neue",
-          "Helvetica",
-          "Arial",
-          "sans-serif",
-        ],
-      },
+      fontFamily: { display: ["var(--font-sans)", "sans-serif"], body: ["var(--font-sans)", "sans-serif"] },
       fontSize: {
         display: ["3.25rem", { lineHeight: "1.23", fontWeight: "700" }],
         section: ["2.25rem", { lineHeight: "1.22", fontWeight: "700" }],
@@ -50,6 +33,8 @@ const config: Config = {
         micro: ["0.75rem", { lineHeight: "1.67", fontWeight: "400" }],
       },
       borderRadius: {
+        sm: "var(--r-sm)",
+        md: "var(--r-md)",
         pill: "999px",
         card: "8px",
         feature: "12px",

@@ -3,11 +3,11 @@ import { isNull, lt, or } from "drizzle-orm";
 import { verifyCron } from "@/lib/cron-auth";
 import { isMock } from "@/lib/data-source";
 import { db } from "@/lib/db";
+import { heartbeatMinutes, silentAfterMs } from "@/lib/heartbeat";
 import { sensors } from "../../../../../drizzle/schema";
 
-// A sensor is silent after 3 missed heartbeats (600 s interval → 30 min).
-// Matches the repo layer's STALE_AFTER_MS so ops and public UI agree.
-const SILENT_AFTER_MS = 30 * 60 * 1000;
+// A sensor is silent after 3 missed heartbeats; the interval is the one
+// deployment setting CAMINA_HEARTBEAT_MINUTES (src/lib/heartbeat.ts).
 
 export async function GET(request: Request) {
   const authError = verifyCron(request);
@@ -15,14 +15,15 @@ export async function GET(request: Request) {
   if (isMock) {
     return NextResponse.json({ ok: true, note: "mock mode — all sensors healthy" });
   }
-  const cutoff = new Date(Date.now() - SILENT_AFTER_MS);
+  const minutes = heartbeatMinutes();
+  const cutoff = new Date(Date.now() - silentAfterMs(minutes));
   const silent = await db()
     .select({ id: sensors.id, lastHeartbeat: sensors.lastHeartbeat })
     .from(sensors)
     .where(or(isNull(sensors.lastHeartbeat), lt(sensors.lastHeartbeat, cutoff)));
   if (silent.length > 0) {
     console.warn(
-      `[detect-silent] ${silent.length} sensor(s) silent > 30 min:`,
+      `[detect-silent] ${silent.length} sensor(s) silent > ${3 * minutes} min:`,
       silent.map((s) => s.id).join(", ")
     );
   }

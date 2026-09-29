@@ -68,6 +68,13 @@ def test_unknown_class_ignored(acc: DailyAccumulator) -> None:
     assert snap.totals["person"] == 1
 
 
+def test_add_window_rejects_naive_window_start(acc: DailyAccumulator) -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0)
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        acc.add_window(_snap(start, {"person": 1, "cyclist": 0, "car": 0}))
+
+
 # ---------- Rollover ----------
 
 
