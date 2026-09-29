@@ -17,9 +17,13 @@ export interface Viewport {
 
 const KEYS = { zoom: "zoom", lat: "lat", lon: "lon" } as const;
 
-export function parseSearch(search: string): Viewport | null {
+function parseSearch(search: string): Viewport | null {
   if (!search) return null;
   const params = new URLSearchParams(search.replace(/^\?/, ""));
+  // All three or none: Number(null) is 0, so a query without them (another
+  // page's, still in the address bar during a client-side navigation) would
+  // otherwise pin the map at zoom 0 over 0,0.
+  if (!Object.values(KEYS).every((key) => params.get(key))) return null;
   const zoom = Number(params.get(KEYS.zoom));
   const lat = Number(params.get(KEYS.lat));
   const lon = Number(params.get(KEYS.lon));
@@ -27,7 +31,7 @@ export function parseSearch(search: string): Viewport | null {
   return { zoom, center: [lon, lat] };
 }
 
-export function formatSearch(v: Viewport, existing?: string): string {
+function formatSearch(v: Viewport, existing?: string): string {
   const params = new URLSearchParams((existing ?? "").replace(/^\?/, ""));
   params.set(KEYS.zoom, v.zoom.toFixed(1));
   params.set(KEYS.lat, v.center[1].toFixed(4));

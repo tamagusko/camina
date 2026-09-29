@@ -1,0 +1,13 @@
+# TRA 2026 plus the verified Montreal traffic-camera images in train only; val and test
+# stay TRA 2026, so this is scored against yolo26n_tra2026 on the same images.
+# Montreal uses the extra-data slot named `synthetic` (train only, capped); its images
+# get the "syn_" prefix in the built dataset although they are real.
+# Put the reviewed export (data.yaml + images/ + labels/) at data/montreal. Not
+# data/autolabel/montreal: after training.codex_check it also holds review/ copies of
+# every image, which would be read twice.
+name: yolo26n_tra2026_montreal
+base: training/configs/yolo26n.yaml
+data:
+  dataset: training/dataset
+  synthetic: data/montreal
+  syn_fraction: 1.0    # at most as many Montreal as TRA 2026 training images (~1.5k)

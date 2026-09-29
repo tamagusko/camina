@@ -1,0 +1,5 @@
+# Baseline: the TRA 2026 dataset (training/dataset, all nine classes) only.
+name: yolo26n_tra2026
+base: training/configs/yolo26n.yaml
+data:
+  dataset: training/dataset

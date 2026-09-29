@@ -1,5 +1,7 @@
 # CAMINA
 
+[![CI](https://github.com/tamagusko/camina/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/tamagusko/camina/actions/workflows/ci.yml)
+
 **Citizen-led Automated Modal INfrastructure Analytics** — a privacy-first traffic sensor.
 A Raspberry Pi counts nine road-user classes on-device and publishes only the counts to a
 public map of Dublin. No image or video is stored or uploaded.
@@ -11,13 +13,40 @@ is in [`.planning/PLAN.md`](.planning/PLAN.md), current status in
 ## How it works
 
 ```
-Pi camera → YOLO11n (NCNN) → tracker → 15-min counts → HTTPS → dashboard
+Pi camera → YOLO11n (NCNN) → tracker → count gate → 15-min counts → HTTPS → dashboard
 ```
 
-- **Detector:** the 9-class YOLO11n from the TRA 2026 paper (classes below). FP32 and FP16
-  NCNN exports in [`models/`](models/), provenance in each folder's `PROVENANCE.md`.
+- **Detector:** the 9-class YOLO11n from the TRA 2026 paper, as NCNN (FP32 and FP16) in
+  [`models/`](models/), provenance in each folder's `PROVENANCE.md`.
+- **Tracker:** one SORT tracker for all classes; a track's class is its majority vote. A
+  hidden road user keeps its track for `max_occlusion_s` (5 s); re-linking a reappearing
+  road user by its observed motion exists but is off (`relink: false`) until a second
+  hand-counted clip shows it helps; the person box on a rider is dropped.
+- **Count gate:** each track is counted once, when it crosses a screenline (with direction)
+  or has moved far enough, and only once its class was detected `min_class_hits` (3) times.
+  Parked cars and street furniture never count.
 - **Privacy:** counts only; the public map never shows sensor locations; counts below 5
-  are suppressed.
+  are suppressed, and so is any value that would let one be recovered by subtraction
+  (see `dashboard/src/lib/privacy.ts`).
+- **Heartbeat:** every **15 min** in the pilot, a cost limit, not a design choice. The goal
+  is **5 min**. See below.
+
+## Heartbeat interval: 15 min now, 5 min as the goal
+
+Each sensor sends a heartbeat (alive, temperature, outbox depth) on a fixed interval. The
+pilot runs on free tiers (Vercel Hobby, Neon free), and every heartbeat wakes the Neon
+database, which then stays awake for 5 minutes. At 15 minutes, in step with the 15-minute
+count windows, the database wakes once per quarter-hour and stays inside Neon's free
+100 compute-hours a month. At 5 minutes it would never sleep and would exceed them.
+The target is 5 minutes, for fresher sensor health and faster silent-sensor alerts, once
+the database is on a paid plan.
+
+**To change it, set one value:** `CAMINA_HEARTBEAT_MINUTES` in the Vercel project
+(Settings → Environment Variables), then redeploy. Use `15` now and `5` later. Every
+sensor picks the new interval up on its next heartbeat, with no change on the devices.
+The silent-sensor alert follows it (three missed heartbeats). How it works:
+[`dashboard/src/lib/heartbeat.ts`](dashboard/src/lib/heartbeat.ts). Counts stay in
+15-minute windows either way.
 
 ## Detected classes
 
@@ -37,48 +66,40 @@ IDs are the published order, fixed in [`configs/classes.yaml`](configs/classes.y
 
 ## Quick start
 
-Edge (Python 3.10+):
-
 ```bash
 git clone https://github.com/tamagusko/camina.git && cd camina
-uv venv && uv pip install -r requirements.txt pytest
-uv run pytest
+uv venv && uv pip install -r requirements.txt
+.venv/bin/python -m pytest
+
+# See what the sensor sees and counts, on a test video
+.venv/bin/python scripts/view_detections.py --video videos/test.mov --out /tmp/out.mp4 \
+    --screenline 0.65 0.15 0.65 0.72 --play
+
+# Dashboard with mock data (Node 22.12+) → http://localhost:3000/dublin
+scripts/run_dashboard.sh
 ```
 
-Running the daemon on a Pi: [docs/sensor_deployment.md](docs/sensor_deployment.md).
-
-Dashboard, with mock data (Node 20.11+):
-
-```bash
-scripts/run_dashboard.sh    # → http://localhost:3000/dublin
-```
+On a Raspberry Pi 5: [docs/raspberry_pi_5.md](docs/raspberry_pi_5.md).
 
 ## Repository
 
 | Path | Contents |
 |---|---|
-| `src/camina/` | Edge daemon: tracker, counters, offline buffer, publisher |
-| `dashboard/` | Next.js dashboard and ingest API |
+| `camina/` | The sensor: detector, tracker, count gate, counters, publisher (`python -m camina`) |
+| `dashboard/` | Next.js map and ingest API |
+| `training/` | Dataset, training and NCNN export |
 | `models/` | CAMINAv1 NCNN models |
-| `custom_model_train/` | Training pipeline |
-| `configs/` | Sensor and class configuration |
+| `configs/` | Classes and per-device sensor config |
+| `videos/` | Test videos |
+| `scripts/` | Viewer, dashboard runner, mock data generator |
 | `deploy/` | systemd unit |
-| `docs/` | Deployment, protocol, simulation, training |
-
-## Docs
-
-- [Deploying a sensor](docs/sensor_deployment.md)
-- [Simulation mode](docs/simulation.md)
-- [Training](docs/training_plan.md) and [evaluation](docs/evaluation_plan.md)
-- [Contributing and branches](CONTRIBUTING.md)
+| `docs/` | Pi setup, ingest protocol, operations, mock mode |
 
 ## License
 
 - **Code:** [MIT](LICENSE).
-- **Models:** [AGPL-3.0](models/LICENSE) — everything in `models/`, plus
-  `custom_model_train/yolo11n.pt`. They were trained and exported with
-  [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), which is AGPL-3.0 and declares
-  that licence for the models it produces (stated in each NCNN export's `metadata.yaml`).
-
-The edge software loads these models through the `ultralytics` package, so a distributed build
-of the sensor software must comply with AGPL-3.0. The dashboard does not use Ultralytics.
+- **Models:** [AGPL-3.0](models/LICENSE) — everything in `models/`. They were trained and
+  exported with [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), which is
+  AGPL-3.0 and declares that licence for the models it produces (stated in each export's
+  `metadata.yaml`). The sensor runs them with `ncnn` and does not use Ultralytics; training
+  and export do.

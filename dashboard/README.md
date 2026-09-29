@@ -1,7 +1,7 @@
 # CAMINA Dashboard
 
-Next.js 16 App Router dashboard for the CAMINA urban-mobility counter.
-Follows `../plan/02-dashboard-vercel.md` and `../DESIGN.md`.
+Next.js 16 App Router dashboard for the CAMINA traffic sensors. Visual design:
+[`DESIGN.md`](DESIGN.md).
 
 ## Quick start (mock data, no database)
 
@@ -30,7 +30,7 @@ Launches the Next.js dev server on `http://localhost:3000`, which redirects to `
 
 | Issue | Solution |
 |---|---|
-| **Map shows grey/blank** | The basemap is OpenFreeMap's Positron style, fetched live — check that `https://tiles.openfreemap.org` is reachable. Do not run `scripts/download-dublin-tiles.mjs` (deprecated: Carto now watermarks keyless tiles). |
+| **Map shows grey/blank** | The basemap is OpenFreeMap's Positron style, fetched live — check that `https://tiles.openfreemap.org` is reachable. |
 | **Port 3000 already in use** | `pnpm dev -- -p 3001` to use a different port. |
 | **Command not found: `pnpm`** | Install pnpm: `npm install -g pnpm` (or follow https://pnpm.io/installation). |
 
@@ -65,6 +65,43 @@ The switch happens in `src/lib/data-source.ts` and is propagated by the
 | `pnpm test:e2e`   | Playwright E2E (desktop + mobile) |
 | `pnpm db:generate`| Drizzle migrations from schema |
 | `pnpm db:migrate` | Apply migrations to DATABASE_URL |
+| `pnpm db:seed`    | Insert the mock streets (`../data/mock/<city>/streets.json`) that are missing |
+
+## Local live-mode checks
+
+Use a local PostGIS database and apply the migrations before running integration
+tests. The test suite skips database tests when `DATABASE_URL_TEST` is unset.
+
+```bash
+cd dashboard
+DATABASE_URL=postgres://camina:camina@127.0.0.1:55432/camina npx -y pnpm@9.12.0 db:migrate
+DATABASE_URL_TEST=postgres://camina:camina@127.0.0.1:55432/camina npx -y pnpm@9.12.0 test
+```
+
+A fresh database has no streets. `db:seed` inserts the mock streets (run
+`python3 scripts/generate_mock_dublin.py` from the repo root first); existing ids are kept.
+
+```bash
+DATABASE_URL_UNPOOLED=<database-url> npx -y pnpm@9.12.0 db:seed
+```
+
+Provisioning links a new sensor to an **existing** street. It stores only the
+SHA-256 hash of a new random token and prints the token once; keep that output
+for the device. An existing sensor is refused unless `--rotate` is specified.
+
+```bash
+DATABASE_URL_UNPOOLED=<database-url> npx -y pnpm@9.12.0 exec tsx scripts/provision-sensor.ts \
+  --id cam-dub-01 --display-name "Dublin sensor 1" --street-id <street-id> \
+  --latitude 53.3 --longitude -6.3
+DATABASE_URL_UNPOOLED=<database-url> npx -y pnpm@9.12.0 exec tsx scripts/provision-sensor.ts \
+  --id cam-dub-01 --rotate
+```
+
+Use `--config <json-file>` to supply site-specific settings and
+`--config-version <version>` to set the initial server version. The default
+configuration uses 15-minute counts. The heartbeat interval is not per sensor: it is
+the deployment setting `CAMINA_HEARTBEAT_MINUTES` (15 in the free-tier pilot, 5 as the
+goal; see the root README, "Heartbeat interval"), applied to every sensor's config.
 
 ## Architecture at a glance
 
@@ -85,15 +122,42 @@ Data
   └── live  → Neon Postgres + PostGIS (see drizzle/migrations/0000_init.sql)
 ```
 
+## What people see
+
+- **Map.** Streets coloured by *Counts*, *vs usual* or *Speed*, for now, the last 24 h or 7 days.
+  *vs usual* compares a street with the same time and weekday in the past 4 weeks (at least 2 with
+  data; `src/lib/typical.ts`), from much quieter (blue) to much busier (red).
+- **Street panel.** The last 15 minutes by class, and one line saying whether that is usual.
+- **Street page.** The last 24 h stacked by class (grey bands where the sensor was offline);
+  click a class, in the chart or its legend, to see it alone. Below it, a typical day:
+  the average per hour on weekdays and weekends over the last 4 weeks.
+
+Every figure is built from published values only, so values under 5 stay hidden.
+
 ## Privacy guarantees
 
 - Public API bodies never contain `sensor_id`, `latitude`, or `longitude`.
-- `tests/unit/privacy-regression.test.ts` enforces this in CI; add new public
+- `tests/unit/privacy-regression.test.ts` enforces this (`pnpm test`); add new public
   routes to that test before shipping.
-- `DESIGN.md` + `plan/02-dashboard-vercel.md` §7 capture the full privacy
-  model.
+- Counts and speeds below 5 are suppressed (k-anonymity, `K_MIN = 5`).
 
-## Deployment (later, Step D14)
+## Public mock demo
+
+https://camina-dublin.vercel.app serves the mock data (badge "Mock data"), for showing the
+concept. Vercel project `camina-dublin`, linked at the repo root with root directory
+`dashboard`; production env: `CAMINA_DATA_SOURCE=mock`, `AUTH_SECRET`. The fixtures are
+gitignored, so it is built locally, where they exist, and uploaded prebuilt:
+
+```bash
+python3 scripts/generate_mock_dublin.py          # from the repo root
+mv dashboard/.env.local /tmp/                    # it holds dev-only flags; keep them out
+npx vercel pull --yes --environment=production
+npx vercel build --prod                          # needs pnpm on PATH
+npx vercel deploy --prebuilt --prod
+mv /tmp/.env.local dashboard/
+```
+
+## Deployment (stage S5)
 
 - Not deployed yet. When ready:
   1. `vercel link` (user-owned action).
@@ -109,4 +173,3 @@ Data
 - `proxy.ts` (not `middleware.ts`) for network-boundary concerns; auth
   lives in server-component layouts.
 - Tailwind tokens from `tailwind.config.ts` match `DESIGN.md` §2–§6.
-- Cache with `use cache` + `cacheTag()` + `revalidateTag()`.

@@ -1,0 +1,15 @@
+# CAMINAv1's recipe (the TRA 2026 paper: origin/TRA2026,
+# model/yolo_comparison/YOLO11n/train/args.yaml) retrained on today's split. CAMINAv1
+# itself saw most of today's test images in training, so this is the fair baseline.
+name: yolo11n_tra2026
+base: training/configs/yolo26n.yaml
+data:
+  dataset: training/dataset
+train:
+  model: yolo11n.pt
+  epochs: 150
+  patience: 75
+  batch: 16
+  cos_lr: false
+  close_mosaic: 10
+  seed: 0

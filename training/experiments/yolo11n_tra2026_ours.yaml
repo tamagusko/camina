@@ -1,0 +1,8 @@
+# YOLO11n with our recipe (training/configs/yolo26n.yaml): against yolo26n_tra2026 this
+# isolates the architecture; against yolo11n_tra2026 (the paper's recipe), the recipe.
+name: yolo11n_tra2026_ours
+base: training/configs/yolo26n.yaml
+data:
+  dataset: training/dataset
+train:
+  model: yolo11n.pt
