@@ -19,7 +19,6 @@ htmlcov/
 # Local data, backups, runtime state
 data/
 bkp/
-training/datasets/
 
 # Training outputs and downloaded weights (Ultralytics drops bare *.pt names in the cwd)
 runs/

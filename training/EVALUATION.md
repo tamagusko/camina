@@ -23,25 +23,14 @@ active-travel narrative and are the ones a car/person-dominated mAP will mask.
 
 ## 1. Held-out test set
 
-**Built and frozen — DONE (2026-07-10).** `training/freeze_holdout.py`
-carves a deterministic (seed 42), class-presence-stratified 15% held-out set out of the
-converted `camina_v1_9class` dataset and materialises it into `images/test` + `labels/test`,
-excluding it from the train/val paths. Result: **192/1296** images held out (train 1043 /
-val 61 / test 192). The TRACKED proof-of-freeze manifest
-`training/holdout_manifest.json` records dataset-root-relative paths, a SHA-256 of
-every image and label, and `manifest_sha256 =
-d67d261de9bf7d67a2d78122b82ff54b5183628fd65a3de205b763440216e257`; anyone can re-hash to
-verify the set never changed. The build is idempotent (pool = train+val+test each run) and
-covered by `tests/test_freeze_holdout.py` (same seed → same manifest hash).
-
-**Caveat (blocked on training-plan §0.5 step 2):** the three v2 classes — e-scooter, SUV,
-delivery_van — have **0 boxes** in the current source, so the held-out set cannot yet meet
-the ≥50-boxes/class stratification target for them (or for any minority slicing that needs
-them). Re-freeze after the v2 relabel + QA gate populates ids 3/4/7.
-
-Original state (for reference): `convert_sdl_to_yolo11.py:155-164` created an **empty**
-`images/test` (`:213` "Test split is empty"); "val" was just the SDL test split reused.
-A frozen held-out set is the foundation of comparability.
+**Frozen 2026-09-25** in `training/dataset/` (`images/test`, `labels/test`): 184 of the
+1,837 TRA 2026 images (seed 42, 10 %), stratified by rarest class, **whole video sequences
+at a time**: 590 images are frames of 167 sequences, and a first split that ignored this
+put 91 val/test frames next to near-identical training frames (e-scooter val mAP50 0.96).
+`training/dataset/split.json` records the method and the SHA-256 of every test image and
+label. Test instances: person 655, cyclist 202, car 188, motorcyclist 71 (one long
+sequence: 23 %), e-scooter 56, bus 37, SUV 35, delivery_van 11, truck 11. Validation
+(165 images) is split the same way; synthetic images never enter either.
 
 Requirements:
 - **Frozen, never trained on.** Materialise `images/test` + `labels/test` once, record its

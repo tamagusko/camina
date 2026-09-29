@@ -1,14 +1,13 @@
 train: images/train
 val: images/val
 test: images/test
-nc: 9
 names:
-  0: pedestrian
+  0: person
   1: cyclist
   2: car
-  3: motorcycle
-  4: bus
-  5: truck
-  6: e-scooter
-  7: SUV
-  8: delivery_van
+  3: e-scooter
+  4: SUV
+  5: motorcyclist
+  6: bus
+  7: delivery_van
+  8: truck
