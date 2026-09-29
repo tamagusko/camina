@@ -25,10 +25,10 @@ scripts/run_dashboard.sh                # dashboard with mock data → http://lo
 |---|---|---|
 | `main` | Stable; what deployments and citations point at | Only PRs from `dev` (a release) or `hotfix/*`; tagged `vX.Y.Z` |
 | `dev` | Integration | Feature branches start here and return by PR |
-| `TRA2026` | Frozen code behind the TRA 2026 paper | Never merged, never rewritten |
 | `feat/*`, `fix/*`, `docs/*`, `test/*`, `chore/*` | One piece of work | From `dev`, PR into `dev`; deleted on merge |
 | `hotfix/*` | Urgent fix to `main` | From `main`, PR into `main`, then merge `main` into `dev` |
 
+- The code behind the TRA 2026 paper is the tag `TRA2026` (`git show TRA2026:<path>`).
 - Sync with `git rebase dev`; PRs merge with a merge commit (no squash).
 - [Conventional Commits](https://www.conventionalcommits.org): `feat(counting): …`, `fix(dashboard): …`.
 - One concern per PR, ideally under ~300 changed lines. PR body: what, why, how to test.

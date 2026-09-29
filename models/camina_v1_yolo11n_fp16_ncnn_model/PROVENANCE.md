@@ -6,7 +6,7 @@ Built 2026-09-24.
 
 ## Source
 
-- **Weights:** `origin/TRA2026` @ `7aaf3fc`,
+- **Weights:** `TRA2026` @ `7aaf3fc`,
   `model/yolo_comparison/YOLO11n/train/weights/best.torchscript`
   (SHA-256 `a0d8ff9e46d8ef6cc80517be2d0fecf015a5dc5b1d02d4d060a6dbb5866ff62a`).
   No `.pt` survives in any branch; this TorchScript is the intermediate of the

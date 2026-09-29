@@ -1,7 +1,7 @@
 """Unit tests for `training.pnnx_export` (TorchScript -> NCNN via pnnx, runtime smoke test).
 
 Why this module exists: the 9-class CAMINAv1 weights survive only as the
-TorchScript intermediate on `origin/TRA2026` (no `.pt`), and pnnx releases are
+TorchScript intermediate on `TRA2026` (no `.pt`), and pnnx releases are
 not interchangeable — the pnnx bundled with the installed Ultralytics emits a
 graph that segfaults inside NCNN's forward pass, while pnnx 20250924
 reproduces the shipped FP32 export byte for byte (2026-09-24).
