@@ -9,7 +9,7 @@ streets. Research prototype, UCD Spatial Dynamics Lab; not funded; no unit on a 
 - `.planning/STATE.md` — current stage, blockers, next action. Trust it over chat; offer to update it.
 - `.planning/PLAN.md` — stages S1–S14. A stage is done only when its done-test has passed and the
   evidence is committed (measurements in `docs/benchmarks/`).
-- `.planning/old/` and `.planning/audit-2026-09-15/` — history. Read, don't edit.
+- Older plans and the 2026-09-15 audit are in git history only (`git show 594756c:.planning/audit-2026-09-15/AUDIT.md`).
 
 ## Commands
 

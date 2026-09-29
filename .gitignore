@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-*/
 venv/
 *.egg-info/
 build/
@@ -19,6 +20,12 @@ htmlcov/
 data/
 bkp/
 training/datasets/
+
+# Training outputs and downloaded weights (Ultralytics drops bare *.pt names in the cwd)
+runs/
+weights/
+/*.pt
+*.cache
 *.log
 *.sqlite3
 *.db
