@@ -49,6 +49,7 @@ The base configuration is `configs/yolo26n.yaml` (each choice commented); an exp
 | `import_montreal` | Montreal traffic-camera images (CC BY 4.0), 704x480 only: keeps the human boxes, takes the classes it lacks from `autolabel`; same output layout |
 | `codex_check` | Check each pre-label's class with Codex; split images into flagged / ok (below) |
 | `claude_check` | Second opinion from Claude (your personal login, `~/.claude`) on the same crops |
+| `select_agreed` | Images whose checked boxes Claude all agreed with, plus a random audit sample |
 | `apply_audit` | Apply the audit page's decisions: corrected labels locally, then (`--push`) to Roboflow with tags |
 | `sam2_clip_auto_labeling.py`, `dinov3_semi_auto_labeling.py` | Experimental pre-labelling; unverified |
 
@@ -81,7 +82,11 @@ usage, then run the rest in a terminal (hours); it stops cleanly at a usage limi
 .venv/bin/python -m training.claude_check --run data/autolabel/montreal \
     --classes car,SUV,delivery_van,truck,bus,cyclist,motorcyclist,e-scooter \
     --min-side 24 --workers 3 --limit 400      # drop --limit for the full run
-``` For camera images, leave person-carrying classes out of
+```
+
+Which Montreal images are used, and why: [`MONTREAL.md`](MONTREAL.md).
+
+For camera images, leave person-carrying classes out of
 `--classes` until GDPR and the camera terms are settled.
 
 ## Label audit
