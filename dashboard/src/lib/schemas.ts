@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ROAD_USER_CLASSES } from "./types";
+import { SPEED_BINS } from "./privacy";
 
 export const metricSchema = z.enum(["counts", "speed"]);
 export const timeWindowSchema = z.enum(["now", "1h", "24h", "7d", "30d"]);
@@ -67,6 +68,11 @@ const classCountsSchema = z.record(
   z.number().int().min(0).max(MAX_COUNT)
 );
 const classSpeedsSchema = z.record(classSchema, z.number().nonnegative());
+// Per class: timed road users per speed bin (src/lib/privacy.ts SPEED_BIN_EDGES).
+const classSpeedHistSchema = z.record(
+  classSchema,
+  z.array(z.number().int().min(0).max(MAX_COUNT)).length(SPEED_BINS)
+);
 const directionCountsSchema = z
   .object({
     AB: classCountsSchema.optional(),
@@ -87,6 +93,7 @@ export const countsPayloadSchema = z
     counts: classCountsSchema,
     counts_by_direction: directionCountsSchema.optional(),
     avg_speed_kmh: classSpeedsSchema.default({}),
+    speed_hist_kmh: classSpeedHistSchema.default({}),
     config_version: z.string(),
     fw_version: z.string(),
     produced_at: z.string().datetime(),

@@ -20,7 +20,8 @@
 //    1..K_MIN-1 would itself be hidden (a sum of values that are each 0 or
 //    >= K_MIN cannot be one, but the rule holds regardless). A coarser
 //    direction pair is published only when every base pair under it was. A
-//    coarser mean speed averages only base cells whose speed was published.
+//    coarser mean speed averages only base cells whose speed was published,
+//    and a coarser v85 comes from the speed histograms of those cells only.
 //    So no published number, at any bucket size, window or class filter,
 //    differs from a sum of published base cells, and differencing any two of
 //    them (60 - 15, 24h - 1h, all classes - all but one) yields only published
@@ -37,6 +38,49 @@
 // and the live random-week test difference every pair of levels.
 
 export const K_MIN = 5;
+
+// Speed histograms (edge camina/core/counter.py): timed road users per bin,
+// finest where road users are slow: 1 km/h to 20 (walking speeds need it),
+// 2 km/h to 60, 5 km/h to 120, and an open last bin. These are the bins' lower
+// edges. Stored, never published; only the v85 read from a histogram of at
+// least K_MIN users is.
+export const SPEED_BIN_EDGES: readonly number[] = [
+  ...Array.from({ length: 20 }, (_, i) => i),
+  ...Array.from({ length: 20 }, (_, i) => 20 + 2 * i),
+  ...Array.from({ length: 13 }, (_, i) => 60 + 5 * i),
+];
+export const SPEED_BINS = SPEED_BIN_EDGES.length;
+
+/**
+ * The 85th-percentile speed (v85) of a speed histogram: the speed 85 % of the
+ * timed road users do not exceed, interpolated linearly inside its bin (as
+ * Telraam does). Null under K_MIN users. In the open last bin the answer is
+ * its lower edge, a floor: 120 km/h reads as "at least 120".
+ */
+export function v85FromHistogram(hist: readonly number[]): number | null {
+  const total = hist.reduce((sum, n) => sum + n, 0);
+  if (total < K_MIN) return null;
+  const target = 0.85 * total;
+  let below = 0;
+  for (let bin = 0; bin < hist.length; bin++) {
+    const n = hist[bin]!;
+    if (n > 0 && below + n >= target) {
+      const lower = SPEED_BIN_EDGES[bin]!;
+      const upper = SPEED_BIN_EDGES[bin + 1];
+      return upper === undefined ? lower : lower + ((target - below) / n) * (upper - lower);
+    }
+    below += n;
+  }
+  return null;
+}
+
+export function emptyHistogram(): number[] {
+  return new Array<number>(SPEED_BINS).fill(0);
+}
+
+function addHistogram(into: number[], hist: readonly number[]): void {
+  for (let bin = 0; bin < SPEED_BINS; bin++) into[bin] = (into[bin] ?? 0) + (hist[bin] ?? 0);
+}
 
 export function suppressCount(n: number): number | null {
   return n > 0 && n < K_MIN ? null : n;
@@ -76,10 +120,19 @@ export interface RawCell {
   ba: number;
   speedSum: number; // sum of speed x count over rows that carry a speed
   speedCount: number;
+  speedHist: number[]; // summed speed histograms of the rows that carry one
 }
 
 export function emptyRawCell(): RawCell {
-  return { count: 0, rows: 0, directionalRows: 0, ab: 0, ba: 0, speedSum: 0, speedCount: 0 };
+  return {
+    count: 0, rows: 0, directionalRows: 0, ab: 0, ba: 0, speedSum: 0, speedCount: 0,
+    speedHist: emptyHistogram(),
+  };
+}
+
+/** Add one row's speed histogram to its base cell. */
+export function addRowHistogram(cell: RawCell, hist: readonly number[] | null | undefined): void {
+  if (hist) addHistogram(cell.speedHist, hist);
 }
 
 /** Published base cells of one class, summed into a coarser bucket or window. */
@@ -92,12 +145,13 @@ export interface CellFold {
   directional: boolean;
   speedSum: number;
   speedCount: number;
+  speedHist: number[];
 }
 
 export function emptyFold(): CellFold {
   return {
     count: 0, hidden: false, ab: 0, ba: 0, pairHidden: false, directional: false,
-    speedSum: 0, speedCount: 0,
+    speedSum: 0, speedCount: 0, speedHist: emptyHistogram(),
   };
 }
 
@@ -116,6 +170,7 @@ export function foldCell(acc: CellFold, cell: RawCell): void {
   if (cell.count >= K_MIN && cell.speedCount >= K_MIN) {
     acc.speedSum += cell.speedSum;
     acc.speedCount += cell.speedCount;
+    addHistogram(acc.speedHist, cell.speedHist);
   }
 }
 
@@ -134,6 +189,7 @@ export function publishFold(acc: CellFold): {
   AB: number | null;
   BA: number | null;
   speed: number | null;
+  v85: number | null;
 } {
   const pairShown = !acc.pairHidden;
   return {
@@ -141,5 +197,6 @@ export function publishFold(acc: CellFold): {
     AB: pairShown ? acc.ab : null,
     BA: pairShown ? acc.ba : null,
     speed: acc.speedCount >= K_MIN ? acc.speedSum / acc.speedCount : null,
+    v85: v85FromHistogram(acc.speedHist),
   };
 }

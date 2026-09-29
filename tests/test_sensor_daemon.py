@@ -475,6 +475,7 @@ def test_daemon_passes_capture_times_and_publishes_window_speeds(tmp_path: Path)
         # 40, 50, 60, 70, 80 km/h: five timed cars, so the mean is published.
         assert snapshot.avg_speed_kmh == {"car": 60.0}
         assert received[-1]["avg_speed_kmh"] == {"car": 60.0}
+        assert sum(received[-1]["speed_hist_kmh"]["car"]) == 5
     finally:
         daemon._test_client.close()  # type: ignore[attr-defined]
         daemon.stop()

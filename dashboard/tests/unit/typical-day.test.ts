@@ -7,7 +7,7 @@ function hour(iso: string, car: number | null, missing = false): StreetReading {
   const counts = Object.fromEntries(ROAD_USER_CLASSES.map((c) => [c, 0])) as Record<RoadUserClass, number | null>;
   counts.car = car;
   counts.person = car === null ? null : 1;
-  return { bucket: iso, missing, hasHidden: false, counts, avgSpeedKmh: {} };
+  return { bucket: iso, missing, hasHidden: false, counts, avgSpeedKmh: {}, v85Kmh: {} };
 }
 
 describe("typicalDay", () => {

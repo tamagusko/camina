@@ -137,6 +137,7 @@ export interface ReadingRow {
   className: string;
   count: number;
   avgSpeedKmh: number | null;
+  speedHistKmh: number[] | null;
   directionAbCount: number | null;
   directionBaCount: number | null;
   partial: boolean;
@@ -150,6 +151,7 @@ export function buildCountsRows(
   const windowStart = new Date(payload.window_start);
   const windowEnd = new Date(payload.window_end);
   const speeds = payload.avg_speed_kmh as Record<string, number | undefined>;
+  const hists = payload.speed_hist_kmh as Record<string, number[] | undefined>;
   const counts = payload.counts as Record<string, number | undefined>;
   const directions = payload.counts_by_direction;
   return Object.entries(counts).map(([className, count]) => ({
@@ -159,6 +161,7 @@ export function buildCountsRows(
     className,
     count: count ?? 0,
     avgSpeedKmh: speeds[className] ?? null,
+    speedHistKmh: hists[className] ?? null,
     directionAbCount: directions?.AB?.[className as keyof typeof directions.AB] ??
       (directions ? 0 : null),
     directionBaCount: directions?.BA?.[className as keyof typeof directions.BA] ??
@@ -199,6 +202,7 @@ export async function persistCounts(
         windowEnd: sql`excluded.window_end`,
         count: sql`excluded.count`,
         avgSpeedKmh: sql`excluded.avg_speed_kmh`,
+        speedHistKmh: sql`excluded.speed_hist_kmh`,
         directionAbCount: sql`excluded.direction_ab_count`,
         directionBaCount: sql`excluded.direction_ba_count`,
         partial: sql`excluded.partial`,

@@ -24,6 +24,7 @@ Semantics:
 
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 import sqlite3
@@ -40,6 +41,25 @@ DEFAULT_ANCHOR: datetime = datetime(1970, 1, 1, tzinfo=timezone.utc)
 # users, so no published value is one person's speed (k_min, as for counts).
 SPEED_K_MIN = 5
 
+# Speed histogram, for the 85th-percentile speed (v85). Bins are finer where
+# road users are slow: 1 km/h to 20 (people walk at 4-6 km/h, so wide bins put
+# v85 in the wrong place), 2 km/h to 60, 5 km/h to 120, and an open last bin.
+# The dashboard sums histograms over any window and interpolates v85 inside its
+# bin; a mean cannot be summed into a percentile. Same edges in
+# dashboard/src/lib/privacy.ts.
+SPEED_BIN_EDGES: tuple[float, ...] = (
+    tuple(range(0, 20)) + tuple(range(20, 60, 2)) + tuple(range(60, 121, 5))
+)
+SPEED_BINS = len(SPEED_BIN_EDGES)
+
+
+def speed_histogram(speeds: list[float]) -> list[int]:
+    """Count speeds (km/h) into the ``SPEED_BIN_EDGES`` bins (lower edges)."""
+    hist = [0] * SPEED_BINS
+    for kmh in speeds:
+        hist[max(bisect.bisect_right(SPEED_BIN_EDGES, kmh) - 1, 0)] += 1
+    return hist
+
 
 @dataclass(frozen=True)
 class WindowSnapshot:
@@ -53,6 +73,9 @@ class WindowSnapshot:
     # Mean speed of the tracks measured this window, km/h, per class; classes
     # with no measured track are absent (camina/core/speed.py).
     avg_speed_kmh: dict[str, float] = field(default_factory=dict)
+    # Those tracks' speeds per class as a histogram (``speed_histogram``); sent
+    # for exactly the classes that have a mean.
+    speed_hist_kmh: dict[str, list[int]] = field(default_factory=dict)
 
     def total(self) -> int:
         """Sum of counts across all classes."""
@@ -225,6 +248,9 @@ class WindowedCounter:
                 cls: round(sum(v) / len(v), 1)
                 for cls, v in self._speeds.items()
                 if len(v) >= SPEED_K_MIN
+            },
+            speed_hist_kmh={
+                cls: speed_histogram(v) for cls, v in self._speeds.items() if len(v) >= SPEED_K_MIN
             },
         )
         # Start a new window aligned to ``now`` (handles long gaps correctly).

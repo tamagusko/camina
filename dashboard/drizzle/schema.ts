@@ -86,6 +86,8 @@ export const sensorReadings = pgTable(
     directionAbCount: integer("direction_ab_count"),
     directionBaCount: integer("direction_ba_count"),
     avgSpeedKmh: real("avg_speed_kmh"),
+    // Timed road users per speed bin (src/lib/privacy.ts), for v85; never public.
+    speedHistKmh: integer("speed_hist_kmh").array(),
     partial: boolean("partial").notNull().default(false),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
   },

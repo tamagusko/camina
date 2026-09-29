@@ -74,6 +74,7 @@ class HttpsPublisher:
         config_version: str,
         fw_version: str,
         avg_speed_kmh: dict[str, float] | None = None,
+        speed_hist_kmh: dict[str, list[int]] | None = None,
     ) -> PublisherResult:
         payload = CountsPayload(
             sensor_id=self._sensor_id,
@@ -83,6 +84,7 @@ class HttpsPublisher:
             counts=snapshot.counts,
             counts_by_direction=snapshot.counts_by_direction,
             avg_speed_kmh=avg_speed_kmh or {},
+            speed_hist_kmh=speed_hist_kmh or {},
             config_version=config_version,
             fw_version=fw_version,
         )

@@ -433,6 +433,7 @@ class SensorDaemon:
             config_version=self._poller.current_version,
             fw_version=self._config.fw_version,
             avg_speed_kmh=snapshot.avg_speed_kmh,
+            speed_hist_kmh=snapshot.speed_hist_kmh,
         )
         if result.latest_config_version:
             self._poller.check(result.latest_config_version)

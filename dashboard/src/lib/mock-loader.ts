@@ -45,6 +45,8 @@ export interface MockReading {
   class_name: string;
   count: number;
   avg_speed_kmh: number | null;
+  // Absent in fixtures made before v85; the dashboard then shows no v85.
+  speed_hist_kmh?: number[] | null;
   partial: boolean;
 }
 

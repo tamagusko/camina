@@ -6,7 +6,7 @@ import { ROAD_USER_CLASSES, type MetricValue } from "@/lib/types";
 
 const QUIET = "#a8a8a8";
 const zeros = Object.fromEntries(ROAD_USER_CLASSES.map((c) => [c, 0])) as MetricValue["classBreakdown"];
-const metric: MetricValue = { streetId: "test", value: 12, totalCount: 12, hasHidden: false, classBreakdown: zeros, speedBreakdown: {}, avgSpeedKmh: null, stale: false, lastSeen: "2026-09-26T13:30:00Z", typical: null };
+const metric: MetricValue = { streetId: "test", value: 12, totalCount: 12, hasHidden: false, classBreakdown: zeros, speedBreakdown: {}, avgSpeedKmh: null, v85Breakdown: {}, v85Kmh: null, stale: false, lastSeen: "2026-09-26T13:30:00Z", typical: null };
 
 // Just enough of the MapLibre expression language to evaluate the ramp against
 // a feature: step, coalesce, to-number, get, feature-state (always unset here,

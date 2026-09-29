@@ -25,7 +25,7 @@ describe("adversary sanity — the checker catches the leaky shapes", () => {
       missing: false,
       hasHidden: true,
       counts: { ...counts, cyclist: 6 },
-      avgSpeedKmh: {},
+      avgSpeedKmh: {}, v85Kmh: {},
       countsByDirection: { AB: { ...counts, cyclist: 5 }, BA: { ...counts, cyclist: null } },
     };
     expect(readingLeaks([row])).toEqual(["2026-04-20T00:00:00.000Z cyclist BA=1"]);
@@ -39,7 +39,7 @@ describe("adversary sanity — the checker catches the leaky shapes", () => {
     const row: MetricValue = {
       streetId: "s", value: 12, totalCount: 12, hasHidden: true,
       classBreakdown: { ...breakdown, car: 10, cyclist: null },
-      speedBreakdown: {}, avgSpeedKmh: null, stale: false, lastSeen: null, typical: null,
+      speedBreakdown: {}, avgSpeedKmh: null, v85Breakdown: {}, v85Kmh: null, stale: false, lastSeen: null, typical: null,
     };
     expect(metricLeaks([row], "counts").length).toBeGreaterThan(0);
   });
@@ -89,14 +89,14 @@ describe("publication rules", () => {
         breakdown.push(counts[cls]);
       }
       const row: StreetReading = {
-        bucket: `r${i}`, missing: false, hasHidden: breakdown.includes(null), counts, avgSpeedKmh: {},
+        bucket: `r${i}`, missing: false, hasHidden: breakdown.includes(null), counts, avgSpeedKmh: {}, v85Kmh: {},
         countsByDirection: { AB: ab, BA: ba },
       };
       expect(readingLeaks([row])).toEqual([]);
       const { total, hasHidden } = publishedTotal(breakdown);
       const metric: MetricValue = {
         streetId: `s${i}`, value: total, totalCount: total, hasHidden,
-        classBreakdown: counts, speedBreakdown: {}, avgSpeedKmh: null,
+        classBreakdown: counts, speedBreakdown: {}, avgSpeedKmh: null, v85Breakdown: {}, v85Kmh: null,
         stale: false, lastSeen: null, typical: null,
       };
       expect(metricLeaks([metric], "counts")).toEqual([]);

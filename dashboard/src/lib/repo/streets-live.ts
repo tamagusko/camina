@@ -10,7 +10,7 @@ import {
   type StreetSummary,
   type TimeWindow,
 } from "@/lib/types";
-import { K_MIN, publishedSum, publishedTotal } from "@/lib/privacy";
+import { K_MIN, SPEED_BINS, emptyHistogram, publishedSum, publishedTotal, v85FromHistogram } from "@/lib/privacy";
 import { isStaleFor, lastCompletedCellEnd } from "./streets-mock";
 import { TYPICAL_WEEKS, typicalTotal, type WindowTotal } from "@/lib/typical";
 import type { StreetsRepo } from "./types";
@@ -60,6 +60,14 @@ function summary(row: StreetRow): StreetSummary {
   };
 }
 
+// Element-wise sum of speed histograms, one SUM per bin (SQL arrays are 1-based).
+// The folded sum leaves the database as JSON: the driver returns a numeric[]
+// as its text form.
+function histogramSum(column: string, filter = ""): SQL {
+  return sql.raw(`ARRAY[${Array.from({ length: SPEED_BINS }, (_, i) =>
+    `COALESCE(SUM(${column}[${i + 1}])${filter}, 0)`).join(", ")}]`);
+}
+
 // Base cells (street, class, 15-min window) with the within-cell rules of
 // src/lib/privacy.ts applied, then summed into the requested bucket or window
 // from published cells only (rule 3). `foldCell` is the TypeScript twin.
@@ -72,6 +80,7 @@ function publishedCells(filter: SQL): SQL {
              r.class_name, SUM(r.count) AS n,
              COALESCE(SUM(r.avg_speed_kmh * r.count) FILTER (WHERE r.avg_speed_kmh IS NOT NULL), 0) AS speed_sum,
              COALESCE(SUM(r.count) FILTER (WHERE r.avg_speed_kmh IS NOT NULL), 0) AS speed_count,
+             ${histogramSum("r.speed_hist_kmh")} AS speed_hist,
              COALESCE(SUM(r.direction_ab_count), 0) AS ab,
              COALESCE(SUM(r.direction_ba_count), 0) AS ba,
              COUNT(r.direction_ab_count) AS direction_rows,
@@ -97,6 +106,7 @@ const FOLD = sql`
   BOOL_OR(NOT count_shown) AS hidden,
   SUM(speed_sum) FILTER (WHERE speed_shown) AS speed_sum,
   SUM(speed_count) FILTER (WHERE speed_shown) AS speed_count,
+  to_jsonb(${histogramSum("speed_hist", " FILTER (WHERE speed_shown)")}) AS speed_hist,
   SUM(ab) FILTER (WHERE pair_shown) AS ab_count,
   SUM(ba) FILTER (WHERE pair_shown) AS ba_count,
   BOOL_AND(pair_shown) AS pair_shown,
@@ -108,6 +118,7 @@ interface Fold {
   hidden: boolean;
   speed_sum: string | number | null;
   speed_count: string | number | null;
+  speed_hist: (string | number)[] | null;
   ab_count: string | number | null;
   ba_count: string | number | null;
   pair_shown: boolean;
@@ -167,6 +178,10 @@ function speedOf(fold: Fold): number | null {
   return den >= K_MIN ? number(fold.speed_sum) / den : null;
 }
 
+function histOf(fold: Fold): number[] {
+  return fold.speed_hist ? fold.speed_hist.map(Number) : emptyHistogram();
+}
+
 export const liveStreetsRepo: StreetsRepo = {
   async now() {
     // Whole cells only: a wall-clock edge would cut the first bucket short and
@@ -223,6 +238,7 @@ export const liveStreetsRepo: StreetsRepo = {
         hasHidden: false,
         counts: emptyCounts(0),
         avgSpeedKmh: {},
+        v85Kmh: {},
       };
       present.set(t, row);
       if (!ROAD_USER_CLASSES.includes(fold.class_name as RoadUserClass)) continue;
@@ -230,6 +246,7 @@ export const liveStreetsRepo: StreetsRepo = {
       row.counts[cls] = publishedSum(number(fold.total_count), fold.hidden);
       row.hasHidden ||= fold.hidden;
       row.avgSpeedKmh[cls] = speedOf(fold);
+      row.v85Kmh[cls] = v85FromHistogram(histOf(fold));
       if (fold.directional) {
         row.countsByDirection ??= { AB: emptyCounts(0), BA: emptyCounts(0) };
       }
@@ -247,7 +264,7 @@ export const liveStreetsRepo: StreetsRepo = {
     for (let t = Math.floor(from.getTime() / bucketMs) * bucketMs; t < to.getTime(); t += bucketMs) {
       out.push(present.get(t) ?? {
         bucket: new Date(t).toISOString(), missing: true, hasHidden: false,
-        counts: emptyCounts(null), avgSpeedKmh: {},
+        counts: emptyCounts(null), avgSpeedKmh: {}, v85Kmh: {},
       });
     }
     return out;
@@ -293,6 +310,8 @@ export const liveStreetsRepo: StreetsRepo = {
     return streetRows.map(({ id }): MetricValue => {
       const counts = emptyCounts(0);
       const speeds: Partial<Record<RoadUserClass, number | null>> = {};
+      const v85s: Partial<Record<RoadUserClass, number | null>> = {};
+      const pooledHist = emptyHistogram();
       let speedSum = 0;
       let speedCount = 0;
       let hasHidden = false;
@@ -302,9 +321,12 @@ export const liveStreetsRepo: StreetsRepo = {
         counts[cls] = publishedSum(number(fold.total_count), fold.hidden);
         hasHidden ||= fold.hidden;
         speeds[cls] = speedOf(fold);
+        const hist = histOf(fold);
+        v85s[cls] = v85FromHistogram(hist);
         if (speeds[cls] !== null) {
           speedSum += number(fold.speed_sum);
           speedCount += number(fold.speed_count);
+          hist.forEach((n, bin) => { pooledHist[bin] = (pooledHist[bin] ?? 0) + n; });
         }
       }
       const avgSpeedKmh = speedCount >= K_MIN ? speedSum / speedCount : null;
@@ -319,6 +341,8 @@ export const liveStreetsRepo: StreetsRepo = {
         classBreakdown: counts,
         speedBreakdown: speeds,
         avgSpeedKmh,
+        v85Breakdown: v85s,
+        v85Kmh: v85FromHistogram(pooledHist),
         stale: isStaleFor(window, lastSeen, now),
         lastSeen,
         typical: weeks

@@ -15,6 +15,7 @@ const fmt = (n: number | null | undefined) => n === null || n === undefined ? "�
 // Hidden values (under 5, or a direction split that would reveal one) show as
 // a dash; one footnote explains them (src/lib/privacy.ts).
 const HIDDEN_NOTE = "Some values under 5 are hidden.";
+const V85_NOTE = "v85: the speed 85 % of road users do not exceed.";
 const USUAL_SENTENCE: Record<UsualLevel, string> = {
   "much-lower": "Much quieter than usual",
   lower: "Quieter than usual",
@@ -71,10 +72,14 @@ export function StreetSidePanel({ street, metric, reading, onClose }: Props) {
         {level && <p className="mt-2 flex items-center gap-2 text-sm"><span aria-hidden="true" className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: USUAL_RAMP[USUAL_LEVELS.indexOf(level)] }} />{USUAL_SENTENCE[level]}</p>}
       </div>
       <div className="mt-5"><h3 className="mb-2 text-sm font-semibold">By class</h3>
-        {perClass.length ? <div className="overflow-x-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b border-line text-xs text-ink-2"><th className="w-[34%] py-2 text-left font-normal">Class</th><th className="text-right font-normal">Count</th>{split && <><th className="text-right font-normal">→ {ab}</th><th className="text-right font-normal">→ {ba}</th></>}<th className="text-right font-normal">km/h</th></tr></thead><tbody>{perClass.map((cls) => <tr key={cls} className="border-b border-line"><th scope="row" className="py-2 text-left font-normal"><span className="mr-2 inline-block align-[-3px] text-ink-2"><ClassIcon cls={cls} /></span>{classLabel(cls)}</th><td className="text-right tabular-nums">{fmt(current?.counts[cls])}</td>{split && <><td className="text-right tabular-nums">{fmt(split.AB[cls])}</td><td className="text-right tabular-nums">{fmt(split.BA[cls])}</td></>}<td className="text-right tabular-nums text-ink-2">{fmt(current?.avgSpeedKmh[cls])}</td></tr>)}</tbody></table></div> : <p className="text-sm text-ink-2">No published counts in this window.</p>}
+        {perClass.length ? <div className="overflow-x-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b border-line text-xs text-ink-2"><th className="w-[34%] py-2 text-left font-normal">Class</th><th className="text-right font-normal">Count</th>{split && <><th className="text-right font-normal">→ {ab}</th><th className="text-right font-normal">→ {ba}</th></>}<th className="text-right font-normal" title="Mean speed, km/h">km/h</th><th className="text-right font-normal" title="85th-percentile speed, km/h">v85</th></tr></thead><tbody>{perClass.map((cls) => <tr key={cls} className="border-b border-line"><th scope="row" className="py-2 text-left font-normal"><span className="mr-2 inline-block align-[-3px] text-ink-2"><ClassIcon cls={cls} /></span>{classLabel(cls)}</th><td className="text-right tabular-nums">{fmt(current?.counts[cls])}</td>{split && <><td className="text-right tabular-nums">{fmt(split.AB[cls])}</td><td className="text-right tabular-nums">{fmt(split.BA[cls])}</td></>}<td className="text-right tabular-nums text-ink-2">{fmt(current?.avgSpeedKmh[cls])}</td><td className="text-right tabular-nums text-ink-2">{fmt(current?.v85Kmh[cls])}</td></tr>)}</tbody></table></div> : <p className="text-sm text-ink-2">No published counts in this window.</p>}
         {hasHidden && <p className="mt-2 text-xs text-ink-2">{HIDDEN_NOTE}</p>}
+        {perClass.some((cls) => current?.v85Kmh[cls] != null) && <p className="mt-1 text-xs text-ink-2">{V85_NOTE}</p>}
       </div>
-      <Link href={`/${street.city}/street/${street.id}` as never} className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Detailed view →</Link>
+      <div className="mt-5 flex flex-wrap gap-x-6">
+        <Link href={`/${street.city}/street/${street.id}` as never} className="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Detailed view →</Link>
+        <Link href={`/${street.city}/analysis?street=${encodeURIComponent(street.id)}` as never} className="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Compare roads →</Link>
+      </div>
     </div>
   </div>;
 }

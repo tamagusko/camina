@@ -51,6 +51,7 @@ Windowed per-class counts produced by `WindowedCounter.maybe_rollover`.
         "BA": {"person": 28, "cyclist": 40, "car": 140}
       },
       "avg_speed_kmh": {"person": 4.1, "cyclist": 18.3, "car": 32.7},
+      "speed_hist_kmh": {"car": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 10, 22, 31, 27, 18, 10, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
       "config_version": "abc123",
       "fw_version": "0.2.0",
       "produced_at": "2026-04-21T10:15:00.342Z"
@@ -63,6 +64,17 @@ and its inner keys use the same road-user classes and integer range (0–65535)
 as `counts`. For every class, a missing direction cell counts as zero and
 `AB + BA` MUST equal `counts[class]`. The backend rejects violations with 400.
 `avg_speed_kmh` remains per class rather than per direction.
+
+`speed_hist_kmh` is optional: per class, the timed road users of the window in
+53 bins, finest where road users are slow: 1 km/h wide from 0 to 20 (walking
+speeds need it), 2 km/h to 60, 5 km/h to 120, and a last bin for 120 km/h and
+over (lower edges: `SPEED_BIN_EDGES` in `camina/core/counter.py`). The edge
+sends it for exactly the classes that have an `avg_speed_kmh`,
+that is, over at least 5 timed road users. The dashboard stores it and never
+publishes it: it sums the histograms of published base cells over any bucket or
+window and publishes only the 85th-percentile speed (v85) read from the sum,
+interpolated inside its bin, and only over at least 5 users. A mean speed
+cannot be summed into a percentile, which is why the histogram is on the wire.
 
 A road user is counted in the window in which its class is confirmed
 (`min_class_hits` detections), not always the one in which it crossed: a
@@ -85,7 +97,7 @@ street totals, class totals under any class filter, direction pairs and mean
 speeds — is computed from published base cells only. A coarser count is the sum
 of the published base cells under it, with `hasHidden: true` when any of them
 was hidden; a coarser mean speed averages only base cells whose speed was
-published. So subtracting one published number from another (an hour minus its
+published, and a coarser v85 sums only those cells' speed histograms. So subtracting one published number from another (an hour minus its
 four quarters, 24 h minus 1 h, all classes minus all but one) never yields a
 hidden cell.
 

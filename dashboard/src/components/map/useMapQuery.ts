@@ -20,6 +20,10 @@ const KEYS = { zoom: "zoom", lat: "lat", lon: "lon" } as const;
 function parseSearch(search: string): Viewport | null {
   if (!search) return null;
   const params = new URLSearchParams(search.replace(/^\?/, ""));
+  // All three or none: Number(null) is 0, so a query without them (another
+  // page's, still in the address bar during a client-side navigation) would
+  // otherwise pin the map at zoom 0 over 0,0.
+  if (!Object.values(KEYS).every((key) => params.get(key))) return null;
   const zoom = Number(params.get(KEYS.zoom));
   const lat = Number(params.get(KEYS.lat));
   const lon = Number(params.get(KEYS.lon));

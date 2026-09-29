@@ -15,9 +15,11 @@ interface Props {
   /** Hourly readings over the last `historyWeeks` weeks, for "A typical day". */
   history?: StreetReading[];
   historyWeeks?: number;
+  /** v85 per class over the same 24 h (src/lib/privacy.ts). */
+  v85?: Partial<Record<RoadUserClass, number | null>>;
 }
 
-export function StreetTimeSeries({ readings, directions = ["A", "B"], history = [], historyWeeks = 4 }: Props) {
+export function StreetTimeSeries({ readings, directions = ["A", "B"], history = [], historyWeeks = 4, v85 = {} }: Props) {
   const [selected, setSelected] = useState<RoadUserClass | null>(null);
   const classes = classesWithData(readings);
   const typical = (
@@ -50,6 +52,7 @@ export function StreetTimeSeries({ readings, directions = ["A", "B"], history = 
             colour={CLASS_COLOURS[selected]}
             readings={readings}
             directions={directions}
+            v85={v85[selected] ?? null}
           />
         ) : (
           <ResponsiveContainer width="100%" height={320}>

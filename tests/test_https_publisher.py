@@ -596,7 +596,32 @@ def test_window_speeds_pass_the_counts_payload_validation() -> None:
         partial=snap.partial,
         counts=snap.counts,
         avg_speed_kmh=snap.avg_speed_kmh,
+        speed_hist_kmh=snap.speed_hist_kmh,
         config_version="v1",
         fw_version="0.2.0",
     )
-    assert payload.model_dump(mode="json")["avg_speed_kmh"] == {"car": 42.3}
+    body = payload.model_dump(mode="json")
+    assert body["avg_speed_kmh"] == {"car": 42.3}
+    assert sum(body["speed_hist_kmh"]["car"]) == 5
+
+
+def test_a_speed_histogram_needs_every_bin_in_range() -> None:
+    import pydantic
+
+    from camina.core.counter import SPEED_BINS
+
+    base = {
+        "sensor_id": "cam-01",
+        "window_start": "2026-04-21T10:00:00Z",
+        "window_end": "2026-04-21T10:15:00Z",
+        "partial": False,
+        "config_version": "v1",
+        "fw_version": "0.2.0",
+    }
+    for bad in (
+        {"car": [1] * (SPEED_BINS - 1)},
+        {"car": [-1] + [0] * (SPEED_BINS - 1)},
+        {"tram": [0] * SPEED_BINS},
+    ):
+        with pytest.raises(pydantic.ValidationError):
+            CountsPayload(**base, speed_hist_kmh=bad)

@@ -11,7 +11,7 @@ import { ROAD_USER_CLASSES, type StreetReading } from "@/lib/types";
 
 const zeros = Object.fromEntries(ROAD_USER_CLASSES.map((c) => [c, 0])) as StreetReading["counts"];
 const row = (bucket: string, counts: Partial<StreetReading["counts"]>, missing = false): StreetReading =>
-  ({ bucket, missing, hasHidden: false, counts: { ...zeros, ...counts }, avgSpeedKmh: {} });
+  ({ bucket, missing, hasHidden: false, counts: { ...zeros, ...counts }, avgSpeedKmh: {}, v85Kmh: {} });
 
 describe("data updated", () => {
   it("is the end of the last bucket with published data", () => {
