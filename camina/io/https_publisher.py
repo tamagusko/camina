@@ -27,6 +27,11 @@ from camina.io.schemas import (
 
 logger = logging.getLogger(__name__)
 
+# The server answers 422 {"error": "timestamp_in_future"} when a timestamp is
+# more than 60 s ahead of its clock (docs/PROTOCOL.md section 5). That is this
+# device's clock running fast, not a bad row: keep it and retry later.
+CLOCK_SKEW_ERROR = "timestamp_in_future"
+
 
 @dataclass(frozen=True)
 class PublisherResult:
@@ -54,6 +59,12 @@ class HttpsPublisher:
         self._sensor_id = sensor_id
         self._http = http_client
         self._outbox = outbox
+        self._clock_skew = False
+
+    @property
+    def clock_skew(self) -> bool:
+        """True while the server rejects this device's timestamps as in the future."""
+        return self._clock_skew
 
     # ---------- Public high-level API ----------
 
@@ -63,6 +74,7 @@ class HttpsPublisher:
         config_version: str,
         fw_version: str,
         avg_speed_kmh: dict[str, float] | None = None,
+        speed_hist_kmh: dict[str, list[int]] | None = None,
     ) -> PublisherResult:
         payload = CountsPayload(
             sensor_id=self._sensor_id,
@@ -70,7 +82,9 @@ class HttpsPublisher:
             window_end=snapshot.window_end,
             partial=snapshot.partial,
             counts=snapshot.counts,
+            counts_by_direction=snapshot.counts_by_direction,
             avg_speed_kmh=avg_speed_kmh or {},
+            speed_hist_kmh=speed_hist_kmh or {},
             config_version=config_version,
             fw_version=fw_version,
         )
@@ -117,7 +131,7 @@ class HttpsPublisher:
         *,
         buffer_on_failure: bool = True,
     ) -> PublisherResult:
-        body = payload.model_dump_json(by_alias=True).encode()
+        body = payload.model_dump_json(by_alias=True, exclude_none=True).encode()
         # Try to drain whatever we buffered earlier first (no-op if empty).
         try:
             self._outbox.drain(self._send_outbox_item, max_items=10)
@@ -150,6 +164,22 @@ class HttpsPublisher:
             )
 
         parsed = self._parse_response(response.content)
+        if parsed is not None and not parsed.ok:
+            logger.warning("Publish %s was not accepted by the backend", endpoint_label)
+            if buffer_on_failure:
+                self._outbox.enqueue(endpoint_label, body)
+                return PublisherResult(
+                    delivered=False,
+                    enqueued=True,
+                    latest_config_version=None,
+                    buffered=True,
+                )
+            return PublisherResult(
+                delivered=False,
+                enqueued=False,
+                latest_config_version=None,
+                buffered=False,
+            )
         return PublisherResult(
             delivered=True,
             enqueued=False,
@@ -160,15 +190,33 @@ class HttpsPublisher:
     def _send_outbox_item(self, item: OutboxItem) -> SendOutcome:
         path = f"/sensors/{self._sensor_id}/{item.endpoint}"
         try:
-            self._http.request(
+            response = self._http.request(
                 "POST",
                 path,
                 content=item.payload,
                 idempotency_key=f"outbox-{item.id}",
             )
+            parsed = self._parse_response(response.content)
+            if parsed is not None and not parsed.ok:
+                logger.warning(
+                    "Outbox item %d (%s) was not accepted by the backend; will retry",
+                    item.id,
+                    item.endpoint,
+                )
+                return SendOutcome.RETRY
+            self._clock_skew = False
             return SendOutcome.SENT
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
+            if status == 422 and _error_code(exc.response) == CLOCK_SKEW_ERROR:
+                if not self._clock_skew:
+                    # No outbox calls here: drain holds the outbox lock.
+                    logger.error(
+                        "Server rejects timestamps as in the future: the device clock is "
+                        "fast. Keeping buffered rows until it is corrected."
+                    )
+                self._clock_skew = True
+                return SendOutcome.STOP
             # Permanent client errors (4xx, except transient 408/425/429) will
             # never succeed on replay — drop them so they can't wedge the FIFO.
             if 400 <= status < 500 and status not in (408, 425, 429):
@@ -185,14 +233,16 @@ class HttpsPublisher:
                 item.endpoint,
                 status,
             )
-            return SendOutcome.RETRY
+            if status == 429 or status >= 500:
+                return SendOutcome.RETRY
+            return SendOutcome.STOP
         except Exception:
             logger.warning(
                 "Outbox item %d (%s) failed to send; will retry",
                 item.id,
                 item.endpoint,
             )
-            return SendOutcome.RETRY
+            return SendOutcome.STOP
 
     @staticmethod
     def _parse_response(content: bytes) -> IngestResponse | None:
@@ -203,6 +253,14 @@ class HttpsPublisher:
         except Exception:
             logger.warning("Unparseable ingest response: %r", content[:200])
             return None
+
+
+def _error_code(response: httpx.Response) -> str | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return body.get("error") if isinstance(body, dict) else None
 
 
 __all__ = ["HttpsPublisher", "PublisherResult"]

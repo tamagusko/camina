@@ -56,6 +56,8 @@ describe("readings() gap-fill", () => {
     for (const r of missing) {
       for (const cls of ROAD_USER_CLASSES) {
         expect(r.counts[cls]).toBeNull();
+        expect(r.countsByDirection?.AB[cls]).toBeNull();
+        expect(r.countsByDirection?.BA[cls]).toBeNull();
       }
     }
 

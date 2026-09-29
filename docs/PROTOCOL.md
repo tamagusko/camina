@@ -1,6 +1,6 @@
 # CAMINA Ingest Protocol
 
-Version: 1.0
+Version: 1.1
 
 This document specifies the wire protocol between a CAMINA edge sensor and
 the backend. The protocol is plain HTTPS with Bearer-token auth — no MQTT, no
@@ -9,7 +9,7 @@ persistent connection. Rationale and alternatives are discussed in
 
 ## 1. Base URL
 
-    https://{HOST}/api/ingest
+    https://{HOST}
 
 All paths below are relative to that base. TLS 1.2 or newer is required.
 
@@ -33,30 +33,85 @@ MUST deduplicate based on the natural primary keys listed in
 
 ## 4. Endpoints
 
-### 4.1 `POST /v1/sensors/{id}/counts`
+### 4.1 `POST /api/ingest/sensors/{id}/counts`
 
 Windowed per-class counts produced by `WindowedCounter.maybe_rollover`.
 
 **Request body**:
 
     {
-      "schema_version": "1.0",
+      "schema_version": "1.1",
       "sensor_id": "cam-dub-01",
       "window_start": "2026-04-21T10:00:00Z",
       "window_end":   "2026-04-21T10:15:00Z",
       "partial": false,
-      "counts": {"person": 68, "cyclist": 91, "car": 310, "...": 0},
+      "counts": {"person": 68, "cyclist": 91, "car": 310},
+      "counts_by_direction": {
+        "AB": {"person": 40, "cyclist": 51, "car": 170},
+        "BA": {"person": 28, "cyclist": 40, "car": 140}
+      },
       "avg_speed_kmh": {"person": 4.1, "cyclist": 18.3, "car": 32.7},
+      "speed_hist_kmh": {"car": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 10, 22, 31, 27, 18, 10, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
       "config_version": "abc123",
       "fw_version": "0.2.0",
       "produced_at": "2026-04-21T10:15:00.342Z"
     }
 
+`counts_by_direction` is optional. A sensor using a screenline sends it and
+sets `schema_version` to `"1.1"`; a sensor using movement mode omits it and
+continues to send `"1.0"`. Its only allowed direction keys are `AB` and `BA`,
+and its inner keys use the same road-user classes and integer range (0–65535)
+as `counts`. For every class, a missing direction cell counts as zero and
+`AB + BA` MUST equal `counts[class]`. The backend rejects violations with 400.
+`avg_speed_kmh` remains per class rather than per direction.
+
+`speed_hist_kmh` is optional: per class, the timed road users of the window in
+53 bins, finest where road users are slow: 1 km/h wide from 0 to 20 (walking
+speeds need it), 2 km/h to 60, 5 km/h to 120, and a last bin for 120 km/h and
+over (lower edges: `SPEED_BIN_EDGES` in `camina/core/counter.py`). The edge
+sends it for exactly the classes that have an `avg_speed_kmh`,
+that is, over at least 5 timed road users. The dashboard stores it and never
+publishes it: it sums the histograms of published base cells over any bucket or
+window and publishes only the 85th-percentile speed (v85) read from the sum,
+interpolated inside its bin, and only over at least 5 users. A mean speed
+cannot be summed into a percentile, which is why the histogram is on the wire.
+
+A road user is counted in the window in which its class is confirmed
+(`min_class_hits` detections), not always the one in which it crossed: a
+crossing held for its class near a window boundary can land in the next
+window. `AB + BA = counts` holds in every window.
+
+The edge sends raw measured window counts, direction cells, daily totals, and
+average speeds to its authenticated server. It does not apply `k_min` on the
+wire. The dashboard applies `k_min = 5` at public API read time, on the base
+cell: one street, one class, one 15-minute window, summed across the street's
+sensors. A count of 1–4 in a base cell is published as `null`.
+
+Hiding a cell is not enough when the values around it add up to it, so the
+public API also applies complementary suppression (rules and reasoning in
+`dashboard/src/lib/privacy.ts`). Within a base cell: if either direction cell
+of a class is hidden, both are hidden, and so are both when some rows of the
+class in the window have no direction cells. Across levels: every coarser
+number — 60- and 1440-minute buckets, the metrics windows `1h`/`24h`/`7d`/`30d`,
+street totals, class totals under any class filter, direction pairs and mean
+speeds — is computed from published base cells only. A coarser count is the sum
+of the published base cells under it, with `hasHidden: true` when any of them
+was hidden; a coarser mean speed averages only base cells whose speed was
+published, and a coarser v85 sums only those cells' speed histograms. So subtracting one published number from another (an hour minus its
+four quarters, 24 h minus 1 h, all classes minus all but one) never yields a
+hidden cell.
+
+The cost is that hidden cells are left out rather than rounded in: a class that
+is often 1–4 per 15 minutes (e-scooters, a quiet street at night) reads low
+over an hour, a day or a month, and more so the longer the window. The API
+marks such numbers with `hasHidden`, and the UI says "Some values under 5 are
+hidden." wherever one is shown.
+
 **Response 200**:
 
     { "ok": true, "latest_config_version": "abc123" }
 
-### 4.2 `POST /v1/sensors/{id}/daily`
+### 4.2 `POST /api/ingest/sensors/{id}/daily`
 
 Per-day cumulative totals published at 00:00 UTC, or on next boot with
 `"late": true` if the device missed the boundary.
@@ -75,7 +130,7 @@ Per-day cumulative totals published at 00:00 UTC, or on next boot with
       "produced_at": "2026-04-22T00:00:00.021Z"
     }
 
-### 4.3 `POST /v1/sensors/{id}/heartbeat`
+### 4.3 `POST /api/ingest/sensors/{id}/heartbeat`
 
 Observability signal emitted every ~5 min regardless of counts activity.
 
@@ -84,14 +139,18 @@ Observability signal emitted every ~5 min regardless of counts activity.
       "ts": "2026-04-21T10:20:00Z",
       "uptime_s": 88231,
       "cpu_temp_c": 52.4,
+      "throttled": 0,
+      "rss_mb": 182.6,
       "last_window_end": "2026-04-21T10:15:00Z",
       "config_version": "abc123",
       "fw_version": "0.2.0",
       "auth_error": false,
-      "config_error": false
+      "config_error": false,
+      "outbox_depth": 12,
+      "outbox_dropped_total": 3
     }
 
-### 4.4 `GET /v1/sensors/{id}/config`
+### 4.4 `GET /api/ingest/sensors/{id}/config`
 
 Returns the latest configuration the backend wants the device to apply.
 The device fetches this lazily — only when a previous ingest response
@@ -101,14 +160,35 @@ applied.
 **Response 200**:
 
     {
-      "config_version": "def456",
+      "config_version": "def456+hb15",
       "publish_interval_minutes": 15,
-      "heartbeat_interval_minutes": 5,
+      "heartbeat_interval_minutes": 15,
       "daily_publish_time_utc": "00:00",
-      "detection_zone": {"type": "polygon", "points": [[x1, y1], [x2, y2]]},
-      "frame_skip": 5,
+      "detection_zone": null,
+      "frame_skip": 1,
       "min_track_hits": 3
     }
+
+`heartbeat_interval_minutes` is one deployment-wide setting, the dashboard's
+`CAMINA_HEARTBEAT_MINUTES` (15 in the free-tier pilot to stay inside Neon's free
+compute hours; the goal is 5), not a per-sensor value. The server folds it into the
+advertised version (`<sensor version>+hb<minutes>`), so changing it reaches every
+device on its next heartbeat. The device sends heartbeats on wall-clock boundaries
+(:00, :15, ...), in step with the count windows.
+
+The device applies `publish_interval_minutes`, `heartbeat_interval_minutes`
+and `min_track_hits` (the tracker's confirmation count), plus the optional
+`max_occlusion_s` (seconds a hidden track survives, `0 < x <= 60`),
+`min_class_hits` (detections of its class before a track counts, `1..20`) and
+`relink` (re-link a detection to a track lost behind an occlusion; a JSON
+`true`/`false`, nothing else). The server does not send these three yet; when
+one is absent the device keeps the value in its local `sensor.yaml`, which is
+checked against the same bounds. It saves the applied
+config next to its `state.db` so a reboot keeps it. This firmware rejects, with
+a logged warning, a `frame_skip` other than 1 (detection runs on every frame),
+a `daily_publish_time_utc` other than `"00:00"` (daily totals roll over at
+midnight UTC) and a non-null `detection_zone` (counting uses the screenline in
+the local sensor config); the rest of the config still applies.
 
 ## 5. Status codes
 
@@ -119,6 +199,7 @@ applied.
 | 400 | Bad payload — **do not retry**; dead-letter locally. |
 | 401 / 403 | Auth failure — **do not retry**; surface in next heartbeat `auth_error=true`; admin must rotate the token. |
 | 404 | Unknown sensor — same as 401. |
+| 422 | Timestamp outside the server's window (counts `window_end`, heartbeat `ts`, daily `produced_at`; see §7). Body `{"error": "timestamp_in_future"}`: the device clock is fast — **keep the row** in the outbox, do not charge an attempt, log the clock skew, retry later. Body `{"error": "timestamp_too_old"}` or `"invalid_timestamp"`: permanent — drop the row. |
 | 408 / 425 / 429 / 5xx | Retry with exponential backoff (1 s → 60 s). Honour `Retry-After` on 429. |
 
 ## 6. Offline handling
@@ -127,17 +208,33 @@ When a write fails after exhausting retries, the device enqueues the payload
 to a local SQLite outbox. On the next successful request, the device drains
 up to 50 outbox rows in FIFO order before sending the fresh payload. The
 outbox is capped (default 10 000 rows); beyond the cap the oldest rows are
-dropped and a counter is surfaced in heartbeats.
+dropped and a counter is surfaced in heartbeats. Heartbeats may include the
+nonnegative integer fields `outbox_depth` (currently queued rows) and
+`outbox_dropped_total` (rows dropped by the cap or permanently rejected during
+drain). `throttled` is the integer bitmask from `vcgencmd get_throttled` (zero
+means no throttle/undervoltage bits; unavailable hardware is `null`), and
+`rss_mb` is the process resident set size in MiB. The dashboard validates these
+fields but does not persist them in this branch; the heartbeat table currently
+has no columns for them.
 
 ## 7. Clock
 
 - All timestamps are ISO-8601 with an explicit `Z` UTC suffix.
 - The device requires NTP at boot. `produced_at` lets the backend detect and
   correct ordering when wall-clock drift occurs.
+- The server rejects with 422 a counts `window_end`, heartbeat `ts` or daily
+  `produced_at` more than 60 s ahead of its own clock (`timestamp_in_future`)
+  or more than 10 days behind it (`timestamp_too_old`). A fast device clock
+  therefore stops counts, dailies and heartbeats: the server sees the sensor go
+  silent, and the device keeps its counts and dailies buffered and logs the
+  skew until the clock is corrected (`HttpsPublisher.clock_skew`). A row is
+  accepted once server time reaches its timestamp minus 60 s, and dropped once
+  it is more than 10 days old.
 
 ## 8. Forward compatibility
 
-Payloads carry `schema_version` (current value `"1.0"`). The backend MUST
+Payloads carry `schema_version` (current counts versions are `"1.0"` and
+`"1.1"`). The backend MUST
 accept minor-version bumps that add optional fields without breaking older
 devices. Major-version bumps are coordinated via config rollout followed by
 firmware update.

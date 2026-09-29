@@ -18,6 +18,7 @@ frame source without ever importing this module.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Iterator
 
 import numpy as np
@@ -28,17 +29,21 @@ logger = logging.getLogger(__name__)
 # ---------- Public API ----------
 
 
-def picamera2_frame_source(imgsz: int = 480) -> Iterator[np.ndarray]:
-    """Yield RGB888 frames from the Pi Camera Module 3 via picamera2.
+def picamera2_frame_source(imgsz: int = 480) -> Iterator[tuple[np.ndarray, float]]:
+    """Yield RGB888 frames, with their capture times, from the Pi Camera Module 3.
 
     Args:
         imgsz: Square capture size (e.g. 480). Must match the YOLO NCNN
             input shape configured in ``configs/sensor.yaml``.
 
     Yields:
-        ``numpy.ndarray`` of shape ``(imgsz, imgsz, 3)``, dtype ``uint8``,
-        RGB byte order. The downstream YOLO NCNN model accepts this layout
-        directly — no colour conversion is required.
+        ``(frame, t)``: ``frame`` is a ``numpy.ndarray`` of shape
+        ``(imgsz, imgsz, 3)``, dtype ``uint8``, RGB byte order, which the YOLO
+        NCNN model accepts directly (no colour conversion). ``t`` is the
+        capture time in seconds from libcamera's ``SensorTimestamp`` (start of
+        exposure, a monotonic clock), so the tracker and the speed lines see
+        when a frame was taken, not when inference got to it. Without that
+        metadata, ``time.monotonic()`` right after capture.
 
     Raises:
         RuntimeError: when ``picamera2``/``libcamera`` are not available
@@ -60,7 +65,13 @@ def picamera2_frame_source(imgsz: int = 480) -> Iterator[np.ndarray]:
     logger.info("picamera2 started at %dx%d RGB888", imgsz, imgsz)
     try:
         while True:
-            yield picam2.capture_array()
+            request = picam2.capture_request()
+            try:
+                frame = request.make_array("main")
+                sensor_ns = request.get_metadata().get("SensorTimestamp")
+            finally:
+                request.release()
+            yield frame, (sensor_ns / 1e9 if sensor_ns is not None else time.monotonic())
     finally:
         picam2.stop()
         picam2.close()

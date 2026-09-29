@@ -9,7 +9,15 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from camina.core.counter import SPEED_BINS
+from camina.core.tracking_rules import (
+    MAX_CLASS_HITS,
+    MAX_OCCLUSION_S_LIMIT,
+    MIN_CLASS_HITS_MIN,
+)
+from camina.utils.taxonomy import load_canonical_classes
 
 SCHEMA_VERSION = "1.0"
 
@@ -28,10 +36,83 @@ class CountsPayload(BaseModel):
     window_end: datetime
     partial: bool
     counts: dict[str, int] = Field(default_factory=dict)
+    counts_by_direction: dict[str, dict[str, int]] | None = None
     avg_speed_kmh: dict[str, float] = Field(default_factory=dict)
+    # Per class: timed road users per SPEED_BIN_EDGES bin (v85).
+    speed_hist_kmh: dict[str, list[int]] = Field(default_factory=dict)
     config_version: str
     fw_version: str
     produced_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+
+    @field_validator("counts")
+    @classmethod
+    def _valid_class_keys_and_values(cls, values: dict[str, Any]) -> dict[str, Any]:
+        allowed = set(load_canonical_classes())
+        for name, value in values.items():
+            if name not in allowed:
+                raise ValueError(f"unknown class: {name}")
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} counts must be nonnegative integers")
+            if value > 65535:
+                raise ValueError(f"{name} count exceeds 65535")
+        return values
+
+    @field_validator("avg_speed_kmh")
+    @classmethod
+    def _valid_speed_keys_and_values(cls, values: dict[str, float]) -> dict[str, float]:
+        allowed = set(load_canonical_classes())
+        for name, value in values.items():
+            if name not in allowed:
+                raise ValueError(f"unknown class: {name}")
+            if isinstance(value, bool) or value < 0:
+                raise ValueError(f"{name} speeds must be nonnegative")
+        return values
+
+    @field_validator("speed_hist_kmh")
+    @classmethod
+    def _valid_speed_histograms(cls, values: dict[str, list[int]]) -> dict[str, list[int]]:
+        allowed = set(load_canonical_classes())
+        for name, hist in values.items():
+            if name not in allowed:
+                raise ValueError(f"unknown class: {name}")
+            if len(hist) != SPEED_BINS:
+                raise ValueError(f"{name} speed histogram must have {SPEED_BINS} bins")
+            if any(isinstance(n, bool) or not 0 <= n <= 65535 for n in hist):
+                raise ValueError(f"{name} speed histogram bins must be between 0 and 65535")
+        return values
+
+    @field_validator("counts_by_direction")
+    @classmethod
+    def _valid_direction_records(
+        cls, value: dict[str, dict[str, int]] | None
+    ) -> dict[str, dict[str, int]] | None:
+        if value is None:
+            return value
+        if not value or set(value) - {"AB", "BA"}:
+            raise ValueError("counts_by_direction must contain AB and/or BA")
+        allowed = set(load_canonical_classes())
+        for direction, counts in value.items():
+            for name, count in counts.items():
+                if name not in allowed:
+                    raise ValueError(f"unknown class in {direction}: {name}")
+                if isinstance(count, bool) or not 0 <= count <= 65535:
+                    raise ValueError(f"{direction}.{name} must be between 0 and 65535")
+        return value
+
+    @model_validator(mode="after")
+    def _direction_invariant(self) -> CountsPayload:
+        if self.counts_by_direction is None:
+            self.schema_version = "1.0"
+            return self
+        self.schema_version = "1.1"
+        directional_totals: dict[str, int] = {}
+        for values in self.counts_by_direction.values():
+            for name, count in values.items():
+                directional_totals[name] = directional_totals.get(name, 0) + count
+        for name in set(self.counts) | set(directional_totals):
+            if self.counts.get(name, 0) != directional_totals.get(name, 0):
+                raise ValueError(f"AB+BA sum must equal counts for {name}")
+        return self
 
     @field_validator("window_start", "window_end", "produced_at")
     @classmethod
@@ -73,11 +154,17 @@ class HeartbeatPayload(BaseModel):
     ts: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     uptime_s: int
     cpu_temp_c: float | None = None
+    # `vcgencmd get_throttled` bitmask serialized as a nonnegative integer.
+    # Zero is healthy; None means vcgencmd is unavailable (for example on a laptop).
+    throttled: int | None = Field(default=None, ge=0, le=4_294_967_295, strict=True)
+    rss_mb: float | None = Field(default=None, ge=0)
     last_window_end: datetime | None = None
     config_version: str
     fw_version: str
     auth_error: bool = False
     config_error: bool = False
+    outbox_depth: int | None = Field(default=None, ge=0)
+    outbox_dropped_total: int | None = Field(default=None, ge=0)
 
     @field_validator("ts", "last_window_end")
     @classmethod
@@ -104,6 +191,12 @@ class SensorConfig(BaseModel):
     detection_zone: dict[str, Any] | None = None
     frame_skip: int = Field(ge=1, le=120)
     min_track_hits: int = Field(ge=1, le=20)
+    # Optional: absent keeps the value from the local sensor.yaml.
+    # Bounds shared with sensor.yaml (camina/core/tracking_rules.py).
+    max_occlusion_s: float | None = Field(default=None, gt=0, le=MAX_OCCLUSION_S_LIMIT)
+    min_class_hits: int | None = Field(default=None, ge=MIN_CLASS_HITS_MIN, le=MAX_CLASS_HITS)
+    # Strict, as in sensor.yaml: only a JSON true/false, never "false" or 0.
+    relink: bool | None = Field(default=None, strict=True)
 
     @field_validator("daily_publish_time_utc")
     @classmethod

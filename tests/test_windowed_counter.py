@@ -86,6 +86,24 @@ def test_different_track_ids_in_window_each_count() -> None:
     assert snap.counts["cyclist"] == 3
 
 
+def test_directional_counts_are_aggregated_per_class() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    c.add(1, "car", start + timedelta(seconds=1), direction="AB")
+    c.add(2, "car", start + timedelta(seconds=2), direction="BA")
+    c.add(3, "person", start + timedelta(seconds=3), direction="AB")
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.counts_by_direction == {"AB": {"car": 1, "person": 1}, "BA": {"car": 1}}
+
+
+def test_movement_counts_have_no_directional_map() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    c.add(1, "car", start + timedelta(seconds=1))
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.counts_by_direction is None
+
+
 def test_same_track_id_across_windows_counts_per_window() -> None:
     start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
     c = _start_counter(start)
@@ -182,3 +200,97 @@ def test_snapshot_total_helper() -> None:
     c.add(3, "cyclist", start + timedelta(seconds=3))
     snap = c.force_snapshot(start + timedelta(seconds=10))
     assert snap.total() == 3
+
+
+# ---------- Speeds ----------
+
+
+def test_window_average_speed_is_the_mean_of_the_measured_tracks_per_class() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    for kmh in (30.0, 35.0, 40.0, 45.0, 50.0):
+        c.add_speed("car", kmh)
+    for kmh in (18.04, 18.0, 18.0, 18.0, 17.96):
+        c.add_speed("cyclist", kmh)
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.avg_speed_kmh == {"car": 40.0, "cyclist": 18.0}
+
+
+def test_a_speed_needs_at_least_k_min_timed_road_users() -> None:
+    # Privacy: a mean over fewer than 5 vehicles is close to one person's speed.
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    for kmh in (30.0, 40.0, 50.0, 60.0):
+        c.add_speed("car", kmh)
+    for _ in range(5):
+        c.add_speed("cyclist", 20.0)
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.avg_speed_kmh == {"cyclist": 20.0}
+
+
+def test_classes_without_a_speed_are_omitted_and_unknown_classes_ignored() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    c.add(1, "person", start + timedelta(seconds=1))
+    for _ in range(5):
+        c.add_speed("car", 25.0)
+        c.add_speed("tram", 30.0)
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert snap.avg_speed_kmh == {"car": 25.0}
+
+
+def test_speeds_reset_at_each_window() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    for _ in range(5):
+        c.add_speed("car", 25.0)
+    first = c.maybe_rollover(start + timedelta(minutes=15))
+    second = c.force_snapshot(start + timedelta(minutes=30))
+    assert first is not None and first.avg_speed_kmh == {"car": 25.0}
+    assert second.avg_speed_kmh == {}
+
+
+def test_without_speeds_the_snapshot_has_an_empty_speed_map() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    c.add(1, "car", start + timedelta(seconds=1))
+    assert c.force_snapshot(start + timedelta(minutes=15)).avg_speed_kmh == {}
+
+
+# ---------- Speed histogram (v85) ----------
+
+
+def test_speed_histogram_bins_are_finest_where_road_users_are_slow() -> None:
+    from camina.core.counter import SPEED_BIN_EDGES, SPEED_BINS, speed_histogram
+
+    hist = speed_histogram([0.0, 4.9, 5.1, 21.9, 22.0, 64.9, 119.9, 120.0, 180.0])
+    assert len(hist) == SPEED_BINS
+    at = {edge: n for edge, n in zip(SPEED_BIN_EDGES, hist, strict=True) if n}
+    # 1 km/h bins to 20 (walking speeds apart), 2 km/h to 60, 5 km/h to 120.
+    assert at == {0: 1, 4: 1, 5: 1, 20: 1, 22: 1, 60: 1, 115: 1, 120: 2}
+    assert sum(hist) == 9
+
+
+def test_window_speed_histogram_is_sent_only_where_a_mean_is_sent() -> None:
+    # Same k_min as the mean: the histogram of fewer than 5 users is not sent.
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    for kmh in (30.0, 35.0, 40.0, 45.0, 50.0):
+        c.add_speed("car", kmh)
+    for kmh in (18.0, 19.0, 20.0, 21.0):
+        c.add_speed("cyclist", kmh)
+    snap = c.force_snapshot(start + timedelta(minutes=15))
+    assert set(snap.speed_hist_kmh) == set(snap.avg_speed_kmh) == {"car"}
+    car = snap.speed_hist_kmh["car"]
+    assert sum(car) == 5 and max(car) == 1
+
+
+def test_speed_histogram_resets_at_each_window() -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0, tzinfo=UTC)
+    c = _start_counter(start)
+    for _ in range(5):
+        c.add_speed("car", 25.0)
+    first = c.maybe_rollover(start + timedelta(minutes=15))
+    second = c.force_snapshot(start + timedelta(minutes=30))
+    assert first is not None and sum(first.speed_hist_kmh["car"]) == 5
+    assert second.speed_hist_kmh == {}

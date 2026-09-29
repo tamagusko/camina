@@ -14,6 +14,17 @@ import pytest
 from camina import __main__ as entry
 
 
+@pytest.fixture(autouse=True)
+def _restore_camina_log_level():
+    """``main`` sets the ``camina`` logger level; keep it from leaking into other tests."""
+    import logging
+
+    camina_logger = logging.getLogger("camina")
+    level = camina_logger.level
+    yield
+    camina_logger.setLevel(level)
+
+
 def _make_yaml(tmp_path: Path) -> Path:
     """Write a minimal valid sensor.yaml the daemon can parse."""
     yaml_text = """
@@ -69,6 +80,7 @@ def test_dry_run_composes_without_start(tmp_path: Path, monkeypatch: pytest.Monk
     rc = entry.main(["--config", str(yaml_path), "--dry-run"])
     assert rc == 0
     fake_daemon.start.assert_not_called()
+    fake_daemon.stop.assert_called_once()
     assert captured["cfg_sensor_id"] == "cam-test-01"
     assert captured["ncnn_model_path"] == Path(str(tmp_path / "fake_ncnn"))
 
@@ -77,6 +89,21 @@ def test_missing_config_exits_two(tmp_path: Path) -> None:
     """A non-existent ``--config`` path exits with code 2 and logs an error."""
     rc = entry.main(["--config", str(tmp_path / "nope.yaml")])
     assert rc == 2
+
+
+def test_log_level_sets_the_camina_loggers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``--log-level DEBUG`` shows the per-road-user speed lines a calibration
+    session needs; the default stays INFO."""
+    import logging
+
+    camina_logger = logging.getLogger("camina")
+    monkeypatch.setattr(entry, "compose", lambda *_a, **_kw: MagicMock())
+    yaml_path = _make_yaml(tmp_path)
+
+    assert entry.main(["--config", str(yaml_path), "--dry-run", "--log-level", "DEBUG"]) == 0
+    assert camina_logger.level == logging.DEBUG
+    assert entry.main(["--config", str(yaml_path), "--dry-run"]) == 0
+    assert camina_logger.level == logging.INFO
 
 
 def test_full_run_invokes_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
