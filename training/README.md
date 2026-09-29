@@ -48,6 +48,7 @@ The base configuration is `configs/yolo26n.yaml` (each choice commented); an exp
 | `autolabel` | Pre-label new images for Roboflow (below) |
 | `import_montreal` | Montreal traffic-camera images (CC BY 4.0), 704x480 only: keeps the human boxes, takes the classes it lacks from `autolabel`; same output layout |
 | `codex_check` | Check each pre-label's class with Codex; split images into flagged / ok (below) |
+| `claude_check` | Second opinion from Claude (your personal login, `~/.claude`) on the same crops |
 | `apply_audit` | Apply the audit page's decisions: corrected labels locally, then (`--push`) to Roboflow with tags |
 | `sam2_clip_auto_labeling.py`, `dinov3_semi_auto_labeling.py` | Experimental pre-labelling; unverified |
 
@@ -63,10 +64,24 @@ Rules: `docs/labelling_guide/`. Every box is still reviewed by a person in Robof
     --model weights/yolo26x.pt [--existing <labels dir>] [--imgsz 1280 for camera frames]
 # 2. Codex (your `codex login`, model gpt-6-astra) classifies a crop of each box; resumable
 .venv/bin/python -m training.codex_check --run data/autolabel/<name>
-# 3. Upload data/autolabel/<name>/review/flagged, then review/ok, as two Roboflow batches
+# 3. Optional second opinion: Claude on the boxes Codex disputed (your personal Claude login,
+#    ~/.claude; --config-dir to change). An image is flagged if either model disputes a box.
+.venv/bin/python -m training.claude_check --run data/autolabel/<name> --disputed
+# 4. Upload data/autolabel/<name>/review/flagged, then review/ok, as two Roboflow batches
 ```
 
-Crops go to OpenAI in step 2. For camera images, leave person-carrying classes out of
+Crops go to OpenAI in step 2 and to Anthropic in step 3.
+
+**Montreal** (65k vehicle boxes, no Codex pass) goes straight to Claude. Its SUVs are all
+labelled `car`, so the check is mostly car vs SUV. Boxes under 24 px a side are too small to
+tell apart and are skipped (they keep their label). Try a few hundred first and look at your
+usage, then run the rest in a terminal (hours); it stops cleanly at a usage limit and resumes:
+
+```bash
+.venv/bin/python -m training.claude_check --run data/autolabel/montreal \
+    --classes car,SUV,delivery_van,truck,bus,cyclist,motorcyclist,e-scooter \
+    --min-side 24 --workers 3 --limit 400      # drop --limit for the full run
+``` For camera images, leave person-carrying classes out of
 `--classes` until GDPR and the camera terms are settled.
 
 ## Label audit
