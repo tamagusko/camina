@@ -1,11 +1,33 @@
 # STATE
-Version: 2.5 — 2026-09-27 — live data layer, CI on Node 24, direction end to end, dashboard
-redesign, tracker occlusion rules, edge + dashboard bug sweep, speed (S7b code), Pi bench
-tooling (S6 prep), multi-clip count eval (PR #43, feat/dashboard-live → dev)
-Last verified: 2026-09-27. The 2026-09-15 audit folder was removed from the tree; it is in git
-history (`git show 594756c:.planning/audit-2026-09-15/AUDIT.md`).
+Version: 2.6 — 2026-11-12 — restart after a six-week pause (last work 2026-09-29). Since 2.5:
+the dashboard, training, auto-labelling, Montreal and Claude-check branches are merged into
+`dev` (#41–#49, #51); the paper snapshot is the tag `TRA2026`; a release gate holds `main`.
+Last verified: 2026-11-12 — edge `pytest`: 406 passed. Dashboard tests not re-run since 2026-09-27.
+The 2026-09-15 audit folder is in git history only (`git show 594756c:.planning/audit-2026-09-15/AUDIT.md`).
 
-## Current stage
+## Since 2.5 (2026-09-27 → 2026-09-29)
+- Merged into `dev`: #43 dashboard live data layer, #45 road analysis, #46 speed analysis
+  (incl. speed limit per street, migration `0005_speed_limit.sql`), #47 tidy, #41 YOLO26n
+  training pipeline, #42 auto-labelling, #44 Montreal import, #48 Claude label check,
+  #49 `TRA2026` branch → tag, #51 TODO.
+- **Release gate:** no `dev` → `main` until the labels are fixed and the model is retrained.
+  PR #50 (dev → main) stays open; merge and tag `v0.x` after the retrain (TODO §2.6).
+- Dashboard is on Vercel (project `camina-dublin`) in **mock** mode. Live mode (Neon, OAuth) is S5.
+- Labels: TRA 2026 audit — 332 disputed boxes in `data/autolabel/audit/index.html`, **no
+  decisions recorded yet**. `dev_expanded`: 235 images checked by Codex and Claude, split into
+  `review/flagged` (64) and `review/ok` (171), not yet in Roboflow. Montreal: 662 images selected
+  by Claude agreement (`training/MONTREAL.md`); the 60-image audit sample is not reviewed yet.
+- Dependabot security PRs #52 (urllib3) and #53 (next) retargeted from `main` to `dev`.
+
+## Next action (2026-11-12)
+1. **Finish the TRA 2026 label audit** (TODO §2.2): it gates the retrain, and the retrain gates
+   the release. Then the `dev_expanded` and Montreal reviews (TODO §2.3).
+2. In parallel, the hardware and accounts path, which gates M1 (2026-12-31) more than the model
+   does: S5 live deploy, S6 Pi bench, S8 DPO/ethics and a site.
+3. Planning for the citizen-science phase is being drafted outside the repo
+   (`~/repos/camina-plans/citizen-science-2026-11/`); nothing in it is adopted until approved.
+
+## Current stage at 2.5 (2026-09-27), kept for reference
 M1 / S1 — **done** 2026-09-24 (#21). On `feat/dashboard-live` (2026-09-27), awaiting merge:
 - **S2** CI workflow (`.github/workflows/ci.yml`: Python + dashboard) — written; first green run
   on GitHub is the done-test.
@@ -88,7 +110,7 @@ a decision. P0 blocks everything after it.
 | P2 | Protocol: a restart inside a 15-min window overwrites the pre-restart partial (`ingest-store.ts`) | S4 | agent, needs a decision | Partial windows merge without double-counting replays |
 | — | Digital twin | — | paused | Resumes with a sensor network or funding |
 
-## Next action
+## Next action at 2.5 (superseded by the one above)
 - Merge the dashboard PR after CI is green.
 - S5: create the Vercel + Neon projects, set the env from `dashboard/.env.example`
   (`CAMINA_DATA_SOURCE=live`, `CAMINA_HEARTBEAT_MINUTES=15`), run `db:migrate`, provision one
