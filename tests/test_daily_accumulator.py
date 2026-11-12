@@ -1,4 +1,5 @@
 """Unit tests for DailyAccumulator."""
+
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
@@ -7,12 +8,11 @@ from unittest.mock import patch
 
 import pytest
 
-from src.camina.core.counter import (
+from camina.core.counter import (
     DailyAccumulator,
     DailySnapshot,
     WindowSnapshot,
 )
-
 
 CLASSES = ["person", "cyclist", "car"]
 UTC = timezone.utc
@@ -68,6 +68,13 @@ def test_unknown_class_ignored(acc: DailyAccumulator) -> None:
     assert snap.totals["person"] == 1
 
 
+def test_add_window_rejects_naive_window_start(acc: DailyAccumulator) -> None:
+    start = datetime(2026, 4, 21, 10, 0, 0)
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        acc.add_window(_snap(start, {"person": 1, "cyclist": 0, "car": 0}))
+
+
 # ---------- Rollover ----------
 
 
@@ -108,7 +115,7 @@ def test_pending_unpublished_on_boot(tmp_path: Path) -> None:
         def now(cls, tz=None):
             return fake_now if tz else fake_now.replace(tzinfo=None)
 
-    with patch("src.camina.core.counter.datetime", _FakeDT):
+    with patch("camina.core.counter.datetime", _FakeDT):
         acc2 = DailyAccumulator(db_path=db, classes=list(CLASSES))
         pending = acc2.pending_unpublished()
         acc2.close()

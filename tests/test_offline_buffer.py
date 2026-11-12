@@ -1,13 +1,15 @@
 """Unit tests for OfflineBuffer."""
+
 from __future__ import annotations
 
+import sqlite3
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Iterator
 
 import pytest
 
-from src.camina.io.offline_buffer import OfflineBuffer, OutboxItem, SendOutcome
+from camina.io.offline_buffer import OfflineBuffer, OutboxItem, SendOutcome
 
 
 @pytest.fixture()
@@ -101,6 +103,20 @@ def test_drain_handles_sender_exception(buf: OfflineBuffer) -> None:
     sent = buf.drain(broken)
     assert sent == 0
     assert buf.stats().pending == 1
+    assert buf.peek(1)[0].attempts == 0
+
+
+def test_24_hour_transport_outage_does_not_charge_attempts(buf: OfflineBuffer) -> None:
+    buf.enqueue("counts", b"x")
+
+    # 288 five-minute heartbeat cycles represent a full day without network.
+    for _ in range(24 * 60 // 5):
+        assert buf.drain(lambda _item: SendOutcome.STOP) == 0
+
+    [item] = buf.peek(1)
+    assert item.attempts == 0
+    assert buf.stats().pending == 1
+    assert buf.stats().poisoned == 0
 
 
 def test_drain_respects_max_items(buf: OfflineBuffer) -> None:
@@ -143,8 +159,8 @@ def test_drain_retry_preserves_fifo_order(buf: OfflineBuffer) -> None:
     assert sent == 0
     assert buf.stats().pending == 3  # nothing lost on transient failure
     [head] = buf.peek(1)
-    assert head.payload == b"0"      # order preserved
-    assert head.attempts == 1        # only the head was charged an attempt
+    assert head.payload == b"0"  # order preserved
+    assert head.attempts == 1  # only the head was charged an attempt
 
 
 def test_drain_safety_valve_drops_after_max_attempts(buf: OfflineBuffer) -> None:
@@ -153,14 +169,14 @@ def test_drain_safety_valve_drops_after_max_attempts(buf: OfflineBuffer) -> None
     def retry(_: OutboxItem) -> SendOutcome:
         return SendOutcome.RETRY
 
-    # Three RETRY drains bump attempts to 3 without dropping the row.
-    for _ in range(3):
-        buf.drain(retry, max_attempts=3)
+    # Fifty server 5xx/429 responses charge fifty attempts without dropping.
+    for _ in range(50):
+        buf.drain(retry, max_attempts=50)
     assert buf.stats().pending == 1
-    assert buf.peek(1)[0].attempts == 3
+    assert buf.peek(1)[0].attempts == 50
 
     # The next drain trips the safety valve and drops it as poisoned.
-    buf.drain(retry, max_attempts=3)
+    buf.drain(retry, max_attempts=50)
     assert buf.stats().pending == 0
     assert buf.stats().poisoned == 1
 
@@ -189,6 +205,25 @@ def test_cap_drops_oldest_when_exceeded(tmp_path: Path) -> None:
     assert [i.payload for i in items] == [b"B", b"C", b"D"]
     assert b.stats().dropped == 1
     b.close()
+
+
+def test_failed_enqueue_does_not_evict_oldest_row(tmp_path: Path) -> None:
+    b = OfflineBuffer(db_path=tmp_path / "s.db", max_rows=3)
+    try:
+        for payload in (b"A", b"B", b"C"):
+            b.enqueue("counts", payload)
+        b._conn.execute(
+            "CREATE TRIGGER reject_insert BEFORE INSERT ON outbox "
+            "BEGIN SELECT RAISE(ABORT, 'insert failed'); END"
+        )
+
+        with pytest.raises(sqlite3.IntegrityError, match="insert failed"):
+            b.enqueue("counts", b"D")
+
+        assert [item.payload for item in b.peek(10)] == [b"A", b"B", b"C"]
+        assert b.stats().dropped == 0
+    finally:
+        b.close()
 
 
 def test_cap_drops_multiple_when_far_over(tmp_path: Path) -> None:

@@ -1,0 +1,33 @@
+# YOLO26n training for the CAMINA sensor: a fixed roadside camera, a Raspberry Pi 5
+# running the model as NCNN at 640 x 640. Experiments (training/experiments/) change
+# the data, and override these only with a reason.
+
+model: yolo26n.pt      # COCO-pretrained YOLO26 nano: best accuracy/CPU-speed at the Pi's budget
+imgsz: 640             # = the sensor's camera frame and the NCNN export size
+
+# Schedule
+epochs: 200            # upper bound; early stopping decides
+patience: 40           # stop after 40 epochs without a better val fitness
+batch: 32              # fits 12 GB (RTX 3060) at 640 with AMP; -1 lets Ultralytics choose
+optimizer: auto        # MuSGD for YOLO26 (Ultralytics' default choice)
+cos_lr: true
+close_mosaic: 15       # last 15 epochs on whole, un-mosaicked images, like the camera sees
+amp: true
+cache: ram             # the dataset is small; decoding once saves most of the epoch time
+workers: 8
+
+# Reproducibility
+seed: 42
+deterministic: true
+
+# Augmentation, for one fixed camera
+fliplr: 0.5            # traffic goes both ways; a mirrored street is still a street
+flipud: 0.0            # the road is never upside down
+degrees: 0.0           # the camera is mounted level
+mosaic: 1.0            # many small objects per image; helps far pedestrians
+mixup: 0.0             # blends two scenes into one the camera never sees
+scale: 0.5             # objects at many distances
+translate: 0.1
+hsv_h: 0.015           # colour and light change over the day; defaults cover it
+hsv_s: 0.7
+hsv_v: 0.4

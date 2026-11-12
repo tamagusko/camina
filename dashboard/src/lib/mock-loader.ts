@@ -16,6 +16,7 @@ export interface MockStreet {
   bbox: GeoJSON.Polygon;
   city: string;
   active: boolean;
+  speed_limit_kmh?: number | null; // absent in fixtures made before it
 }
 
 export interface MockSensor {
@@ -45,25 +46,14 @@ export interface MockReading {
   class_name: string;
   count: number;
   avg_speed_kmh: number | null;
+  // Absent in fixtures made before v85; the dashboard then shows no v85.
+  speed_hist_kmh?: number[] | null;
   partial: boolean;
-}
-
-export interface MockDailyTotal {
-  sensor_id: string;
-  day: string;
-  totals_json: Record<string, number>;
-  window_count: number;
-  late: boolean;
-  reconciled: boolean;
 }
 
 export interface MockHeartbeat {
   sensor_id: string;
   ts: string;
-  uptime_s: number;
-  cpu_temp_c: number;
-  last_window_end: string;
-  config_version: string;
 }
 
 async function readJson<T>(file: string): Promise<T> {
@@ -76,7 +66,6 @@ const cache: {
   sensors?: MockSensor[];
   coverage?: MockCoverage[];
   readings?: MockReading[];
-  daily?: MockDailyTotal[];
   heartbeats?: MockHeartbeat[];
 } = {};
 
@@ -98,11 +87,6 @@ export async function loadCoverage(): Promise<MockCoverage[]> {
 export async function loadReadings(): Promise<MockReading[]> {
   cache.readings ??= await readJson<MockReading[]>("sensor_readings.json");
   return cache.readings;
-}
-
-export async function loadDaily(): Promise<MockDailyTotal[]> {
-  cache.daily ??= await readJson<MockDailyTotal[]>("sensor_daily_totals.json");
-  return cache.daily;
 }
 
 export async function loadHeartbeats(): Promise<MockHeartbeat[]> {

@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 // NEXT_PUBLIC_CAMINA_DEV_ADMIN bypasses admin auth in the dev UI. It is
 // inlined into the client bundle at build time, so it must never be present
 // when building for a production deployment. Keyed on VERCEL_ENV only:
@@ -14,8 +16,18 @@ if (
   );
 }
 
+// A mock deploy (the public demo) reads the fixtures in ../data/mock at
+// request time, so they must ship with the server bundle. Live builds leave
+// them out.
+const mockDeploy = process.env.CAMINA_DATA_SOURCE === "mock";
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  ...(mockDeploy && {
+    outputFileTracingRoot: repoRoot,
+    outputFileTracingIncludes: { "/**/*": ["../data/mock/**/*"] },
+  }),
   // Strict Mode double-mounts effects in dev, which races with MapLibre's
   // canvas sizing (mount → cleanup → remount). Re-enable once the map init
   // is guarded with an isMounted ref and a ResizeObserver-driven resize.

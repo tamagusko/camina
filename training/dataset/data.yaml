@@ -1,0 +1,13 @@
+train: images/train
+val: images/val
+test: images/test
+names:
+  0: person
+  1: cyclist
+  2: car
+  3: e-scooter
+  4: SUV
+  5: motorcyclist
+  6: bus
+  7: delivery_van
+  8: truck

@@ -1,10 +1,11 @@
 """Unit tests for the stdlib-only SQLite integrity check + quarantine (M9)."""
+
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
 
-from src.camina.utils.sqlite_integrity import check_and_recover
+from camina.utils.sqlite_integrity import check_and_recover
 
 
 def _make_healthy_db(path: Path) -> None:

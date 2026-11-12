@@ -4,26 +4,33 @@ Covers a passing synthetic dataset plus each violation class the validator
 must reject: bad ``data.yaml`` names, out-of-range class-id, out-of-range
 coordinate, and an unparseable label line.
 """
+
 from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
 from types import ModuleType
-from typing import Dict, List
 
 import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-CANONICAL: List[str] = [
-    "person", "cyclist", "car", "e-scooter", "SUV",
-    "motorcyclist", "bus", "delivery_van", "truck",
+CANONICAL: list[str] = [
+    "person",
+    "cyclist",
+    "car",
+    "e-scooter",
+    "SUV",
+    "motorcyclist",
+    "bus",
+    "delivery_van",
+    "truck",
 ]
 
 
 def _load_module() -> ModuleType:
-    path = REPO_ROOT / "custom_model_train" / "scripts" / "validate_labels.py"
+    path = REPO_ROOT / "training" / "validate_labels.py"
     spec = importlib.util.spec_from_file_location("validate_labels", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -36,7 +43,7 @@ vl = _load_module()
 
 def _make_dataset(
     root: Path,
-    labels: Dict[str, str],
+    labels: dict[str, str],
     names: object = None,
 ) -> Path:
     """Materialise a tiny YOLO dataset; return its data.yaml path."""

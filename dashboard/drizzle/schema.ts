@@ -1,19 +1,36 @@
 import {
   bigint,
   boolean,
+  customType,
   date,
   doublePrecision,
   integer,
   jsonb,
+  pgMaterializedView,
   pgTable,
   primaryKey,
   real,
+  smallint,
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
 
-// Mirrors plan/02-dashboard-vercel.md §8 (without Timescale / PostGIS specific
-// statements, which live in the raw SQL migration at drizzle/migrations/0000_init.sql).
+// Mirrors the SQL migrations in drizzle/migrations/. Indexes (GIST, BRIN),
+// CHECK constraints, GENERATED columns and the materialized views' queries
+// live only in those SQL files. Every column is declared here, including the
+// PostGIS ones, so `drizzle-kit generate` (which diffs this file against the
+// latest meta snapshot) never proposes adding or dropping one. After a schema
+// change, update this file, run `drizzle-kit generate`, and review or rewrite
+// the generated SQL (0003_snapshot_postgis.sql replaced it with a no-op);
+// tests/unit/drizzle-snapshot.test.ts checks nothing is left to generate.
+
+// PostGIS geometry, read with ST_AsGeoJSON in raw SQL; the ORM never selects it.
+const geometry = (kind: "MultiLineString" | "Polygon") =>
+  customType<{ data: string; driverData: string }>({
+    dataType: () => `geometry(${kind},4326)`,
+  });
+const multiLineString = geometry("MultiLineString");
+const polygon = geometry("Polygon");
 
 export const sensors = pgTable("sensors", {
   id: text("id").primaryKey(),
@@ -36,11 +53,13 @@ export const streets = pgTable("streets", {
   id: text("id").primaryKey(),
   displayName: text("display_name").notNull(),
   osmWayIds: bigint("osm_way_ids", { mode: "bigint" }).array().notNull(),
-  // geom and bbox are PostGIS geometry — declared as unknown here; the raw
-  // migration adds the proper GEOMETRY columns.
+  geom: multiLineString("geom").notNull(),
+  bbox: polygon("bbox").notNull(),
   city: text("city").notNull(),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // OpenStreetMap maxspeed by default; null when unknown (0005_speed_limit.sql).
+  speedLimitKmh: smallint("speed_limit_kmh"),
 });
 
 export const sensorStreetCoverage = pgTable(
@@ -67,7 +86,11 @@ export const sensorReadings = pgTable(
     windowEnd: timestamp("window_end", { withTimezone: true }).notNull(),
     className: text("class_name").notNull(),
     count: integer("count").notNull(),
+    directionAbCount: integer("direction_ab_count"),
+    directionBaCount: integer("direction_ba_count"),
     avgSpeedKmh: real("avg_speed_kmh"),
+    // Timed road users per speed bin (src/lib/privacy.ts), for v85; never public.
+    speedHistKmh: integer("speed_hist_kmh").array(),
     partial: boolean("partial").notNull().default(false),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -172,3 +195,21 @@ export const auditLog = pgTable("audit_log", {
   payload: jsonb("payload"),
   ts: timestamp("ts", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Materialized views created by 0001_retention_and_bounded_mv.sql. Declared as
+// existing so drizzle-kit leaves them to the SQL migrations.
+export const streetReadings15m = pgMaterializedView("street_readings_15m", {
+  streetId: text("street_id").notNull(),
+  className: text("class_name").notNull(),
+  bucket: timestamp("bucket", { withTimezone: true }).notNull(),
+  totalCount: bigint("total_count", { mode: "number" }),
+  avgSpeedKmh: doublePrecision("avg_speed_kmh"),
+}).existing();
+
+export const streetReadingsHourly = pgMaterializedView("street_readings_hourly", {
+  streetId: text("street_id").notNull(),
+  className: text("class_name").notNull(),
+  hour: timestamp("hour", { withTimezone: true }).notNull(),
+  totalCount: bigint("total_count", { mode: "number" }),
+  avgSpeedKmh: doublePrecision("avg_speed_kmh"),
+}).existing();

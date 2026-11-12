@@ -12,8 +12,5 @@ playwright-report/
 test-results/
 .DS_Store
 
-# Pre-downloaded basemap tiles (regenerate with
-# `pnpm exec node scripts/download-dublin-tiles.mjs`).
-public/tiles/
 # Copied from node_modules by scripts/copy-maplibre-worker.mjs
 public/maplibre/

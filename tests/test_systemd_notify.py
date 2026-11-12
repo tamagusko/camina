@@ -1,15 +1,16 @@
 """Unit tests for the stdlib-only sd_notify client (M8, H5-clock watchdog)."""
+
 from __future__ import annotations
 
 import shutil
 import socket
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 import pytest
 
-from src.camina.utils.systemd_notify import SystemdNotifier
+from camina.utils.systemd_notify import SystemdNotifier
 
 
 @pytest.fixture()

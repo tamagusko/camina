@@ -12,7 +12,7 @@ type Db = ReturnType<typeof db>;
 
 // Arbitrary but fixed 64-bit key for pg_try_advisory_xact_lock. Distinct from
 // the MV-refresh lock key in ingest-store.ts.
-export const RETENTION_LOCK_KEY = 4_270_010_001n;
+const RETENTION_LOCK_KEY = 4_270_010_001n;
 
 export interface RetentionOptions {
   retentionDays?: number;

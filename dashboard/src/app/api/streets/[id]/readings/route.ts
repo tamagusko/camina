@@ -22,13 +22,11 @@ export async function GET(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "bad_query", issues: parsed.error.issues }, { status: 400 });
   }
   const q = parsed.data;
-  const to = q.to ? new Date(q.to) : new Date();
-  const from = q.from ? new Date(q.from) : new Date(to.getTime() - 60 * 60_000);
   const readings = await streetsRepo.readings({
     streetId: id,
     classes: q.class,
-    from,
-    to,
+    from: q.from,
+    to: q.to,
     bucketMinutes: q.bucket,
   });
   return NextResponse.json(readings, {

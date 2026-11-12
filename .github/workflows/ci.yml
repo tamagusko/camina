@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python edge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv --python 3.11
+      # The full requirements.txt resolves on Ubuntu/Python 3.11, but its
+      # default PyPI torch wheel also pulls CUDA runtimes. The suite needs the
+      # same training APIs, so use the CPU-only torch index to avoid that cost.
+      - run: uv pip install --python .venv/bin/python -r requirements-pi.txt
+      - run: >-
+          uv pip install --python .venv/bin/python --index-url https://download.pytorch.org/whl/cpu
+          torch==2.13.0+cpu torchvision==0.28.0+cpu
+      - run: >-
+          uv pip install --python .venv/bin/python --index-url https://pypi.org/simple
+          pytest ruff ultralytics==8.3.123 opencv-python==4.11.0.86
+      - run: .venv/bin/ruff check .
+      - run: .venv/bin/ruff format --check .
+      - run: .venv/bin/python -m pytest
+
+  dashboard:
+    name: Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: npx -y pnpm@9.12.0 install --frozen-lockfile
+        working-directory: dashboard
+      - run: python3 scripts/generate_mock_dublin.py
+      - run: npx -y pnpm@9.12.0 lint
+        working-directory: dashboard
+      - run: npx -y pnpm@9.12.0 typecheck
+        working-directory: dashboard
+      # Keep CAMINA_DATA_SOURCE unset: fail-closed.test.ts verifies that default.
+      - run: npx -y pnpm@9.12.0 test
+        working-directory: dashboard
+      - run: npx -y pnpm@9.12.0 build
+        working-directory: dashboard
+        env:
+          CAMINA_DATA_SOURCE: mock

@@ -1,0 +1,8 @@
+# YOLO26s: the next size up, same data and recipe as yolo26n_tra2026. Worth it only if
+# the accuracy gain survives the Pi 5 speed budget (S6: >= 5 FPS at 640).
+name: yolo26s_tra2026
+base: training/configs/yolo26n.yaml
+data:
+  dataset: training/dataset
+train:
+  model: yolo26s.pt

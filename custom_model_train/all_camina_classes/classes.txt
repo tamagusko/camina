@@ -1,9 +1,0 @@
-pedestrian
-cyclist
-car
-motorcycle
-bus
-truck
-e-scooter
-SUV
-delivery_van

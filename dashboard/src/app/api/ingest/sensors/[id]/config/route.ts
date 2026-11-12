@@ -3,20 +3,12 @@ import { verifyIngestToken } from "@/lib/ingest-auth";
 import { checkIngestRateLimit } from "@/lib/ingest-ratelimit";
 import { readSensorConfig } from "@/lib/ingest-store";
 import { isMock } from "@/lib/data-source";
+import { sensorConfigResponseSchema } from "@/lib/schemas";
+import { MOCK_CONFIG } from "@/lib/mock-sensor-config";
 
 interface Ctx {
   params: Promise<{ id: string }>;
 }
-
-const MOCK_CONFIG = {
-  config_version: "mock-v1",
-  publish_interval_minutes: 15,
-  heartbeat_interval_minutes: 5,
-  daily_publish_time_utc: "00:00",
-  detection_zone: null,
-  frame_skip: 5,
-  min_track_hits: 3,
-} as const;
 
 export async function GET(request: Request, { params }: Ctx) {
   const { id } = await params;
@@ -27,9 +19,16 @@ export async function GET(request: Request, { params }: Ctx) {
   const authError = await verifyIngestToken(request, id);
   if (authError) return authError;
 
-  if (isMock) return NextResponse.json(MOCK_CONFIG);
+  if (isMock) return NextResponse.json(sensorConfigResponseSchema.parse(MOCK_CONFIG));
   // Live mode: return the sensor's stored config (removes the 501 stub).
   const cfg = await readSensorConfig(id);
   if (!cfg) return NextResponse.json({ error: "unknown_sensor" }, { status: 404 });
-  return NextResponse.json({ ...cfg.config, config_version: cfg.config_version });
+  const response = sensorConfigResponseSchema.safeParse({
+    ...cfg.config,
+    config_version: cfg.config_version,
+  });
+  if (!response.success) {
+    return NextResponse.json({ error: "invalid_sensor_config" }, { status: 500 });
+  }
+  return NextResponse.json(response.data);
 }

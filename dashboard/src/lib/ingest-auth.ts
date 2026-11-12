@@ -46,7 +46,7 @@ export async function verifyIngestToken(
   }
 
   // Shared dev token (mock/dev only).
-  if (DEV_TOKEN && secureCompare(token, DEV_TOKEN)) return null;
+  if (isMock && DEV_TOKEN && secureCompare(token, DEV_TOKEN)) return null;
 
   // Mock mode provisions no per-sensor tokens; only the dev token is valid.
   if (isMock) {

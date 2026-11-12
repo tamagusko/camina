@@ -1,0 +1,189 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{libertinus}
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{microtype}
+\usepackage{booktabs,tabularx,array}
+\usepackage{graphicx}
+\usepackage[labelfont=bf,font=small,skip=4pt]{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+
+\graphicspath{{figures/}}
+\setlist{itemsep=2pt,topsep=4pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+
+% Class colours: the same as the boxes in the figures (render.py)
+\definecolor{c-person}{RGB}{31,119,180}
+\definecolor{c-cyclist}{RGB}{44,160,44}
+\definecolor{c-car}{RGB}{214,39,40}
+\definecolor{c-escooter}{RGB}{148,103,189}
+\definecolor{c-suv}{RGB}{255,127,14}
+\definecolor{c-motorcyclist}{RGB}{140,86,75}
+\definecolor{c-bus}{RGB}{227,119,194}
+\definecolor{c-van}{RGB}{188,189,34}
+\definecolor{c-truck}{RGB}{127,127,127}
+\newcommand{\sw}[1]{\textcolor{#1}{\rule[-0.1ex]{0.75em}{0.75em}}}
+\newcommand{\cls}[1]{\texttt{#1}}
+
+% One image panel of a figure: \panel{width}{file}{caption}
+\newcommand{\panel}[3]{%
+  \begin{subfigure}[t]{#1\linewidth}\centering
+    \includegraphics[width=\linewidth,height=4.3cm,keepaspectratio]{#2}
+    \caption{#3}
+  \end{subfigure}}
+
+\begin{document}
+
+{\LARGE\bfseries CAMINA labelling guide}\par\vspace{2pt}
+{\large Nine road-user classes for a roadside counting sensor}\par\vspace{4pt}
+{\small\color{black!60} UCD Spatial Dynamics Lab \quad·\quad Version 1.0, 25 September 2026}
+\vspace{10pt}
+
+CAMINA counts the road users that cross a line in a camera's view. The detector learns
+exactly what the labels say, so one consistent rule matters more than many images. This
+guide fixes those rules: for correcting the current dataset and for labelling new images
+from Dublin cameras.
+
+The current dataset (TRA 2026: 1,837 images, 13,148 boxes) was labelled by an automatic
+pipeline. A COCO detector supplied the common classes, an open-vocabulary detector
+(YOLO-World) supplied \cls{e-scooter}, \cls{SUV} and \cls{delivery\_van}, and cyclist and
+e-scooter boxes were built by joining a person to the vehicle beneath them. How many labels
+were then corrected by hand is not recorded. Every example below is from that dataset, shown
+with its labels as they are; Figure~\ref{fig:errors} shows errors that remain.
+
+\section*{Five rules}
+
+\begin{enumerate}[leftmargin=*,label=\textbf{\arabic*.}]
+  \item \textbf{Label every road user in the image.} \emph{Why:} an unlabelled road user
+    teaches the model that it is background.
+  \item \textbf{One box per road user.} A rider and the bicycle, e-scooter or motorcycle
+    they ride share one box; the rider gets no separate \cls{person} box.
+    \emph{Why:} the sensor counts one track per road user, and a second box would count the
+    rider twice. The dataset already does this for 97\% of cyclists.
+  \item \textbf{Box what is visible, tightly.} Do not extend a box behind an occluding
+    object. Label objects cut by the image edge. \emph{Why:} the detector can only learn
+    what it can see, and guessed extents differ from one annotator to the next.
+  \item \textbf{A rider class needs a rider.} A parked bicycle, e-scooter or motorcycle is
+    not labelled; a person pushing one is a \cls{person}. A rider stopped with a foot down
+    is still a rider. \emph{Why:} the classes describe how someone is travelling; a person
+    walking a bicycle moves, and looks, like a pedestrian.
+  \item \textbf{When unsure, choose the broader class, or skip.} Between \cls{car} and
+    \cls{SUV}, choose \cls{car}. If you cannot tell what an object is, leave it
+    unlabelled. \emph{Why:} a wrong label on a rare class costs more than a missed one, and
+    an object no one can identify cannot be labelled consistently.
+\end{enumerate}
+
+\clearpage
+\section*{The nine classes}
+
+{\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\linewidth}{@{}l X X r@{}}
+\toprule
+Class & What it is & Not this & Boxes \\
+\midrule
+\sw{c-person}\ \cls{person} & Anyone on foot, standing or sitting; includes a person
+  pushing a bicycle or scooter, on a skateboard, or in a wheelchair
+  & People inside vehicles; people in posters or reflections & 6,975 \\
+\sw{c-cyclist}\ \cls{cyclist} & A person riding any bicycle, e-bike or cargo bike; one box
+  around rider and bicycle & A parked bicycle; a person walking a bicycle & 2,012 \\
+\sw{c-car}\ \cls{car} & A passenger car: saloon, hatchback, estate, coupé, MPV, taxi
+  & SUVs and crossovers & 2,105 \\
+\sw{c-escooter}\ \cls{e-scooter} & A person standing on a kick scooter, electric or not;
+  one box around rider and scooter & A parked or carried scooter; a seated moped rider & 728 \\
+\sw{c-suv}\ \cls{SUV} & A sport utility vehicle or crossover: a tall body sitting high over
+  the wheels, upright tailgate (Toyota RAV4, Nissan Qashqai, Hyundai Tucson)
+  & MPVs (\cls{car}); pickups (\cls{truck}) & 456 \\
+\sw{c-motorcyclist}\ \cls{motorcyclist} & A person riding a motorcycle or moped; one box
+  around rider, passenger and vehicle & A parked motorcycle & 307 \\
+\sw{c-bus}\ \cls{bus} & A bus or coach, single- or double-deck & A tram (Luas): not
+  labelled & 321 \\
+\sw{c-van}\ \cls{delivery\_van} & A van body, whatever it carries (Ford Transit,
+  VW Transporter, Renault Kangoo) & A box body behind a separate cab (\cls{truck}) & 112 \\
+\sw{c-truck}\ \cls{truck} & A goods vehicle with a separate cab: box truck, lorry, tipper,
+  bin lorry, pickup; an articulated lorry is one box & Vans & 132 \\
+\bottomrule
+\end{tabularx}}
+
+\paragraph{Three choices, and why.}
+\emph{Pickups are trucks}, as in COCO, so pre-labels from COCO-trained models need no
+correction there. \emph{Trams are not labelled}: there is no tram class, and labelling the
+Luas as \cls{bus} would add trams to the bus count. \emph{Any van body is a
+\cls{delivery\_van}}: whether a van is delivering cannot be seen, and its shape can.
+
+\begin{figure}[H]
+  \centering
+  \panel{0.27}{rider_cyclist}{\cls{cyclist}: rider and bicycle in one box.}\hfill
+  \panel{0.19}{rider_escooter}{\cls{e-scooter}: rider and scooter.}\hfill
+  \panel{0.2}{rider_stopped}{Stopped, one foot down: still \cls{e-scooter}.}\hfill
+  \panel{0.27}{rider_motorcyclist}{\cls{motorcyclist}: rider and moped.}
+  \caption{Rider classes: one box around the rider and the vehicle (rules 2 and 4).}
+  \label{fig:riders}
+\end{figure}
+
+\clearpage
+\begin{figure}[H]
+  \centering
+  \panel{0.3}{car_sedan}{\cls{car}: a low saloon body.}\hfill
+  \panel{0.2}{suv_4x4}{\cls{SUV}: a tall body, high over the wheels.}\hfill
+  \panel{0.44}{suv_street}{Two \cls{SUV}s; the officer is a \cls{person}.}
+  \caption{Car or SUV. Look at the height of the body over the wheels; if still unsure,
+    choose \cls{car} (rule 5).}
+  \label{fig:suv}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \panel{0.24}{van}{\cls{delivery\_van}: a van body.}\hfill
+  \panel{0.3}{truck}{\cls{truck}: a box behind a separate cab.}\hfill
+  \panel{0.36}{bus}{\cls{bus}.}
+  \caption{Vans, trucks and buses.}
+  \label{fig:large}
+\end{figure}
+
+\clearpage
+\begin{figure}[H]
+  \centering
+  \panel{0.32}{err_parked_bicycles}{Parked bicycles, and a person pushing one, labelled
+    \cls{cyclist}. Should be: nothing; \cls{person}.}\hfill
+  \panel{0.2}{err_rider_as_person}{An e-scooter rider labelled \cls{person}. Should be:
+    \cls{e-scooter}.}\hfill
+  \panel{0.4}{err_car_as_truck}{A car on its roof labelled \cls{truck}. Should be:
+    \cls{car}.}
+
+  \medskip
+  \panel{0.3}{err_tram_as_bus}{A tram labelled \cls{bus}. Should be: nothing.}\qquad
+  \panel{0.32}{err_two_classes}{One SUV with two boxes, \cls{SUV} and
+    \cls{delivery\_van}. Should be: one \cls{SUV} box.}
+  \caption{Errors that remain in the current dataset. Fix these when you meet them.}
+  \label{fig:errors}
+\end{figure}
+
+\section*{Workflow for new images}
+
+\begin{enumerate}[leftmargin=*,label=\textbf{\arabic*.}]
+  \item \textbf{Pre-label} with the most accurate model available; it runs on a GPU, so it
+    need not be the Raspberry Pi model.
+  \item \textbf{Review every box}: correct its class and its extent, and delete boxes on
+    things that are not road users.
+  \item \textbf{Look for what is missing}, especially small, distant and partly hidden road
+    users. Pre-labels make it easy to accept what is there and forget what is not.
+  \item \textbf{Check one class at a time} over the whole batch (all SUVs, then all vans):
+    inconsistencies stand out side by side.
+  \item \textbf{Keep the camera in the file name}, so the dataset split can keep each
+    camera's images together and the test score stays honest.
+\end{enumerate}
+
+\vfill
+{\small\color{black!60} The figures are generated from the committed labels by
+\texttt{docs/labelling\_guide/render.py}; box counts are from
+\texttt{training/dataset/split.json}. The class list and its order are fixed by
+\texttt{configs/classes.yaml}.}
+
+\end{document}
